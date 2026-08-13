@@ -735,14 +735,76 @@ void hoboNotifyCallback(
     // --------------------------------------------------------
 
     if (memoryCollecting &&
-        data[0] == 0x0B) {
+        data[0] >= 0x01 &&
+        data[0] <= 0x04) {
+
+        uint8_t fragment = data[0];
+
+        size_t payloadOffset = 0;
+        size_t payloadLength = 0;
+
+        switch (fragment) {
+
+        case 0x01:
+            // First fragment:
+            // 1-byte fragment number + 4-byte response header
+            // + 15 bytes of requested memory.
+            payloadOffset = 5;
+
+            if (len > payloadOffset) {
+                payloadLength =
+                    static_cast<size_t>(
+                        len - payloadOffset);
+            }
+
+            if (payloadLength > 15) {
+                payloadLength = 15;
+            }
+
+            break;
+
+        case 0x02:
+        case 0x03:
+            // Middle fragments:
+            // 1-byte fragment number + 19 memory bytes.
+            payloadOffset = 1;
+
+            if (len > payloadOffset) {
+                payloadLength =
+                    static_cast<size_t>(
+                        len - payloadOffset);
+            }
+
+            if (payloadLength > 19) {
+                payloadLength = 19;
+            }
+
+            break;
+
+        case 0x04:
+            // Final fragment:
+            // 1-byte fragment number + final 11 memory bytes.
+            payloadOffset = 1;
+
+            if (len > payloadOffset) {
+                payloadLength =
+                    static_cast<size_t>(
+                        len - payloadOffset);
+            }
+
+            if (payloadLength > 11) {
+                payloadLength = 11;
+            }
+
+            break;
+
+        default:
+            return;
+        }
 
         size_t available =
             MEMORY_READ_LENGTH -
             memoryLength;
-
-        size_t payloadLength =
-            static_cast<size_t>(len - 1);
 
         size_t copyLength =
             payloadLength;
@@ -755,17 +817,17 @@ void hoboNotifyCallback(
 
             memcpy(
                 memoryBuffer + memoryLength,
-                data + 1,
+                data + payloadOffset,
                 copyLength);
 
             memoryLength += copyLength;
         }
 
         LOG_INFO(
-            "MX2201 MEMORY: fragment=%u payload=%u collected=%u/64",
-            len,
+            "MX2201 MEMORY: fragment=%u copied=%u collected=%u/64",
+            fragment,
             static_cast<unsigned>(
-                payloadLength),
+                copyLength),
             static_cast<unsigned>(
                 memoryLength));
 
