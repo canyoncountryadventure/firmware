@@ -1,3 +1,21 @@
+# DWQ MX2201 Meshtastic Integration
+
+This repository contains the bench-proven HOBO MX2201 integration for the Seeed XIAO nRF52840 + Wio-SX1262 Meshtastic node.
+
+**Stable firmware:** `mx2201-stable-2026-08-13`  
+**Bench-proven commit:** `f68aad7e2`  
+**Full technical documentation:** [MX2201_INTEGRATION.md](MX2201_INTEGRATION.md)
+
+The stable firmware has been tested end-to-end:
+
+```text
+MX2201 -> BLE -> Meshtastic node -> LoRa -> second Meshtastic node -> Android
+```
+
+The stable tag above is the recovery point for the exact bench-tested firmware. Later documentation-only commits may exist on the branch without changing that tested firmware.
+
+---
+
 <div align="center" markdown="1">
 
 <img src=".github/meshtastic_logo.png" alt="Meshtastic Logo" width="80"/>
