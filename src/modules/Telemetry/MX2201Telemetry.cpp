@@ -638,20 +638,47 @@ bool decodeTemperature(
             if (acceptedJump >
                 MAX_ACCEPTED_RAW_JUMP) {
 
-                LOG_WARN(
-                    "MX2201: phase %u rejected by continuity, previousRaw=%u candidateRaw=%u jump=%u",
+                // A large jump is suspicious if it is stale or
+                // supported by only one short candidate sequence.
+                //
+                // However, a real rapid temperature change can
+                // produce a new sequence at the newest end of the
+                // logger memory. Once at least three consecutive
+                // samples support that newest sequence, allow it.
+                if (candidate.recency != 0 ||
+                    candidate.stableCount < 3) {
+
+                    LOG_WARN(
+                        "MX2201: phase %u held by continuity, previousRaw=%u candidateRaw=%u jump=%u stable=%u recency=%u",
+                        candidate.phase,
+                        previousAcceptedRaw,
+                        candidate.latest,
+                        acceptedJump,
+                        candidate.stableCount,
+                        candidate.recency);
+
+                    continue;
+                }
+
+                LOG_INFO(
+                    "MX2201: phase %u confirmed large temperature change, previousRaw=%u candidateRaw=%u jump=%u stable=%u",
                     candidate.phase,
                     previousAcceptedRaw,
                     candidate.latest,
-                    acceptedJump);
-
-                continue;
+                    acceptedJump,
+                    candidate.stableCount);
             }
         }
 
+        // Recency is the primary discriminator. A long smooth
+        // sequence deeper in the 64-byte window may be valid old
+        // temperature history, but it must not override a newer
+        // plausible sequence. Score breaks ties at equal recency.
         if (candidate.valid &&
             (!best.valid ||
-             candidate.score > best.score)) {
+             candidate.recency < best.recency ||
+             (candidate.recency == best.recency &&
+              candidate.score > best.score))) {
 
             best = candidate;
         }
