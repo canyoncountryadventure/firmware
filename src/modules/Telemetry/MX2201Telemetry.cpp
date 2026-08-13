@@ -131,6 +131,23 @@ static const uint8_t CMD_STATUS[] = {
     0x00
 };
 
+// Onset NEWREAD64 direct live-sensor request.
+// Hardware-proven on this MX2201:
+// 01 01 08 04 04 00 00 00 00 00 00
+static const uint8_t CMD_NEWREAD64[] = {
+    0x01,
+    0x01,
+    0x08,
+    0x04,
+    0x04,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00
+};
+
 // ============================================================
 // Temperature decoder constants
 // ============================================================
@@ -164,8 +181,8 @@ static constexpr size_t MAX_DECODED_VALUES = 43;
 static constexpr uint32_t COMMAND_DELAY_MS = 400;
 static constexpr uint32_t STATUS_TIMEOUT_MS = 3000;
 static constexpr uint32_t MEMORY_TIMEOUT_MS = 4000;
-static constexpr uint32_t SCAN_LENGTH_SECONDS = 5;
-static constexpr uint32_t SCAN_RETRY_MS = 7000;
+// The Bluefruit scanner is started with timeout 0, meaning it continues
+// scanning until the target logger is found or scanning is stopped.
 
 // Bench fallback if Meshtastic environmental telemetry
 // interval is not configured.
@@ -184,6 +201,8 @@ enum class ProtocolState : uint8_t
     WAIT_META0,
     SEND_META8,
     WAIT_META8,
+    SEND_NEWREAD,
+    WAIT_NEWREAD,
     SEND_STATUS,
     WAIT_STATUS,
     SEND_MEMORY,
@@ -195,7 +214,7 @@ bool hoboClientInitialized = false;
 bool hoboConnected = false;
 
 bool scanInProgress = false;
-uint32_t scanStartedMs = 0;
+bool connectionInProgress = false;
 
 ProtocolState protocolState =
     ProtocolState::DISCONNECTED;
@@ -207,6 +226,12 @@ uint32_t stateDueMs = 0;
 // ============================================================
 
 bool statusReady = false;
+
+bool newReadCaptureActive = false;
+bool newReadReady = false;
+uint16_t newReadRaw = 0;
+float newReadTemperatureC = 0.0f;
+float newReadTemperatureF = 0.0f;
 
 uint32_t currentWritePointer = 0;
 uint32_t lastReadPointer = 0;
@@ -291,15 +316,21 @@ uint32_t getLoggerPollIntervalMs()
 
 uint32_t getTelemetryTransmitIntervalMs()
 {
-    uint32_t configuredSeconds =
-        moduleConfig.telemetry.environment_update_interval;
+    uint32_t intervalSeconds =
+        loggerIntervalSeconds;
 
-    if (configuredSeconds == 0) {
+    if (intervalSeconds == 0) {
         return DEFAULT_TX_INTERVAL_MS;
     }
 
+    // Do not flood LoRa during short bench logging intervals.
+    // Field intervals of 60 seconds and longer are followed exactly.
+    if (intervalSeconds < 60) {
+        intervalSeconds = 60;
+    }
+
     uint64_t intervalMs =
-        static_cast<uint64_t>(configuredSeconds) *
+        static_cast<uint64_t>(intervalSeconds) *
         1000ULL;
 
     if (intervalMs > 0xFFFFFFFFULL) {
@@ -739,6 +770,81 @@ void hoboNotifyCallback(
     }
 
     // --------------------------------------------------------
+    // Onset NEWREAD64 direct live-sensor response.
+    //
+    // Hardware-proven response layout:
+    // 01 01 07 04 04 00 04 04 [TEMP32 BE] [battery ...]
+    // --------------------------------------------------------
+
+    if (newReadCaptureActive &&
+        len >= 12 &&
+        data[0] == 0x01 &&
+        data[1] == 0x01 &&
+        data[2] == 0x07 &&
+        data[3] == 0x04 &&
+        data[4] == 0x04 &&
+        data[5] == 0x00 &&
+        data[6] == 0x04 &&
+        data[7] == 0x04) {
+
+        uint32_t raw32 =
+            (static_cast<uint32_t>(data[8]) << 24) |
+            (static_cast<uint32_t>(data[9]) << 16) |
+            (static_cast<uint32_t>(data[10]) << 8) |
+            static_cast<uint32_t>(data[11]);
+
+        newReadCaptureActive = false;
+
+        if (raw32 < MIN_REASONABLE_RAW ||
+            raw32 > MAX_REASONABLE_RAW) {
+
+            LOG_WARN(
+                "MX2201 NEWREAD64: implausible raw value %lu",
+                static_cast<unsigned long>(raw32));
+
+            return;
+        }
+
+        newReadRaw =
+            static_cast<uint16_t>(raw32);
+
+        // Preserve the already bench-proven calibration.
+        newReadTemperatureF =
+            RAW_TO_F_SLOPE *
+                static_cast<float>(newReadRaw) +
+            RAW_TO_F_INTERCEPT;
+
+        newReadTemperatureC =
+            (newReadTemperatureF - 32.0f) *
+            5.0f / 9.0f;
+
+        newReadReady = true;
+
+        LOG_INFO(
+            "========================================");
+
+        LOG_INFO(
+            "MX2201 NEWREAD64 LIVE SENSOR");
+
+        LOG_INFO(
+            "Raw: %u",
+            newReadRaw);
+
+        LOG_INFO(
+            "Water Temp: %.2f F",
+            newReadTemperatureF);
+
+        LOG_INFO(
+            "Water Temp: %.2f C",
+            newReadTemperatureC);
+
+        LOG_INFO(
+            "========================================");
+
+        return;
+    }
+
+    // --------------------------------------------------------
     // Status packet
     //
     // Example:
@@ -917,10 +1023,22 @@ void hoboDisconnectCallback(
     (void)connHandle;
 
     hoboConnected = false;
+    connectionInProgress = false;
+    scanInProgress = false;
 
     memoryCollecting = false;
     memoryReady = false;
     statusReady = false;
+    newReadCaptureActive = false;
+    newReadReady = false;
+
+    // Require a fresh direct reading after every reconnect.
+    haveValidTemperature = false;
+    lastTelemetrySentMs = 0;
+    lastReadPointer = 0;
+
+    // The disconnected run loop explicitly starts scanning again.
+    scanInProgress = false;
 
     setState(
         ProtocolState::DISCONNECTED);
@@ -933,6 +1051,9 @@ void hoboDisconnectCallback(
 void hoboConnectCallback(
     uint16_t connHandle)
 {
+    connectionInProgress = false;
+    scanInProgress = false;
+
     LOG_INFO(
         "MX2201: BLE connection established");
 
@@ -988,6 +1109,16 @@ void hoboConnectCallback(
     memoryCollecting = false;
     memoryReady = false;
     statusReady = false;
+    newReadCaptureActive = false;
+    newReadReady = false;
+
+    // Require a fresh direct reading after every reconnect.
+    haveValidTemperature = false;
+    lastTelemetrySentMs = 0;
+    lastReadPointer = 0;
+
+    // The disconnected run loop explicitly starts scanning again.
+    scanInProgress = false;
 
     LOG_INFO(
         "========================================");
@@ -1028,8 +1159,12 @@ void hoboScanCallback(
     LOG_INFO(
         "MX2201: connecting");
 
+    connectionInProgress = true;
+
     if (!Bluefruit.Central.connect(
             report)) {
+
+        connectionInProgress = false;
 
         LOG_WARN(
             "MX2201: connection attempt failed");
@@ -1274,28 +1409,34 @@ int32_t MX2201TelemetryModule::runOnce()
 
     if (!hoboConnected) {
 
-        if (scanInProgress &&
-            timeReached(
-                now,
-                scanStartedMs +
-                    SCAN_RETRY_MS)) {
-
-            scanInProgress = false;
+        // Bluefruit.Central.connect(report) is asynchronous. Once the
+        // target advertisement has been accepted, wait for either the
+        // connect callback or an immediate connection-attempt failure.
+        // Do not start another scan while that connection is pending.
+        if (connectionInProgress) {
+            return 500;
         }
 
-        if (!scanInProgress) {
+        // Bluefruit's scanner can already be running when this module
+        // reaches the disconnected state. Treat the scanner itself as
+        // the source of truth instead of blindly calling start(0).
+        if (Bluefruit.Scanner.isRunning()) {
+
+            scanInProgress = true;
+
+        } else {
+
+            scanInProgress = false;
 
             LOG_INFO(
-                "MX2201: scanning for EB:9A:E4:52:6D:5F");
+                "MX2201: starting continuous scan for EB:9A:E4:52:6D:5F");
 
             bool started =
-                Bluefruit.Scanner.start(
-                    SCAN_LENGTH_SECONDS);
+                Bluefruit.Scanner.start(0);
 
             if (started) {
 
                 scanInProgress = true;
-                scanStartedMs = now;
 
             } else {
 
@@ -1415,6 +1556,115 @@ int32_t MX2201TelemetryModule::runOnce()
 
         break;
 
+    case ProtocolState::SEND_NEWREAD:
+
+        newReadReady = false;
+        newReadCaptureActive = true;
+
+        if (writeHoboCommand(
+                CMD_NEWREAD64,
+                sizeof(CMD_NEWREAD64),
+                "READ LIVE SENSORS (NEWREAD64)")) {
+
+            setState(
+                ProtocolState::WAIT_NEWREAD,
+                2000);
+
+        } else {
+
+            newReadCaptureActive = false;
+
+            setState(
+                ProtocolState::SEND_NEWREAD,
+                1000);
+        }
+
+        break;
+
+    case ProtocolState::WAIT_NEWREAD:
+
+        if (newReadReady) {
+
+            newReadReady = false;
+            newReadCaptureActive = false;
+
+            latestRaw =
+                newReadRaw;
+
+            latestTemperatureF =
+                newReadTemperatureF;
+
+            latestTemperatureC =
+                newReadTemperatureC;
+
+            haveValidTemperature = true;
+
+            // Keep the legacy decoder continuity state coherent.
+            previousAcceptedRaw =
+                latestRaw;
+
+            havePreviousAcceptedRaw =
+                true;
+
+            // Consume the pointer only after NEWREAD64 succeeds.
+            if (currentWritePointer != 0) {
+                lastReadPointer =
+                    currentWritePointer;
+            }
+
+            LOG_INFO(
+                "========================================");
+
+            LOG_INFO(
+                "MX2201 TEMPERATURE - DIRECT NEWREAD64");
+
+            LOG_INFO(
+                "Raw: %u",
+                latestRaw);
+
+            LOG_INFO(
+                "Water Temp: %.2f F",
+                latestTemperatureF);
+
+            LOG_INFO(
+                "Water Temp: %.2f C",
+                latestTemperatureC);
+
+            LOG_INFO(
+                "Logging interval: %u seconds",
+                loggerIntervalSeconds);
+
+            LOG_INFO(
+                "========================================");
+
+            // Send the newly acquired live reading immediately.
+            if (sendTemperatureTelemetry(
+                    latestTemperatureC)) {
+
+                lastTelemetrySentMs =
+                    now;
+            }
+
+            setState(
+                ProtocolState::RUNNING,
+                getLoggerPollIntervalMs());
+
+        } else if (timeReached(
+                       now,
+                       stateDueMs)) {
+
+            newReadCaptureActive = false;
+
+            LOG_WARN(
+                "MX2201: NEWREAD64 response timeout");
+
+            setState(
+                ProtocolState::SEND_STATUS,
+                1000);
+        }
+
+        break;
+
     case ProtocolState::SEND_STATUS:
 
         statusReady = false;
@@ -1443,26 +1693,30 @@ int32_t MX2201TelemetryModule::runOnce()
 
             statusReady = false;
 
-            if (currentWritePointer <
-                MEMORY_READ_LENGTH) {
+            // Keep the write pointer only as a diagnostic/health signal.
+            // It no longer controls temperature transmission timing.
+            if (lastReadPointer == 0) {
 
-                LOG_WARN(
-                    "MX2201: write pointer too small for 64-byte read");
+                lastReadPointer =
+                    currentWritePointer;
 
-                setState(
-                    ProtocolState::RUNNING,
-                    getLoggerPollIntervalMs());
+                LOG_INFO(
+                    "MX2201: established write-pointer baseline at 0x%08lX",
+                    static_cast<unsigned long>(
+                        lastReadPointer));
 
-                break;
-            }
+            } else if (currentWritePointer !=
+                       lastReadPointer) {
 
-            // First read, or logger wrote a new sample.
-            if (lastReadPointer == 0 ||
-                currentWritePointer !=
-                    lastReadPointer) {
+                LOG_INFO(
+                    "MX2201: logger pointer changed 0x%08lX -> 0x%08lX (no telemetry trigger)",
+                    static_cast<unsigned long>(
+                        lastReadPointer),
+                    static_cast<unsigned long>(
+                        currentWritePointer));
 
-                setState(
-                    ProtocolState::SEND_MEMORY);
+                lastReadPointer =
+                    currentWritePointer;
 
             } else {
 
@@ -1470,6 +1724,15 @@ int32_t MX2201TelemetryModule::runOnce()
                     "MX2201: pointer unchanged at 0x%08lX",
                     static_cast<unsigned long>(
                         currentWritePointer));
+            }
+
+            // Startup/reconnect always obtains one fresh direct reading.
+            if (!haveValidTemperature) {
+
+                setState(
+                    ProtocolState::SEND_NEWREAD);
+
+            } else {
 
                 setState(
                     ProtocolState::RUNNING,
@@ -1653,9 +1916,21 @@ int32_t MX2201TelemetryModule::runOnce()
 
     case ProtocolState::RUNNING:
 
-        if (timeReached(
-                now,
-                stateDueMs)) {
+        // Reporting interval is independent of write-pointer activity.
+        // Always obtain a fresh live value before transmitting.
+        if (haveValidTemperature &&
+            lastTelemetrySentMs != 0 &&
+            static_cast<uint32_t>(
+                now -
+                lastTelemetrySentMs) >=
+                getTelemetryTransmitIntervalMs()) {
+
+            setState(
+                ProtocolState::SEND_NEWREAD);
+
+        } else if (timeReached(
+                       now,
+                       stateDueMs)) {
 
             setState(
                 ProtocolState::SEND_STATUS);
@@ -1669,30 +1944,8 @@ int32_t MX2201TelemetryModule::runOnce()
         break;
     }
 
-    // --------------------------------------------------------
-    // Meshtastic transmission interval is independent of the
-    // HOBO measurement/logging interval.
-    // --------------------------------------------------------
-
-    if (haveValidTemperature &&
-        lastTelemetrySentMs != 0) {
-
-        uint32_t telemetryIntervalMs =
-            getTelemetryTransmitIntervalMs();
-
-        if (static_cast<uint32_t>(
-                now -
-                lastTelemetrySentMs) >=
-            telemetryIntervalMs) {
-
-            if (sendTemperatureTelemetry(
-                    latestTemperatureC)) {
-
-                lastTelemetrySentMs =
-                    millis();
-            }
-        }
-    }
+    // Scheduled temperature transmission is handled in RUNNING by
+    // requesting NEWREAD64 first. Never retransmit a cached temperature.
 
     return 100;
 }
