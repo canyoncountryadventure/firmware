@@ -139,6 +139,12 @@ static constexpr uint16_t MIN_REASONABLE_RAW = 400;
 static constexpr uint16_t MAX_REASONABLE_RAW = 2400;
 static constexpr uint16_t MAX_RAW_STEP = 100;
 
+// Cross-window sanity check.
+// A real stream temperature cannot plausibly jump this far between
+// consecutive accepted logger samples. This protects against a
+// smooth-looking but incorrectly aligned 12-bit phase winning.
+static constexpr uint16_t MAX_ACCEPTED_RAW_JUMP = 250;
+
 static constexpr float RAW_TO_F_SLOPE =
     0.0771942720f;
 
@@ -616,6 +622,28 @@ bool decodeTemperature(
             LOG_INFO(
                 "MX2201: phase %u no stable temperature sequence",
                 phase);
+        }
+
+        if (candidate.valid &&
+            havePreviousAcceptedRaw) {
+
+            uint16_t acceptedJump =
+                rawDifference(
+                    candidate.latest,
+                    previousAcceptedRaw);
+
+            if (acceptedJump >
+                MAX_ACCEPTED_RAW_JUMP) {
+
+                LOG_WARN(
+                    "MX2201: phase %u rejected by continuity, previousRaw=%u candidateRaw=%u jump=%u",
+                    candidate.phase,
+                    previousAcceptedRaw,
+                    candidate.latest,
+                    acceptedJump);
+
+                continue;
+            }
         }
 
         if (candidate.valid &&
