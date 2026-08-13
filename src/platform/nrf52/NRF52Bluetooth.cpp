@@ -264,7 +264,15 @@ void NRF52Bluetooth::setup()
     LOG_INFO("Init the Bluefruit nRF52 module");
     Bluefruit.autoConnLed(false);
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
+#if defined(SEEED_XIAO_NRF52840_KIT)
+    // MX2201 integration: keep one BLE peripheral link for the
+    // Meshtastic phone connection and add one BLE central link
+    // for the HOBO MX2201.
+    Bluefruit.configCentralBandwidth(BANDWIDTH_LOW);
+    Bluefruit.begin(1, 1);
+#else
     Bluefruit.begin();
+#endif
     // Clear existing data.
     Bluefruit.Advertising.stop();
     Bluefruit.Advertising.clearData();
