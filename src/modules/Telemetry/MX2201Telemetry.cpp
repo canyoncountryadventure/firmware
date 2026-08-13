@@ -278,9 +278,12 @@ uint32_t getLoggerPollIntervalMs()
         intervalMs = 1000;
     }
 
-    // For very long logger intervals, check at most once/minute.
-    if (intervalMs > 60000) {
-        intervalMs = 60000;
+    // Keep the MX2201 BLE protocol active even when the logger
+    // measurement interval is long. The logger can still measure
+    // every 60 seconds or longer; we only check its write pointer
+    // every 10 seconds. Memory is read only when the pointer changes.
+    if (intervalMs > 10000) {
+        intervalMs = 10000;
     }
 
     return intervalMs;
