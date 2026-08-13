@@ -27,12 +27,33 @@ function Replace-Exact {
         [string]$New
     )
 
+    # Normalize the patch blocks too, so this works regardless of whether
+    # Git checked the PowerShell script out with LF or CRLF line endings.
+    $Old = $Old -replace "`r`n", "`n"
+    $New = $New -replace "`r`n", "`n"
+
     if (-not $script:text.Contains($Old)) {
         throw "Patch stopped: expected block not found: $Name"
     }
 
     $script:text = $script:text.Replace($Old, $New)
 }
+
+# ---------------------------------------------------------------------------
+# 0. snprintf is used only for the temporary raw-response diagnostic log.
+# ---------------------------------------------------------------------------
+$old = @'
+#include <bluefruit.h>
+#include <cstdint>
+#include <cstring>
+'@
+$new = @'
+#include <bluefruit.h>
+#include <cstdio>
+#include <cstdint>
+#include <cstring>
+'@
+Replace-Exact 'cstdio include' $old $new
 
 # ---------------------------------------------------------------------------
 # 1. Add Onset NEWREAD64 command immediately after the existing STATUS command.
@@ -357,7 +378,8 @@ $new = @'
 '@
 Replace-Exact 'NEWREAD startup state machine' $old $new
 
-# Write UTF-8 without BOM, preserving the repo's CRLF-neutral content.
+# Write UTF-8 without BOM, preserving the repo's normal Windows checkout
+# line endings after all exact replacements have been made in LF form.
 [System.IO.File]::WriteAllText(
     (Resolve-Path $path),
     ($text -replace "`n", "`r`n"),
