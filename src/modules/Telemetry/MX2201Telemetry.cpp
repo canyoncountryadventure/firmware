@@ -1618,8 +1618,13 @@ int32_t MX2201TelemetryModule::runOnce()
                     if (sendTemperatureTelemetry(
                             latestTemperatureC)) {
 
+                        // Use the runOnce() timestamp. Calling millis()
+                        // here produces a timestamp slightly newer than
+                        // "now", which can make the unsigned periodic
+                        // interval calculation underflow later in this
+                        // same runOnce() and cause a duplicate send.
                         lastTelemetrySentMs =
-                            millis();
+                            now;
                     }
                 }
             }
