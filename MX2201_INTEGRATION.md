@@ -2,20 +2,21 @@
 
 This document records the bench-proven HOBO MX2201 integration used with a Seeed XIAO nRF52840 + Wio-SX1262 Meshtastic node.
 
-The purpose of this file is to preserve not only the code state, but also the protocol facts, design decisions, known-good build target, and bench-test evidence so future development does not repeat solved work.
+Its purpose is to preserve the exact stable reference, protocol facts, design decisions, build target, recovery points, and physical bench-test evidence so future work does not repeat solved reverse engineering or accidentally regress the working system.
 
-## Stable reference
+## Current stable reference
 
 - Meshtastic base version: **2.7.26**
-- Base commit: `54e0d8d0ab2ff56b3a9ce967e53f79e49af560fb`
-- Working branch: `mx2201-integration`
-- Bench-proven firmware commit: `f68aad7e283bd5cfabfeca3f4b7544345860d32c`
-- Stable tag: `mx2201-stable-2026-08-13`
+- Meshtastic base commit: `54e0d8d0ab2ff56b3a9ce967e53f79e49af560fb`
+- Integration branch: `mx2201-integration`
+- Current bench-proven firmware commit: `38891aa8e13708ce97de1d3bb4c493eafecb2886`
+- Current stable tag: `mx2201-stable-newread-2026-08-13`
+- Previous stable rollback tag: `mx2201-stable-2026-08-13`
 - PlatformIO target: `seeed_xiao_nrf52840_kit`
 
-Do not substitute `xiao_ble_33db` for the build target. The canonical target above was runtime-proven with stable Android BLE and the MX2201 central connection.
+The current stable tag is an immutable recovery point for the exact NEWREAD64 firmware that passed the final bench tests. Documentation-only commits may exist later on `mx2201-integration` without changing the tagged firmware.
 
-The stable tag points to the exact firmware that passed the bench tests. Later documentation-only commits may exist on the branch, but the tag remains the immutable recovery point for the tested code.
+Do not move either stable tag. If a future firmware version becomes stable, create a new tag.
 
 ## Hardware
 
@@ -24,16 +25,19 @@ The stable tag points to the exact firmware that passed the bench tests. Later d
 - Onset HOBO MX2201
 - Logger serial used during protocol discovery: `21680233`
 - BLE MAC used by this implementation: `EB:9A:E4:52:6D:5F`
+- Bluetooth Always On: enabled during the final unattended-reconnect tests
 
-### Meshtastic node
+### Meshtastic sensor node
 
 - Seeed XIAO nRF52840
 - Seeed Wio-SX1262 radio board
-- Project nickname: **Chew can node**
+- Meshtastic displayed name used during testing: **DWQ Data Node**
+- Node ID used during testing: `!c22d7fec`
+- Project nickname for this XIAO + Wio-SX1262 hardware format: **Chew can node**
 
 ## Proven end-to-end chain
 
-The following full path was bench-proven:
+The full path below was physically bench-tested:
 
 ```text
 HOBO MX2201
@@ -52,11 +56,11 @@ Second Meshtastic node
 Android Meshtastic app
 ```
 
-The receiving node and Android app were observed following the same temperature values shown in the source node serial log during the hot/cold bench tests.
+The receiving Meshtastic app displayed the same temperature values produced by the source node's direct MX2201 read.
 
 ## Files intentionally changed from stock Meshtastic 2.7.26
 
-Only these four source files should differ from the pinned base for the MX2201 integration:
+The MX2201 firmware integration is intentionally narrow. The source changes are confined to:
 
 ```text
 src/modules/Modules.cpp
@@ -65,13 +69,13 @@ src/modules/Telemetry/MX2201Telemetry.h
 src/platform/nrf52/NRF52Bluetooth.cpp
 ```
 
-`MX2201Telemetry.cpp` and `MX2201Telemetry.h` are new files. `Modules.cpp` and `NRF52Bluetooth.cpp` are stock Meshtastic files with narrow integration changes.
+`MX2201Telemetry.cpp` and `MX2201Telemetry.h` are custom integration files. `Modules.cpp` and `NRF52Bluetooth.cpp` contain the minimum registration and dual-BLE changes required for the tested XIAO target.
 
 ## BLE dual-role configuration
 
-The XIAO must remain usable by the Meshtastic phone app while simultaneously acting as a BLE central client to the MX2201.
+The XIAO must remain available to the Meshtastic phone app while simultaneously acting as a BLE central client to the MX2201.
 
-The proven modification in `src/platform/nrf52/NRF52Bluetooth.cpp` is:
+The proven nRF52 configuration is:
 
 ```cpp
 Bluefruit.autoConnLed(false);
@@ -86,12 +90,12 @@ Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
 
 This provides:
 
-- one BLE peripheral connection for the phone
+- one BLE peripheral connection for the Meshtastic phone
 - one BLE central connection for the HOBO MX2201
 
-This exact arrangement was runtime-proven. Do not replace it without direct evidence that it is broken.
+Do not replace this arrangement without direct runtime evidence that it is necessary.
 
-## MX2201 BLE protocol facts
+## MX2201 BLE identity
 
 ### Service UUID
 
@@ -105,25 +109,27 @@ This exact arrangement was runtime-proven. Do not replace it without direct evid
 65e16f4f-ed4e-4641-ac49-83ccbce6cbcf
 ```
 
-### Initialization command
+## Proven startup command sequence
+
+### Initialize logger
 
 ```text
 01 01 04 05 1C 01 00
 ```
 
-### Metadata block 0
+### Read metadata block 0
 
 ```text
 01 01 0A 0A 01 00 00 00 00 00 00 08 00
 ```
 
-### Metadata block 8
+### Read metadata block 8
 
 ```text
 01 01 0A 0A 01 00 00 08 00 00 00 08 00
 ```
 
-### Status / write-pointer request
+### Read status / write pointer
 
 This command is exactly 11 bytes:
 
@@ -131,34 +137,125 @@ This command is exactly 11 bytes:
 01 01 08 04 05 00 00 00 00 00 00
 ```
 
-The status response provides:
+The status response provides at least the values used by this firmware:
 
 - current write pointer
-- logger logging interval
+- current MX2201 logging interval
 
-The logger interval is dynamic and must be read from status. Do not hard-code the logger measurement interval.
+The logging interval is read dynamically. It is not hard-coded.
 
-## Memory read command
+## NEWREAD64 live-sensor command
 
-The 13-byte memory request is:
+The major production change in the current stable firmware is direct live-sensor acquisition using Onset's `NEWREAD64` command.
+
+Command:
+
+```text
+01 01 08 04 04 00 00 00 00 00 00
+```
+
+This differs from the status command only by the subcommand byte:
+
+```text
+STATUS:  01 01 08 04 05 00 00 00 00 00 00
+NEWREAD: 01 01 08 04 04 00 00 00 00 00 00
+```
+
+The command was identified from Onset's application/SDK behavior and then verified directly against the physical MX2201.
+
+## Proven NEWREAD64 response layout
+
+The production parser requires this exact response prefix:
+
+```text
+01 01 07 04 04 00 04 04
+```
+
+The live temperature raw value is the 4-byte big-endian integer in bytes 8 through 11:
+
+```text
+01 01 07 04 04 00 04 04 [TEMP32 BE] ...
+```
+
+Verified examples include:
+
+```text
+00 00 06 CD -> raw 1741 -> about 82.11 F
+00 00 06 D8 -> raw 1752 -> about 82.96 F
+00 00 06 DF -> raw 1759 -> about 83.50 F
+```
+
+Another final stable bench run produced:
+
+```text
+raw 1478 -> 61.81 F / 16.56 C
+```
+
+Do not infer battery-byte meaning from the remaining response bytes unless independently proven.
+
+## Temperature calibration
+
+The already-proven calibration was preserved unchanged when NEWREAD64 became the active acquisition path.
+
+```cpp
+RAW_TO_F_SLOPE = 0.0771942720f
+RAW_TO_F_INTERCEPT = -52.2825573f
+```
+
+Conversion:
+
+```text
+temperature_F = 0.0771942720 * raw - 52.2825573
+temperature_C = (temperature_F - 32) * 5 / 9
+```
+
+Equivalent Onset form:
+
+```text
+temperature_C = raw * 175.72 / 4096 - 46.85
+```
+
+Plausible raw values are constrained to:
+
+```text
+400 <= raw <= 2400
+```
+
+## Why NEWREAD64 replaced historical memory as the active path
+
+The original integration successfully decoded temperature from the logger's historical memory. That work proved the BLE framing, packed 12-bit data format, moving phase alignment, calibration, and continuity rules.
+
+However, at long logger intervals, a 64-byte historical-memory window can contain stale or non-temperature patterns that accidentally satisfy the old smooth-sequence tests. This became obvious during one-hour logging tests, where the memory decoder could select a plausible-looking but incorrect historical candidate even though the direct live-sensor response was correct.
+
+The production architecture therefore changed to:
+
+```text
+STATUS -> determine logger interval and maintain connection
+NEWREAD64 -> obtain current live temperature
+Meshtastic telemetry -> transmit that fresh live value
+```
+
+The old memory decoder remains in the source as legacy/proven historical work, but it is not the active live-temperature acquisition path in the current stable state.
+
+Do not reconnect the memory decoder to normal live telemetry unless there is a specific new requirement and it is separately bench-tested.
+
+## Historical memory decoder facts
+
+These facts are retained because they were physically proven and may be useful for future archival-data work.
+
+### Memory request
 
 ```text
 01 01 0A 0A 01 [4-byte address big-endian] [4-byte length big-endian]
 ```
 
-The integration reads the 64 bytes immediately preceding the current write pointer.
-
-For a 64-byte read, the length field is:
+For a 64-byte request, the length is:
 
 ```text
 00 00 00 40
 ```
 
-## Proven memory notification framing
-
-The requested 64 bytes arrive across four BLE notifications.
-
-The proven reconstruction is:
+### 64-byte notification reconstruction
 
 ```text
 fragment 0x01 -> skip 5 bytes, copy 15 bytes
@@ -173,11 +270,9 @@ Total:
 15 + 19 + 19 + 11 = 64 bytes
 ```
 
-This framing was discovered from runtime notification data and then bench-proven. Do not revert to the earlier `0x0B` framing assumption.
+### Packed 12-bit phases
 
-## Temperature encoding
-
-MX2201 temperature data is packed as 12-bit values. The 64-byte memory window can begin at any nibble alignment, so the decoder evaluates three possible phases:
+The historical memory stream can begin on any of three nibble phases:
 
 ```text
 phase 0
@@ -185,138 +280,133 @@ phase 1
 phase 2
 ```
 
-The correct phase can move between successive 64-byte windows as the write pointer advances. Do not assume a fixed phase.
+The proven legacy decoder used recency-first candidate selection, `MAX_RAW_STEP=100`, `MAX_ACCEPTED_RAW_JUMP=250`, control-record filtering, and confirmation of large real temperature changes. Those rules solved real historical-memory decoding problems, but they are no longer required for normal live telemetry because NEWREAD64 returns the direct live temperature value.
 
-## Calibration
+## Current telemetry architecture
 
-The calibration below was previously derived and confirmed. It must not be changed unless independent MX2201 measurements prove it wrong.
+The production state machine intentionally separates three concepts that were previously coupled.
 
-```cpp
-RAW_TO_F_SLOPE = 0.0771942720f
-RAW_TO_F_INTERCEPT = -52.2825573f
-```
+### 1. BLE/status keepalive
 
-Conversion:
+Status is polled at most every 10 seconds, even when the MX2201 logging interval is much longer.
 
-```text
-temperature_F = 0.0771942720 * raw - 52.2825573
-temperature_C = (temperature_F - 32) * 5 / 9
-```
+Purpose:
 
-Known example:
+- keep the BLE protocol active
+- know the current logger interval
+- retain the write pointer as a diagnostic/health signal
 
-```text
-raw 1242 -> approximately 43.59 F / 6.44 C
-```
+A 10-second status poll is **not** a 10-second temperature measurement.
 
-## Decoder rules
+### 2. Write pointer
 
-### Plausible raw range
+Write-pointer changes are diagnostic only.
 
-```text
-400 <= raw <= 2400
-```
+A pointer change does **not** trigger:
 
-### Smoothness inside a candidate sequence
+- a memory read
+- a NEWREAD64 request
+- a Meshtastic temperature transmission
 
-```text
-MAX_RAW_STEP = 100
-```
+This was specifically bench-tested after pressing the logger's center button. The pointer changed, the firmware logged the change with `(no telemetry trigger)`, and no extra MX2201 temperature packet was created.
 
-This is used to identify a smooth sequence within one candidate phase.
+The center button must not be described as a manual temperature-reading command; its exact relationship to the observed pointer movement was not established.
 
-### Cross-window continuity threshold
+### 3. Temperature reporting
 
-```text
-MAX_ACCEPTED_RAW_JUMP = 250
-```
+Immediately after a successful startup/reconnect sequence, the node requests one fresh NEWREAD64 value and transmits it once.
 
-A candidate more than 250 raw counts away from the last accepted value is treated as suspicious unless the newest data strongly confirms a real rapid temperature change.
+For scheduled reports, the firmware does **not** resend the cached temperature. Instead it requests NEWREAD64 first and transmits the newly acquired live value.
 
-### Large real temperature changes
+## Reporting interval
 
-A large jump is accepted only when:
+The MX2201 logger's own interval drives the field temperature-reporting interval.
+
+For logger intervals of 60 seconds or longer:
 
 ```text
-candidate.recency == 0
-AND
-candidate.stableCount >= 3
+MX2201 interval 60 s    -> mesh temperature about every 60 s
+MX2201 interval 600 s   -> mesh temperature about every 10 min
+MX2201 interval 1800 s  -> mesh temperature about every 30 min
+MX2201 interval 3600 s  -> mesh temperature about every 1 hour
 ```
 
-This rule was added because real rapid changes can legitimately exceed the 250-raw continuity threshold.
+Short bench logging intervals are clamped to a minimum 60-second mesh-report interval so a 1-second or 10-second bench setting cannot flood LoRa.
 
-It was physically bench-tested in both directions.
+If the logger interval has not yet been obtained from status, the code retains a 60-second fallback.
 
-#### Cold to hot test
+## One-hour logger test
 
-The sensor was moved from cold conditions to approximately 102 F water.
-
-Observed behavior included:
-
-- newest large-jump candidate with `stable=2` was held
-- next newest sequence with `stable=3` was accepted as a confirmed large change
-- subsequent values tracked upward through approximately 64.7 F, 91.6 F, 94.3 F, and 95.9 F while continuing toward equilibrium
-
-This proved that a real large upward transition does not remain stuck on stale cold history.
-
-#### Hot to ice test
-
-Starting near 95.9 F, the sensor was placed directly into ice water.
-
-Observed behavior included:
-
-- newest cold candidate `raw=1427`, `stable=2`, `recency=0` was held by continuity
-- on the next confirmed sequence, `raw=1365`, `stable=3`, `recency=0` was accepted as a confirmed large temperature change
-- accepted values then continued downward through approximately 53.1 F, 50.0 F, and 48.0 F
-
-This proved the same rule works in the downward direction.
-
-## Recency is the primary phase discriminator
-
-A prior bug allowed a long, smooth but older sequence deeper in the 64-byte window to outscore a newer real sequence.
-
-The current rule is:
-
-1. Prefer the valid candidate with the lowest `recency`.
-2. Use score only as a tie-breaker when recency is equal.
-
-This prevents stale historical data from dominating newly logged temperature data.
-
-Do not revert to score-first phase selection.
-
-## Control-record filtering
-
-Correctly aligned MX2201 control records can decode as:
+The current architecture was specifically tested with the MX2201 set to:
 
 ```text
-FFF E00 xxx
+3600 seconds
 ```
 
-The decoder skips these records during temperature sequence scoring.
-
-They are not used to determine the phase.
-
-## Slow logger intervals and BLE keepalive
-
-A 60-second MX2201 logger interval originally caused the BLE connection to drop after approximately one minute of protocol inactivity.
-
-The fix does **not** change the MX2201 logging interval.
-
-Instead, the firmware checks the write pointer at most every 10 seconds:
+Observed startup sequence:
 
 ```text
-logger measures every 60 seconds
-firmware asks for status every 10 seconds
-memory is read only when the write pointer changes
+MX2201 STATUS: ... interval=3600 seconds
+MX2201 TX: READ LIVE SENSORS (NEWREAD64)
+MX2201 NEWREAD64 LIVE SENSOR
+...
+MX2201: SENDING STANDARD MESHTASTIC TELEMETRY
 ```
 
-This keeps the BLE protocol active while preserving the logger's real measurement schedule.
+The node then continued status polling at approximately 10-second intervals without retransmitting the cached temperature every minute.
 
-The 60-second logger remained connected for extended bench runs after this change.
+A later write-pointer change was logged as:
 
-Do not interpret the 10-second status poll as a 10-second measurement interval.
+```text
+logger pointer changed ... (no telemetry trigger)
+```
 
-## Telemetry behavior
+and no additional MX2201 temperature transmission occurred because of that pointer change.
+
+This is the key proof that the logger's one-hour internal schedule and Meshtastic live-temperature reporting are no longer accidentally coupled to pointer movement or a one-minute cached-value timer.
+
+## BLE discovery and unattended restart behavior
+
+The final firmware continuously participates in BLE scanning until the target MX2201 is found.
+
+A bench reboot/flash was performed with the MX2201 already configured with Bluetooth Always On. No center-button press was used.
+
+The observed sequence was:
+
+```text
+MX2201: starting continuous scan for EB:9A:E4:52:6D:5F
+MX2201: target logger found
+MX2201: connecting
+[connection establishment delay]
+MX2201: BLE connection established
+```
+
+The node then completed service discovery, characteristic discovery, status, NEWREAD64, and telemetry automatically.
+
+This proves the tested system can recover from a sensor-node restart without a person physically waking the logger.
+
+## Asynchronous BLE connection handling
+
+`Bluefruit.Central.connect(report)` is asynchronous. During testing there could be several seconds between:
+
+```text
+target logger found
+connecting
+```
+
+and:
+
+```text
+BLE connection established
+```
+
+Without an explicit pending-connection state, `runOnce()` continued trying to start new scans during that delay and produced repeated scan-start warnings.
+
+The final firmware uses `connectionInProgress` so the module waits quietly for the connect callback instead of starting additional scans.
+
+Final bench logs showed a clean sequence with no repeated scan warnings during the pending connection interval.
+
+## Standard Meshtastic telemetry
 
 The integration uses standard Meshtastic telemetry, not a proprietary packet.
 
@@ -328,7 +418,7 @@ TELEMETRY_APP
      -> temperature
 ```
 
-Equivalent code behavior:
+Equivalent behavior:
 
 ```cpp
 meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
@@ -338,36 +428,25 @@ telemetry.variant.environment_metrics.has_temperature = true;
 telemetry.variant.environment_metrics.temperature = temperatureC;
 ```
 
-The telemetry is:
+The reading is:
 
 - added to the local node database
-- transmitted over the LoRa mesh
-- made available to the connected phone using the same standard Meshtastic telemetry protobuf
+- sent over the LoRa mesh
+- available to the connected phone using the same standard Meshtastic telemetry protobuf
 
-## Telemetry transmission interval
+## Duplicate packet behavior
 
-The Meshtastic telemetry transmission interval is independent of the MX2201 logging interval.
+Two different issues were separated during bench testing.
 
-If Meshtastic environmental telemetry has no configured update interval, the integration uses a 60-second fallback transmission interval.
+### Old immediate startup duplicate
 
-## Duplicate first-transmission bug
+An older version could send the first valid telemetry twice due to timestamp underflow inside the same `runOnce()` execution. That was fixed before the NEWREAD64 production work.
 
-A startup bug caused the first valid temperature to be transmitted twice immediately.
+### Apparent duplicate returned through the mesh
 
-Cause:
+A later test showed the source node creating one telemetry packet and then receiving the same packet back through a relay. Meshtastic's packet history recognized the returned packet and filtered it as a duplicate.
 
-- `runOnce()` captured `now = millis()`
-- first telemetry send stored `lastTelemetrySentMs = millis()` a few milliseconds later
-- later in the same `runOnce()`, unsigned subtraction `now - lastTelemetrySentMs` underflowed
-- the periodic-send check therefore appeared to have already expired
-
-The fix is to record the first successful send using the existing `now` value:
-
-```cpp
-lastTelemetrySentMs = now;
-```
-
-Bench logs after the fix showed transmissions spaced at approximately the intended 60-second interval with no immediate duplicate first packet.
+Therefore, a repeated display in the app does not automatically prove the source firmware created a second unique telemetry packet. Serial packet IDs and packet-history logs must be used to distinguish a true source retransmission from a relayed duplicate.
 
 ## Module registration
 
@@ -377,7 +456,7 @@ Bench logs after the fix showed transmissions spaced at approximately the intend
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
 ```
 
-This keeps the custom integration scoped to the intended XIAO nRF52840 build target.
+This intentionally scopes the custom integration to the tested XIAO target.
 
 ## Build procedure
 
@@ -387,15 +466,17 @@ From the repository root on Windows:
 & "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e seeed_xiao_nrf52840_kit
 ```
 
-Preferred flash method:
+Do not substitute `xiao_ble_33db` for the proven target.
+
+Preferred flash procedure:
 
 1. Build the UF2.
 2. Double-tap the XIAO reset button.
-3. Wait for the bootloader drive to appear.
+3. Wait for the bootloader drive.
 4. Copy the generated UF2 to the bootloader drive.
 5. Allow the board to reboot.
 
-Manual UF2 flashing is preferred over changing the working upload flow during debugging.
+Do not erase the device as part of normal updating or debugging unless there is a separate proven reason to do so.
 
 ## Serial monitor
 
@@ -405,7 +486,7 @@ Typical Windows command:
 & "$env:USERPROFILE\.platformio\penv\Scripts\python.exe" -m serial.tools.miniterm COM7 115200
 ```
 
-Exit miniterm with:
+Exit with:
 
 ```text
 Ctrl + ]
@@ -415,92 +496,111 @@ The COM port may differ on another machine.
 
 ## Important development rules
 
-Future work should follow these rules unless direct evidence requires otherwise:
-
-1. **Do not upgrade Meshtastic as part of MX2201 debugging.**
+1. **Keep Meshtastic pinned to 2.7.26 for this stable integration unless an upgrade is a separate deliberate project.**
 2. **Do not erase the board as a first-line debugging step.**
-3. **Do not rewrite the entire MX2201 module for a small bug.**
+3. **Do not broadly rewrite the MX2201 module for a small issue.**
 4. **Make the smallest possible source change.**
-5. **Fix one issue at a time.**
-6. **Preserve known-good commits before further changes.**
-7. **Do not alter the proven calibration without independent evidence.**
-8. **Do not redo the solved UUID, command, memory-framing, phase, or BLE-central discovery work.**
+5. **Fix one issue at a time and bench-test it before the next change.**
+6. **Preserve known-good commits and create new stable tags rather than moving old tags.**
+7. **Do not alter the proven temperature calibration without independent physical evidence.**
+8. **Do not redo solved BLE UUID, command, framing, calibration, or dual-role work.**
 9. **Use standard Meshtastic telemetry rather than inventing a custom packet format.**
 10. **Keep the build target `seeed_xiao_nrf52840_kit`.**
-11. **Treat `mx2201-stable-2026-08-13` as the immutable recovery point for the bench-proven firmware.**
+11. **Do not use write-pointer changes as the live-temperature trigger.**
+12. **Do not retransmit cached temperature on a separate one-minute timer.**
+13. **Obtain a fresh NEWREAD64 value before each scheduled temperature transmission.**
+14. **Treat `mx2201-stable-newread-2026-08-13` as the current immutable production recovery point.**
+15. **Treat `mx2201-stable-2026-08-13` as the preserved rollback point for the previous memory-decoder stable version.**
+16. **For another logger model such as MX2001, use a separate branch and do not disturb the stable MX2201 path.**
 
-## Commit history worth understanding
-
-Key commits in the development path include:
+## Key commit history
 
 ```text
 54e0d8d0a  Meshtastic 2.7.26 pinned base
 cbe6b11ac  Enable BLE central connection for MX2201
 9f257ac17  Add MX2201 BLE connection test module
 63ac7ff85  Read MX2201 temperature and send Meshtastic telemetry
-58a7df80c  Broad experimental fix; later intentionally superseded
+58a7df80c  Broad experimental fix; intentionally superseded later
 f7c937e76  Restore proven MX2201 integration
 d79862d98  Fix MX2201 memory fragment reconstruction
 2cb9a5400  Fix MX2201 latest-sample continuity
 3aa59427b  Keep MX2201 BLE active with slow logging
 6302d7bbc  Fix MX2201 temperature phase selection
 f68aad7e2  Prevent duplicate initial MX2201 telemetry
+38891aa8e  Use MX2201 NEWREAD64 for interval-aligned telemetry
 ```
 
-The existence of the experimental `58a7df80c` commit is not a reason to rewrite history. The later recovery and surgical commits document how the stable implementation was restored and fixed.
+The history is intentionally preserved. Do not rewrite it simply because experimental commits exist in the ancestry.
 
-## What has been physically proven
+## What has been physically proven in the current stable version
 
-The stable implementation has been bench-tested for all of the following:
-
-- MX2201 BLE discovery and connection
+- MX2201 BLE discovery without pressing the logger button after sensor-node reboot
+- asynchronous central connection handling
+- HOBO service discovery
 - command characteristic discovery
 - notification enablement
-- status pointer parsing
-- dynamic 60-second logger interval reporting
-- 64-byte memory reconstruction from four fragments
-- packed 12-bit temperature decoding
-- correct phase migration across moving memory windows
-- rejection of false high-temperature phase candidates
-- recency-first selection of newly logged data
-- confirmed large cold-to-hot temperature transition
-- confirmed large hot-to-cold temperature transition
-- BLE connection remaining alive during slow logging
+- status/write-pointer parsing
+- dynamic logger interval parsing
+- direct NEWREAD64 request and response
+- exact NEWREAD64 temperature field parsing from bytes 8..11
+- correct temperature calibration
+- direct live temperature at a 3600-second logger interval without waiting one hour for a new logged sample
+- one startup telemetry transmission from the fresh live read
+- 10-second status keepalive while the logger is configured for one-hour logging
+- no cached one-minute retransmission during one-hour logging
+- write-pointer changes producing no extra temperature telemetry
 - standard Meshtastic environmental telemetry creation
 - LoRa transmission
-- reception by a second Meshtastic node
-- Android displaying the received temperature
-- removal of the duplicate initial telemetry send
+- reception by another Meshtastic node
+- Android display of the received temperature
+- clean pending-connection handling without repeated scan warnings
 
-## What is not implied by this document
+## What the older stable version additionally proved
 
-This integration is specific to the tested MX2201 and the tested firmware/hardware configuration.
+The preserved legacy tag `mx2201-stable-2026-08-13` contains the memory-decoder implementation that physically proved:
 
-It does not prove that:
+- 64-byte memory reconstruction from four BLE fragments
+- packed 12-bit temperature decoding
+- moving phase alignment
+- recency-first phase selection
+- false-candidate rejection
+- large cold-to-hot transition handling
+- large hot-to-cold transition handling
+
+Those results remain valuable protocol evidence, even though historical memory is no longer the active production live-temperature source.
+
+## What is not implied
+
+This integration does not prove that:
 
 - every MX2201 has the same BLE MAC
-- an MX2001 uses the same protocol or memory format
-- future Meshtastic versions can accept these changes without adaptation
-- another nRF52 target will behave identically
-
-For another logger model such as the MX2001, create a separate development branch and preserve the stable MX2201 implementation unchanged.
+- every MX2201 firmware revision behaves identically
+- MX2001 uses the same command mapping or response format
+- future Meshtastic releases can accept these changes without adaptation
+- other nRF52 boards will behave identically
 
 ## Recovery instructions
 
-To return to the exact bench-proven firmware code:
+### Current stable NEWREAD64 firmware
 
 ```powershell
 git fetch origin --tags
+git checkout mx2201-stable-newread-2026-08-13
+```
+
+This intentionally leaves Git in detached HEAD state because the stable tag is immutable.
+
+### Previous stable memory-decoder firmware
+
+```powershell
 git checkout mx2201-stable-2026-08-13
 ```
 
-That checkout is intentionally detached because the stable tag is immutable.
-
-To resume normal MX2201 development from the current integration branch:
+### Return to normal integration development
 
 ```powershell
 git checkout mx2201-integration
-git pull
+git pull origin mx2201-integration
 ```
 
-Before making risky changes for a different logger model, create a new branch rather than modifying the stable tag or rewriting the proven history.
+Before development for another logger model, create a separate branch rather than modifying either stable tag or the proven MX2201 history.
