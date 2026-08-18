@@ -1,7 +1,13 @@
 import argparse
 import csv
+import getpass
+import json
+import os
 import struct
 import threading
+import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -9,6 +15,7 @@ import meshtastic.serial_interface
 from pubsub import pub
 
 CSV_PATH = Path("mx2001_data.csv")
+DEFAULT_CLOUD_URL = "https://meshtastic-ecru.vercel.app/api/ingest"
 CSV_HEADER = [
     "timestamp",
     "mesh_source",
@@ -29,6 +36,11 @@ CSV_HEADER = [
     "last_relay_short_name",
     "packet_id",
 ]
+
+CLOUD_ENABLED = False
+CLOUD_URL = DEFAULT_CLOUD_URL
+INGEST_KEY = ""
+STATION_NAME = ""
 
 
 def signed_int8(v):
@@ -84,8 +96,6 @@ def resolve_last_relay(interface, relay_node):
     except (TypeError, ValueError):
         return None, None, None
 
-    # relayNode is a compact one-byte identifier. Match it to the low byte
-    # of node numbers already known by this receiving radio.
     for node_id, node in getattr(interface, "nodes", {}).items():
         if not isinstance(node, dict):
             continue
@@ -132,6 +142,70 @@ def ensure_csv():
 
     with CSV_PATH.open("w", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(CSV_HEADER)
+
+
+def upload_to_cloud(packet, reading, source, rssi, snr, hop_start, hop_limit, hops,
+                    relay_node, relay_id, relay_long, relay_short, packet_id):
+    if not CLOUD_ENABLED:
+        return
+
+    temp_c = (reading["temp_f"] - 32.0) * 5.0 / 9.0
+    relay_name = relay_long or relay_short
+    node_num = packet.get("from")
+
+    payload = {
+        "type": "mx2001",
+        "timestamp": int(time.time()),
+        "from": node_num,
+        "sender": source,
+        "mesh_source": source,
+        "station_name": STATION_NAME or f"MX2001 {reading['mac']}",
+        "payload": {
+            "water_level_ft": reading["stage_ft"],
+            "temperature_f": reading["temp_f"],
+            "temperature_c": temp_c,
+            "temperature_raw": reading["temp_raw"],
+            "logger_mac": reading["mac"],
+            "sequence": reading["sequence"],
+            "ble_rssi_dbm": reading["ble_rssi"],
+            "packet_id": packet_id,
+        },
+        "radio": {
+            "rssi": rssi,
+            "snr": snr,
+            "hop_start": hop_start,
+            "hop_limit": hop_limit,
+            "hops_used": hops,
+            "hops_away": hops,
+            "relay_node": relay_node,
+            "relay_id": relay_id,
+            "relay_name": relay_name,
+            "gateway": source,
+        },
+    }
+
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        CLOUD_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Ingest-Key": INGEST_KEY,
+            "User-Agent": "mx2001-meshtastic-receiver/1.0",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            reading_id = (result.get("reading") or {}).get("id")
+            print(f"Cloud:         STORED{f' (row {reading_id})' if reading_id else ''}")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        print(f"Cloud:         HTTP {exc.code} {detail[:160]}")
+    except Exception as exc:
+        print(f"Cloud:         upload failed: {exc}")
 
 
 def on_receive(packet, interface):
@@ -194,7 +268,6 @@ def on_receive(packet, interface):
     print(f"HOPS USED:     {hops if hops is not None else 'unknown'}")
     print(f"Last relay:    {relay_display}")
     print(f"Packet ID:     {packet_id}")
-    print("=" * 58)
 
     ensure_csv()
 
@@ -220,13 +293,58 @@ def on_receive(packet, interface):
             packet_id,
         ])
 
+    upload_to_cloud(
+        packet,
+        reading,
+        source,
+        rssi,
+        snr,
+        hop_start,
+        hop_limit,
+        hops,
+        relay_node,
+        relay_id,
+        relay_long,
+        relay_short,
+        packet_id,
+    )
+    print("=" * 58)
+
 
 def main():
+    global CLOUD_ENABLED, CLOUD_URL, INGEST_KEY, STATION_NAME
+
     parser = argparse.ArgumentParser(
         description="Decode MX2001 PRIVATE_APP packets from a Meshtastic serial radio"
     )
     parser.add_argument("--port", required=True, help="Receiver radio serial port, e.g. COM5")
+    parser.add_argument(
+        "--cloud",
+        action="store_true",
+        help="Upload each received MX2001 reading to the Vercel/Neon dashboard",
+    )
+    parser.add_argument(
+        "--cloud-url",
+        default=DEFAULT_CLOUD_URL,
+        help=f"Cloud ingest URL (default: {DEFAULT_CLOUD_URL})",
+    )
+    parser.add_argument(
+        "--station",
+        default="MX2001 Bench / Field Test",
+        help="Friendly station name stored in the dashboard",
+    )
     args = parser.parse_args()
+
+    CLOUD_ENABLED = args.cloud
+    CLOUD_URL = args.cloud_url
+    STATION_NAME = args.station
+
+    if CLOUD_ENABLED:
+        INGEST_KEY = os.environ.get("MESHTASTIC_INGEST_KEY", "").strip()
+        if not INGEST_KEY:
+            INGEST_KEY = getpass.getpass("Vercel INGEST_KEY (hidden): ").strip()
+        if not INGEST_KEY:
+            raise SystemExit("Cloud upload requested but no ingest key was supplied.")
 
     pub.subscribe(on_receive, "meshtastic.receive")
 
@@ -235,6 +353,11 @@ def main():
     print(f"Opening receiver on {args.port}")
     print("Waiting for MX2001 packets...")
     print("Route metadata and readings will be saved to mx2001_data.csv")
+    if CLOUD_ENABLED:
+        print(f"Cloud upload:   ON -> {CLOUD_URL}")
+        print(f"Station:        {STATION_NAME}")
+    else:
+        print("Cloud upload:   OFF (add --cloud to enable)")
     print("Press Ctrl+C to stop.")
     print("=" * 58)
 
