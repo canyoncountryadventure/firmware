@@ -9,6 +9,26 @@ import meshtastic.serial_interface
 from pubsub import pub
 
 CSV_PATH = Path("mx2001_data.csv")
+CSV_HEADER = [
+    "timestamp",
+    "mesh_source",
+    "mx2001_mac",
+    "sequence",
+    "water_level_ft",
+    "temperature_f",
+    "temperature_raw",
+    "ble_rssi_dbm",
+    "lora_rssi_dbm",
+    "lora_snr_db",
+    "hop_start",
+    "hop_limit",
+    "hops_used",
+    "relay_node_byte",
+    "last_relay_id",
+    "last_relay_long_name",
+    "last_relay_short_name",
+    "packet_id",
+]
 
 
 def signed_int8(v):
@@ -96,29 +116,22 @@ def resolve_last_relay(interface, relay_node):
 
 def ensure_csv():
     if CSV_PATH.exists():
-        return
+        try:
+            with CSV_PATH.open("r", newline="", encoding="utf-8") as f:
+                existing_header = next(csv.reader(f), [])
+        except (OSError, UnicodeError):
+            existing_header = []
+
+        if existing_header == CSV_HEADER:
+            return
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        legacy_path = CSV_PATH.with_name(f"mx2001_data_legacy_{stamp}.csv")
+        CSV_PATH.rename(legacy_path)
+        print(f"Preserved old CSV as: {legacy_path.resolve()}")
 
     with CSV_PATH.open("w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow([
-            "timestamp",
-            "mesh_source",
-            "mx2001_mac",
-            "sequence",
-            "water_level_ft",
-            "temperature_f",
-            "temperature_raw",
-            "ble_rssi_dbm",
-            "lora_rssi_dbm",
-            "lora_snr_db",
-            "hop_start",
-            "hop_limit",
-            "hops_used",
-            "relay_node_byte",
-            "last_relay_id",
-            "last_relay_long_name",
-            "last_relay_short_name",
-            "packet_id",
-        ])
+        csv.writer(f).writerow(CSV_HEADER)
 
 
 def on_receive(packet, interface):
