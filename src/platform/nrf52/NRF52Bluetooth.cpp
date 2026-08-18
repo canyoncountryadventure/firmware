@@ -264,10 +264,10 @@ void NRF52Bluetooth::setup()
     LOG_INFO("Init the Bluefruit nRF52 module");
     Bluefruit.autoConnLed(false);
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-#if defined(SEEED_XIAO_NRF52840_KIT)
-    // MX2201 integration: keep one BLE peripheral link for the
+#if defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631)
+    // HOBO integrations: keep one BLE peripheral link for the
     // Meshtastic phone connection and add one BLE central link
-    // for the HOBO MX2201.
+    // for the HOBO logger.
     Bluefruit.configCentralBandwidth(BANDWIDTH_LOW);
     Bluefruit.begin(1, 1);
 #else
@@ -333,7 +333,7 @@ void NRF52Bluetooth::setup()
     bledfu.begin(); // Install the DFU helper
 #else
     bledfusecure.setPermission(SECMODE_ENC_WITH_MITM, SECMODE_ENC_WITH_MITM); // add by WayenWeng
-    bledfusecure.begin();                                                     // Install the DFU helper
+    bledfusecure.begin();                                                     // DFU software update helper service
 #endif
     // Configure and Start the Device Information Service
     LOG_INFO("Init the Device Information Service");

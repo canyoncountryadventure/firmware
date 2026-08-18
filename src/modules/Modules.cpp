@@ -57,6 +57,9 @@
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
 #include "modules/Telemetry/MX2201Telemetry.h"
 #endif
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+#include "modules/Telemetry/MX2001Diagnostic.h"
+#endif
 #if HAS_SENSOR && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
 #include "main.h"
 #include "modules/Telemetry/EnvironmentTelemetry.h"
@@ -193,6 +196,9 @@ void setupModules()
 #endif
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
     new MX2201TelemetryModule();
+#endif
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    new MX2001DiagnosticModule();
 #endif
 #if HAS_TELEMETRY && HAS_SENSOR && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
     if (moduleConfig.has_telemetry &&
