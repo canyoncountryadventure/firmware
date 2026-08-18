@@ -1,100 +1,177 @@
-# DWQ MX2201 Meshtastic Integration
+# HOBO MX2001 → Meshtastic Water-Level Integration
 
-This repository contains the bench-proven HOBO MX2201 integration for the Seeed XIAO nRF52840 + Wio-SX1262 Meshtastic node.
+This branch contains the bench-proven **HOBO MX2001 water-level + temperature integration for a RAK4631 Meshtastic node**.
 
-**Current stable firmware:** `mx2201-stable-newread-2026-08-13`  
-**Current stable commit:** `38891aa8e13708ce97de1d3bb4c493eafecb2886`  
-**Legacy rollback tag:** `mx2201-stable-2026-08-13`  
-**Meshtastic base:** `2.7.26` at `54e0d8d0ab2ff56b3a9ce967e53f79e49af560fb`  
-**PlatformIO target:** `seeed_xiao_nrf52840_kit`  
-**Full technical documentation:** [MX2201_INTEGRATION.md](MX2201_INTEGRATION.md)
+The working system reads the MX2001 over Bluetooth, follows the logger's actual configured logging interval, detects each newly logged record, reads current **water level (WL)** and **temperature**, and broadcasts a compact custom packet through the normal Meshtastic LoRa mesh.
+
+**Integration branch:** `mx2001-rak`  
+**Bench-proven firmware commit:** `ada4c9526e68819506a44bf171aa5dff3de59660`  
+**Meshtastic build:** `2.7.26.ded77c2`  
+**PlatformIO target:** `rak4631`  
+**Field hardware:** RAK19003 + RAK4631  
+**Technical reference:** [MX2001_INTEGRATION.md](MX2001_INTEGRATION.md)  
+**Windows receiver:** [tools/mx2001_receiver.py](tools/mx2001_receiver.py)
+
+> The stable MX2201 work is preserved separately on `mx2201-integration`. This branch is the MX2001/RAK work and does not replace the MX2201 recovery branch.
+
+## Proven end-to-end path
+
+```text
+HOBO MX2001
+    |
+    | BLE GATT
+    v
+RAK19003 + RAK4631 field node
+    |
+    | Meshtastic PRIVATE_APP packet (port 256)
+    | LoRa / normal Meshtastic routing and relays
+    v
+Any Meshtastic receiver on the same channel/PSK
+    |
+    | USB serial
+    v
+mx2001_receiver.py
+    |
+    +--> readable WL + temperature
+    +--> BLE RSSI + LoRa RSSI/SNR
+    +--> CSV log
+```
 
 ## Current proven behavior
 
-The current stable firmware has been bench-tested end-to-end:
+The full chain has been physically bench-tested.
+
+- automatic MX2001 discovery; no hard-coded logger MAC is required
+- BLE central connection from the RAK4631 while normal Meshtastic BLE remains available
+- Onset service/command characteristic discovery
+- logger status reading, including the **actual configured logging interval**
+- 20-second logger setting read directly as `interval=20`
+- write-pointer monitoring to identify actual new logger records
+- direct `NEWREAD64` acquisition of current temperature and water level
+- water level decoded directly from the MX2001's own WL value
+- one startup snapshot after connection
+- one mesh data packet for each subsequent new logger record
+- normal Meshtastic routing/rebroadcast behavior
+- successful reception and decoding by a second radio connected to a Windows PC
+- CSV logging on the receiver
+
+A production bench run showed:
 
 ```text
-HOBO MX2201
-    -> BLE
-DWQ Data Node / XIAO nRF52840 + Wio-SX1262
-    -> standard Meshtastic EnvironmentMetrics.temperature
-    -> LoRa mesh
-second Meshtastic node
-    -> BLE
-Android Meshtastic app
+Interval: 20 seconds
+Pointer: 0x000016A0
+
+startup:     WL 0.919 ft   Temp 80.29 F
+next record: WL 0.913 ft   Temp 80.29 F
+next record: WL 0.905 ft   Temp 80.29 F
 ```
 
-The current implementation uses Onset's direct **NEWREAD64** live-sensor command instead of relying on the MX2201 historical-memory decoder for active temperature acquisition.
+The pointer moved with the logger records:
 
-Key proven behavior:
+```text
+0x16A0 -> 0x16A7
+0x16A7 -> 0x16AE
+```
 
-- autonomous MX2201 discovery and connection after node reboot; no logger button press required in the tested setup
-- direct live temperature acquisition using `NEWREAD64`
-- exact response parsing from bytes 8..11 as a big-endian temperature raw value
-- unchanged, bench-proven MX2201 temperature calibration
-- logger status polled at most every 10 seconds to maintain the BLE session and read the current logging interval
-- write-pointer changes are diagnostic only and do **not** trigger telemetry
-- one fresh `NEWREAD64` read immediately after connection
-- scheduled telemetry obtains a fresh `NEWREAD64` reading before each transmission
-- for logger intervals of 60 seconds or longer, Meshtastic temperature reporting follows the MX2201 logging interval
-- short bench logger intervals are clamped to a 60-second minimum mesh-report interval to avoid flooding LoRa
-- no repeated one-minute retransmission of a cached temperature when the logger is configured for one-hour logging
-- standard Meshtastic telemetry only; no proprietary packet type
+Each new record produced exactly one custom Meshtastic transmission.
 
-The one-hour logger test was physically verified with `interval=3600 seconds`. The node acquired and transmitted a fresh startup temperature, continued 10-second status checks, ignored a subsequent write-pointer change for telemetry purposes, and did not send another cached temperature during the following test window.
+A separate receiving radio then decoded a later packet as:
 
-## Recovery points
+```text
+Mesh source: !b57d051f
+Logger:      F1:0D:9D:29:C3:2D
+Sequence:    29
+Water level: 0.9 ft
+Temperature: 80.5 F
+BLE RSSI:    -65 dBm
+LoRa RSSI:   -80 dBm
+LoRa SNR:    6.5 dB
+```
 
-Current production recovery point:
+That test proves the complete **MX2001 → BLE → field RAK → LoRa mesh → second radio → PC** path.
+
+## Why a custom Meshtastic packet is used
+
+Stock Meshtastic environmental telemetry does not provide the desired feet-based water-level field. This integration therefore uses:
+
+```text
+PRIVATE_APP = 256
+```
+
+with a small 19-byte payload containing:
+
+- packet/version marker
+- measurement sequence
+- WL in tenths of a foot
+- temperature in tenths of °F
+- raw MX2001 temperature value
+- MX2001 BLE MAC
+- BLE RSSI
+
+A normal Meshtastic radio can receive and relay this packet without custom firmware. The custom decoder is only required at the endpoint where the bytes are turned into readable measurements.
+
+## Build
+
+From the firmware repository root on Windows:
 
 ```powershell
-git fetch origin --tags
-git checkout mx2201-stable-newread-2026-08-13
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e rak4631
 ```
 
-Previous stable implementation, preserved unchanged for rollback:
+Expected UF2 name for this pinned build:
+
+```text
+.pio\build\rak4631\firmware-rak4631-2.7.26.ded77c2.uf2
+```
+
+Flash to a RAK4631 in bootloader mode:
 
 ```powershell
-git checkout mx2201-stable-2026-08-13
+$rak = (Get-Volume | Where-Object FileSystemLabel -eq "RAK4631").DriveLetter
+Copy-Item ".pio\build\rak4631\firmware-rak4631-2.7.26.ded77c2.uf2" "$($rak):\"
 ```
 
-Normal development branch:
+## Windows receiver
+
+Install the Python dependencies once:
 
 ```powershell
-git checkout mx2201-integration
-git pull origin mx2201-integration
+py -m pip install --upgrade meshtastic pypubsub
 ```
 
-Stable tags are immutable recovery points. Do not move or overwrite them.
+Find the receiving radio COM port, then run:
+
+```powershell
+py .\tools\mx2001_receiver.py --port COM5
+```
+
+The receiving radio only needs to be a normal Meshtastic node on the same channel/key. It does **not** need the MX2001 firmware.
+
+The script writes:
+
+```text
+mx2001_data.csv
+```
+
+in the directory where the script is launched.
+
+## Source files intentionally changed
+
+```text
+src/modules/Telemetry/MX2001Diagnostic.cpp
+src/modules/Telemetry/MX2001Diagnostic.h
+src/modules/Modules.cpp
+src/platform/nrf52/NRF52Bluetooth.cpp
+```
+
+The `MX2001Diagnostic` filename is historical from protocol-development work. The code at the stable commit is the production sender that passed the end-to-end bench test. It is intentionally left under the tested filename for this recovery point rather than being renamed during stabilization.
+
+## Development rule
+
+Treat `ada4c9526e68819506a44bf171aa5dff3de59660` as the first bench-proven MX2001 production sender recovery point. Future refactors should be separate commits and should not overwrite the stable MX2201 branch.
 
 ---
 
-<div align="center" markdown="1">
+## Upstream Meshtastic
 
-<img src=".github/meshtastic_logo.png" alt="Meshtastic Logo" width="80"/>
-<h1>Meshtastic Firmware</h1>
-
-![GitHub release downloads](https://img.shields.io/github/downloads/meshtastic/firmware/total)
-[![CI](https://img.shields.io/github/actions/workflow/status/meshtastic/firmware/main_matrix.yml?branch=master&label=actions&logo=github&color=yellow)](https://github.com/meshtastic/firmware/actions/workflows/ci.yml)
-[![CLA assistant](https://cla-assistant.io/readme/badge/meshtastic/firmware)](https://cla-assistant.io/meshtastic/firmware)
-[![Fiscal Contributors](https://opencollective.com/meshtastic/tiers/badge.svg?label=Fiscal%20Contributors&color=deeppink)](https://opencollective.com/meshtastic/)
-[![Vercel](https://img.shields.io/static/v1?label=Powered%20by&message=Vercel&style=flat&logo=vercel&color=000000)](https://vercel.com?utm_source=meshtastic&utm_campaign=oss)
-
-<a href="https://trendshift.io/repositories/5524" target="_blank"><img src="https://trendshift.io/api/badge/repositories/5524" alt="meshtastic%2Ffirmware | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
-</div>
-
-<div align="center">
-	<a href="https://meshtastic.org">Website</a>
-	-
-	<a href="https://meshtastic.org/docs/">Documentation</a>
-</div>
-
-## Upstream Meshtastic overview
-
-This repository is based on Meshtastic device firmware, an open-source LoRa mesh networking project for long-range, low-power communication without relying on internet or cellular infrastructure. The firmware supports multiple hardware platforms including nRF52, ESP32, RP2040/RP2350, and Linux devices.
-
-### Upstream documentation
-
-- **[Building Instructions](https://meshtastic.org/docs/development/firmware/build)**
-- **[Flashing Instructions](https://meshtastic.org/docs/getting-started/flashing-firmware/)**
+This repository is based on the open-source Meshtastic device firmware. Upstream build and flashing documentation is available at the Meshtastic project documentation site.
