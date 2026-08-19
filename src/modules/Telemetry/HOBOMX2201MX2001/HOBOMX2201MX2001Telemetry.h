@@ -8,9 +8,9 @@
 //
 // The production hobo-mx2201-mx2001 branch remains mapped to the proven
 // combined MX2201/MX2001 reader. On mx2203-discovery-test this Seeed module
-// slot is temporarily routed to the isolated MX2203 calibration sampler.
-#include "modules/Telemetry/MX2203Calibration/MX2203Calibration.h"
+// slot is temporarily routed to the isolated MX2203 candidate decoder test.
+#include "modules/Telemetry/MX2203DecodeTest/MX2203DecodeTest.h"
 
-using HOBOMX2201MX2001TelemetryModule = MX2203CalibrationModule;
+using HOBOMX2201MX2001TelemetryModule = MX2203DecodeTestModule;
 
 #endif
