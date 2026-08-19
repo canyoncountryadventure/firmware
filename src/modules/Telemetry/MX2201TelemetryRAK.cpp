@@ -15,8 +15,26 @@
 #include <cstdint>
 #include <cstring>
 
+// The older proven MX2201 reader is hard-coded to the earlier logger MAC.
+// For this isolated RAK raw-capture test, redirect its only memcmp() call to
+// the current MX2201 that produced the bad 108.4 F reading:
+// E4:27:8C:B9:F4:B8
+static int rakCurrentMX2201Compare(const void *lhs, const void *rhs, size_t count)
+{
+    if (count == 6) {
+        static const uint8_t currentMX2201RawAddr[6] = {
+            0xB8, 0xF4, 0xB9, 0x8C, 0x27, 0xE4
+        };
+        return std::memcmp(lhs, currentMX2201RawAddr, 6);
+    }
+
+    return std::memcmp(lhs, rhs, count);
+}
+
+#define memcmp rakCurrentMX2201Compare
 #define SEEED_XIAO_NRF52840_KIT 1
 #include "MX2201Telemetry.cpp"
 #undef SEEED_XIAO_NRF52840_KIT
+#undef memcmp
 
 #endif
