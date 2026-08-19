@@ -355,30 +355,6 @@ void notifyCallback(
     if (!directReadActive)
         return;
 
-    if (onDemandReadInProgress) {
-        char raw[192] = {};
-        size_t used = 0;
-
-        for (uint16_t i = 0; i < len && used + 4 < sizeof(raw); ++i) {
-            int written = snprintf(
-                &raw[used],
-                sizeof(raw) - used,
-                "%02X%s",
-                data[i],
-                (i + 1 < len) ? " " : "");
-
-            if (written <= 0)
-                break;
-
-            used += static_cast<size_t>(written);
-        }
-
-        LOG_INFO(
-            "MX2001 RAW NEWREAD len=%u: %s",
-            len,
-            raw);
-    }
-
     if (len >= 20 &&
         data[0] == 0x01 &&
         data[1] == 0x02 &&
