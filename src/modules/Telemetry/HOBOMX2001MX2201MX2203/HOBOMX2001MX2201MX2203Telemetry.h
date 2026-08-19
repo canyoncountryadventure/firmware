@@ -2,7 +2,7 @@
 
 #include "configuration.h"
 
-#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+#if defined(ARCH_NRF52) && (defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631))
 
 #include "concurrency/OSThread.h"
 #include "mesh/SinglePortModule.h"
