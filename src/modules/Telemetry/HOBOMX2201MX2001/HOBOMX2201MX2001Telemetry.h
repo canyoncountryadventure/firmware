@@ -6,12 +6,11 @@
 
 // TEST-BRANCH OVERRIDE ONLY.
 //
-// The production hobo-mx2201-mx2001 branch keeps this entrypoint mapped to the
-// proven combined MX2201/MX2001 reader. On mx2203-discovery-test we temporarily
-// route the same Seeed module slot to the isolated MX2203 discovery scanner so
-// no production code or behavior is changed.
-#include "modules/Telemetry/MX2203Discovery/MX2203Discovery.h"
+// The production hobo-mx2201-mx2001 branch remains mapped to the proven
+// combined MX2201/MX2001 reader. On mx2203-discovery-test this Seeed module
+// slot is temporarily routed to the isolated MX2203 calibration sampler.
+#include "modules/Telemetry/MX2203Calibration/MX2203Calibration.h"
 
-using HOBOMX2201MX2001TelemetryModule = MX2203DiscoveryModule;
+using HOBOMX2201MX2001TelemetryModule = MX2203CalibrationModule;
 
 #endif
