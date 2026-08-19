@@ -19,7 +19,7 @@ namespace
 {
 
 // -----------------------------------------------------------------------------
-// Onset HOBO BLE protocol
+// Onset HOBO MX2203 BLE protocol
 // -----------------------------------------------------------------------------
 
 static const uint8_t HOBO_SERVICE_UUID[16] = {
@@ -46,38 +46,42 @@ static const uint8_t CMD_INIT[] = {
     0x01, 0x01, 0x04, 0x05, 0x1C, 0x01, 0x00
 };
 
-// Hardware-proven live sensor request.
+// Hardware-proven live read command.
 static const uint8_t CMD_NEWREAD64[] = {
     0x01, 0x01, 0x08, 0x04, 0x04,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 // -----------------------------------------------------------------------------
-// OnsetSDK temperature conversion
+// Official OnsetSDK MX2203 temperature conversion
 // -----------------------------------------------------------------------------
 //
-// Recovered from the user's HOBOconnect Android APKs on 2026-08-19.
-// OnsetSDK maps MX2203 (PID 0x2203) to TempSensor2F.
-// TempSensor2F uses:
-//   SensorBitSize = 14
-//   CONST_A = 175.72
-//   CONST_B = 2^14 = 16384
-//   CONST_C = 46.85
+// Recovered from OnsetSDK.dll inside the HOBOconnect Android APKs on
+// 2026-08-19. MX2203 maps to TempSensor2F, a 14-bit sensor:
 //
-// OnsetSDK getCelsiusWithRawValue():
 //   C = raw * 175.72 / 16384 - 46.85
+//   F = C * 9/5 + 32
 //
-// See ONSETSDK.md in this folder for the reverse-engineering record.
+// See ONSETSDK.md in this folder for the permanent APK/reverse-engineering
+// record.
 
 static constexpr float MX2203_CONST_A = 175.72f;
 static constexpr float MX2203_FULL_RAW = 16384.0f;
 static constexpr float MX2203_CONST_C = 46.85f;
 static constexpr uint32_t MX2203_MAX_RAW = 16383;
 
+static constexpr uint32_t SERVICE_SETTLE_MS = 500;
+static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
+static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
+static constexpr uint32_t COMMAND_DELAY_MS = 400;
+static constexpr uint32_t READ_TIMEOUT_MS = 3000;
+
 BLEClientService hoboService(HOBO_SERVICE_UUID);
 BLEClientCharacteristic hoboCharacteristic(HOBO_CHAR_UUID);
 
-enum class State : uint8_t
+// Use a module-specific name because Meshtastic's arduino-fsm dependency also
+// exposes a global type named State.
+enum class MX2203State : uint8_t
 {
     IDLE = 0,
     SEND_INIT,
@@ -91,7 +95,7 @@ bool initialized = false;
 bool connecting = false;
 bool connected = false;
 uint16_t connectionHandle = BLE_CONN_HANDLE_INVALID;
-State state = State::IDLE;
+MX2203State mx2203State = MX2203State::IDLE;
 uint32_t stateDueMs = 0;
 
 bool directReadActive = false;
@@ -107,12 +111,6 @@ uint32_t readRequester = 0;
 uint8_t readChannel = 0;
 
 uint8_t loggerMac[6] = {};
-
-static constexpr uint32_t SERVICE_SETTLE_MS = 500;
-static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
-static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
-static constexpr uint32_t COMMAND_DELAY_MS = 400;
-static constexpr uint32_t READ_TIMEOUT_MS = 3000;
 
 bool reached(uint32_t now, uint32_t target)
 {
@@ -159,8 +157,9 @@ bool isReadCommand(const uint8_t *bytes, size_t size)
     if (std::toupper(static_cast<unsigned char>(p[0])) != 'R' ||
         std::toupper(static_cast<unsigned char>(p[1])) != 'E' ||
         std::toupper(static_cast<unsigned char>(p[2])) != 'A' ||
-        std::toupper(static_cast<unsigned char>(p[3])) != 'D')
+        std::toupper(static_cast<unsigned char>(p[3])) != 'D') {
         return false;
+    }
 
     return p[4] == '\0' ||
            std::isspace(static_cast<unsigned char>(p[4]));
@@ -190,7 +189,6 @@ bool isMX2203Advertisement(const ble_gap_evt_adv_report_t *report)
 
         // Hardware-observed MX2203 manufacturer signature:
         // C5 00 ... 01 03 22 02 ...
-        // The 0x03 model byte also agrees with the MX2203 product ID 0x2203.
         if (type == 0xFF && payloadLength >= 10 &&
             payload[0] == 0xC5 && payload[1] == 0x00 &&
             payload[6] == 0x01 && payload[7] == 0x03 &&
@@ -364,7 +362,7 @@ void connectCallback(uint16_t connHandle)
     }
 
     resetMeasurement();
-    state = State::SEND_INIT;
+    mx2203State = MX2203State::SEND_INIT;
     stateDueMs = millis() + 500;
 
     LOG_INFO("MX2203: BLE command channel ready");
@@ -379,7 +377,7 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
     connected = false;
     connecting = false;
     connectionHandle = BLE_CONN_HANDLE_INVALID;
-    state = State::IDLE;
+    mx2203State = MX2203State::IDLE;
     resetMeasurement();
 
     if (readRequestInProgress || readRequestPending) {
@@ -404,9 +402,7 @@ void initializeClient()
     Bluefruit.Scanner.restartOnDisconnect(false);
     Bluefruit.Scanner.setInterval(160, 80);
 
-    // Passive scanning matches the proven production MX2201/MX2001 bridge and
-    // avoids unnecessary scan requests while Meshtastic also remains available
-    // to the user's phone as a BLE peripheral.
+    // Match the proven production MX2201/MX2001 dual-role BLE behavior.
     Bluefruit.Scanner.useActiveScan(false);
 
     initialized = true;
@@ -450,7 +446,7 @@ ProcessMessage HOBOMX2203TelemetryModule::handleReceived(
 
     const uint32_t ourNode = nodeDB->getNodeNum();
 
-    // READ is intentionally accepted only as a direct message to this node.
+    // READ is accepted only as a direct message to this node.
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
 
@@ -510,8 +506,8 @@ int32_t HOBOMX2203TelemetryModule::runOnce()
 {
     const uint32_t now = millis();
 
-    // Allow Meshtastic's normal BLE peripheral setup to settle before starting
-    // the central role used to connect to the logger.
+    // Let Meshtastic's normal BLE peripheral initialization settle before
+    // starting the central role used for the HOBO connection.
     if (now < 15000)
         return 500;
 
@@ -536,43 +532,43 @@ int32_t HOBOMX2203TelemetryModule::runOnce()
         return 500;
     }
 
-    // A READ that arrives while the initial INIT command is completing waits
-    // here until the logger is ready, then triggers one fresh NEWREAD64.
-    if (readRequestPending && state == State::READY) {
+    // A READ received while INIT is finishing waits here until the logger is
+    // ready, then causes exactly one fresh NEWREAD64 request.
+    if (readRequestPending && mx2203State == MX2203State::READY) {
         readRequestPending = false;
         readRequestInProgress = true;
-        state = State::SEND_READ;
+        mx2203State = MX2203State::SEND_READ;
         stateDueMs = now;
     }
 
-    switch (state) {
-    case State::SEND_INIT:
+    switch (mx2203State) {
+    case MX2203State::SEND_INIT:
         if (!reached(now, stateDueMs))
             break;
 
         if (sendCommand(CMD_INIT, sizeof(CMD_INIT))) {
-            state = State::WAIT_INIT;
+            mx2203State = MX2203State::WAIT_INIT;
             stateDueMs = now + COMMAND_DELAY_MS;
         } else {
             stateDueMs = now + 1000;
         }
         break;
 
-    case State::WAIT_INIT:
+    case MX2203State::WAIT_INIT:
         if (reached(now, stateDueMs))
-            state = State::READY;
+            mx2203State = MX2203State::READY;
         break;
 
-    case State::READY:
-        // No periodic logger polling. The bridge remains idle until READ.
+    case MX2203State::READY:
+        // No periodic polling. Idle until a direct Meshtastic READ arrives.
         break;
 
-    case State::SEND_READ:
+    case MX2203State::SEND_READ:
         resetMeasurement();
         directReadActive = true;
 
         if (sendCommand(CMD_NEWREAD64, sizeof(CMD_NEWREAD64))) {
-            state = State::WAIT_READ;
+            mx2203State = MX2203State::WAIT_READ;
             stateDueMs = now + READ_TIMEOUT_MS;
         } else {
             directReadActive = false;
@@ -581,11 +577,11 @@ int32_t HOBOMX2203TelemetryModule::runOnce()
                 readRequestInProgress = false;
                 readRequester = 0;
             }
-            state = State::READY;
+            mx2203State = MX2203State::READY;
         }
         break;
 
-    case State::WAIT_READ:
+    case MX2203State::WAIT_READ:
         if (measurementReady) {
             measurementReady = false;
 
@@ -608,7 +604,7 @@ int32_t HOBOMX2203TelemetryModule::runOnce()
                 static_cast<unsigned long>(latestRaw),
                 latestTemperatureF);
 
-            state = State::READY;
+            mx2203State = MX2203State::READY;
             break;
         }
 
@@ -621,12 +617,12 @@ int32_t HOBOMX2203TelemetryModule::runOnce()
                 readRequester = 0;
             }
 
-            state = State::READY;
+            mx2203State = MX2203State::READY;
         }
         break;
 
+    case MX2203State::IDLE:
     default:
-        state = State::IDLE;
         break;
     }
 
