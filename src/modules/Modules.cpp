@@ -55,7 +55,7 @@
 #include "modules/Telemetry/DeviceTelemetry.h"
 #endif
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
-#include "modules/Telemetry/MX2201Telemetry.h"
+#include "modules/Telemetry/HOBOUniversalTest/HOBOUniversalTest.h"
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
 #include "modules/Telemetry/MX2001Diagnostic.h"
@@ -186,6 +186,7 @@ void setupModules()
 #if HAS_SCREEN && !MESHTASTIC_EXCLUDE_CANNEDMESSAGES
     if (config.display.displaymode != meshtastic_Config_DisplayConfig_DisplayMode_COLOR) {
         cannedMessageModule = new CannedMessageModule();
+        systemCommandsModule = new SystemCommandsModule();
     }
 #endif
 #if ARCH_PORTDUINO
@@ -195,7 +196,7 @@ void setupModules()
     new DeviceTelemetryModule();
 #endif
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
-    new MX2201TelemetryModule();
+    new HOBOUniversalTestModule();
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
     new MX2001DiagnosticModule();
@@ -256,10 +257,10 @@ void setupModules()
 #endif
 #if !MESHTASTIC_EXCLUDE_RANGETEST && !MESHTASTIC_EXCLUDE_GPS
     if (moduleConfig.has_range_test && moduleConfig.range_test.enabled)
-        new RangeTestModule();
+        rangeTestModule = new RangeTestModule();
 #endif
 #if defined(HAS_HARDWARE_WATCHDOG)
-    watchdogThread = new WatchdogThread();
+    watchdog = new WatchdogThread();
 #endif
     // NOTE! This module must be added LAST because it likes to check for replies from other modules and avoid sending extra
     // acks
