@@ -2,7 +2,7 @@
 
 **Production branch:** `hobo-mx2001-mx2201-mx2203`  
 **Target:** Seeed XIAO nRF52840 + Wio-SX1262  
-**Status:** Three-model universal on-demand reader
+**Status:** Hardware-validated three-model universal on-demand reader
 
 One firmware image supports three Onset HOBO logger models:
 
@@ -11,6 +11,21 @@ One firmware image supports three Onset HOBO logger models:
 | **MX2001** | Water level + temperature |
 | **MX2201** | Temperature |
 | **MX2203** | Temperature |
+
+## Hardware validation — 2026-08-19
+
+The same flashed Seeed XIAO firmware was tested against all three physical logger models without reflashing between models.
+
+Test sequence:
+
+1. MX2203 exposed while MX2201 and MX2001 were covered — identified as `MX2203` and completed live reads.
+2. MX2201 exposed while the other two were covered — identified as `MX2201` and completed live reads.
+3. MX2001 exposed while the other two were covered — identified as `MX2001` and completed live reads.
+4. All three loggers were then exposed simultaneously. The node discovered candidates sequentially and connected to one valid logger at a time; in this test it ultimately connected to the MX2201.
+
+This validates the universal firmware with all three physical logger models. The BLE bridge is intentionally **single-logger-at-a-time**: it supports any of the three models, but it does not maintain simultaneous BLE connections to all three.
+
+Transient BLE service-discovery failures were observed during logger switching, followed by successful rediscovery/reconnection. The successful model reads after those retries show this was transient connection behavior rather than a model-decoder failure.
 
 ## How it works
 
