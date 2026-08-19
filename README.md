@@ -1,43 +1,147 @@
-# HOBO MX2201 + MX2001 → Meshtastic
+# HOBO MX2001 + MX2201 + MX2203 → Meshtastic
 
-**Production branch:** `hobo-mx2201-mx2001`  
+**Production branch:** `hobo-mx2001-mx2201-mx2203`  
 **Target:** Seeed XIAO nRF52840 + Wio-SX1262  
-**Status:** Stable combined on-demand reader
+**Status:** Three-model universal on-demand reader
 
-This branch contains the hardware-proven combined Seeed reader for:
+One firmware image supports three Onset HOBO logger models:
 
-- **MX2201** — temperature
-- **MX2001** — water level + temperature
+| Logger | Live data returned by `READ` |
+|---|---|
+| **MX2001** | Water level + temperature |
+| **MX2201** | Temperature |
+| **MX2203** | Temperature |
 
-Send a direct Meshtastic message:
+## How it works
+
+```text
+Remote Meshtastic node / phone
+            │
+            │ direct message: READ
+            ▼
+       Meshtastic mesh
+            │
+            ▼
+Seeed XIAO nRF52840 + Wio-SX1262
+            │
+            │ BLE central
+            ▼
+   MX2001 / MX2201 / MX2203
+            │
+            │ live NEWREAD64
+            ▼
+       fresh measurement
+            │
+            ▼
+reliable Meshtastic direct reply
+```
+
+There is **no periodic HOBO polling** in this universal build. The node connects, identifies the logger from the live BLE protocol, and waits for a direct `READ` command.
+
+## Command
+
+Send a direct Meshtastic text message to the Seeed:
 
 ```text
 READ
 ```
 
-The node performs a fresh BLE logger read and replies directly to the requester. There is no automatic periodic HOBO telemetry in this combined build.
+`/READ`, lowercase, and mixed case are accepted.
 
-## Production branch map
-
-| Logger/build | Branch |
-|---|---|
-| MX2001 | `hobo-mx2001` |
-| MX2201 | `hobo-mx2201` |
-| Combined MX2201 + MX2001 | `hobo-mx2201-mx2001` |
-| MX2203 | `hobo-mx2203` |
-
-## Archived development branches
-
-- `mx2001-integration` → old name for MX2001 production history
-- `mx2201-integration` → old name for MX2201 production history
-- `mx2201-newread-test` → historical MX2201 protocol testing
-- `mx2203-discovery-test` → historical MX2203 discovery/calibration work
-- `hobo-universal-test` → historical combined-reader bench branch
-
-The production-facing combined module is documented under:
+Example replies:
 
 ```text
-src/modules/Telemetry/HOBOMX2201MX2001/
+MX2001
+Level: 1.04 ft
+Temp: 78.9 F
 ```
 
-Historical bench implementation files remain in Git history and are not the naming standard for current branches.
+```text
+MX2201
+Temp: 70.5 F
+```
+
+```text
+MX2203
+Temp: 72.38 F / 22.43 C
+```
+
+## Production source
+
+```text
+src/modules/Telemetry/HOBOMX2001MX2201MX2203/
+├── HOBOMX2001MX2201MX2203Telemetry.cpp
+├── HOBOMX2001MX2201MX2203Telemetry.h
+├── ONSETSDK.md
+└── README.md
+```
+
+The older `HOBOMX2201MX2001` directory remains only as a tiny compatibility router because `Modules.cpp` already uses that include path. It contains no logger implementation on this branch.
+
+## Model identification
+
+The bridge first sends the shared Onset `INIT` command and then the shared `NEWREAD64` live-read command. The live response identifies the model:
+
+| Model | Response signature |
+|---|---|
+| MX2201 | `01 01 07 04 04 00 04 04 ...` |
+| MX2203 | `01 01 0B 04 04 00 04 04 ...` |
+| MX2001 | known two-fragment MX2001 response |
+
+The logger MAC address is learned dynamically; no physical logger MAC is hard-coded.
+
+## MX2203 official conversion
+
+The MX2203 conversion was recovered from `OnsetSDK.dll` inside the HOBOconnect Android APK and validated against the physical logger export:
+
+```text
+C = raw × 175.72 / 16384 - 46.85
+F = C × 9/5 + 32
+```
+
+See [`src/modules/Telemetry/HOBOMX2001MX2201MX2203/ONSETSDK.md`](src/modules/Telemetry/HOBOMX2001MX2201MX2203/ONSETSDK.md).
+
+## Build and flash
+
+```powershell
+cd C:\Meshtastic\HOBO\firmware
+git fetch origin
+git switch --track origin/hobo-mx2001-mx2201-mx2203
+```
+
+If the local branch already exists:
+
+```powershell
+git switch hobo-mx2001-mx2201-mx2203
+git pull origin hobo-mx2001-mx2201-mx2203
+```
+
+Build:
+
+```powershell
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e seeed_xiao_nrf52840_kit
+```
+
+Flash:
+
+```powershell
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e seeed_xiao_nrf52840_kit -t upload
+```
+
+Optional serial monitor:
+
+```powershell
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" device monitor -b 115200
+```
+
+## Other production branches
+
+```text
+hobo-mx2001
+hobo-mx2201
+hobo-mx2201-mx2001
+hobo-mx2203
+hobo-mx2001-mx2201-mx2203   ← universal three-model build
+```
+
+Historical discovery/test branches are retained only for rollback and protocol history and should not be used for new deployments.
