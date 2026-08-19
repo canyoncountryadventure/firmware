@@ -55,7 +55,7 @@
 #include "modules/Telemetry/DeviceTelemetry.h"
 #endif
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
-#include "modules/Telemetry/HOBOUniversalTest/HOBOUniversalTest.h"
+#include "modules/Telemetry/HOBOMX2201MX2001/HOBOMX2201MX2001Telemetry.h"
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
 #include "modules/Telemetry/MX2001Diagnostic.h"
@@ -195,7 +195,7 @@ void setupModules()
     new DeviceTelemetryModule();
 #endif
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
-    new HOBOUniversalTestModule();
+    new HOBOMX2201MX2001TelemetryModule();
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
     new MX2001DiagnosticModule();
