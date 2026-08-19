@@ -167,6 +167,9 @@ uint8_t readChannel = 0;
 static constexpr uint32_t COMMAND_DELAY_MS = 400;
 static constexpr uint32_t READ_TIMEOUT_MS = 3000;
 static constexpr uint32_t REJECT_RETRY_MS = 60000;
+static constexpr uint32_t SERVICE_SETTLE_MS = 500;
+static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
+static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
 
 static constexpr uint16_t MX2201_MIN_RAW = 400;
 static constexpr uint16_t MX2201_MAX_RAW = 2400;
@@ -601,24 +604,73 @@ void connectCallback(uint16_t connHandle)
     connected = true;
     connectionHandle = connHandle;
 
-    LOG_INFO("HOBO TEST: BLE connected; discovering service");
+    LOG_INFO("HOBO TEST: BLE connected; settling before service discovery");
+    delay(SERVICE_SETTLE_MS);
 
-    if (!hoboService.discover(connHandle)) {
-        LOG_WARN("HOBO TEST: candidate has no HOBO service");
+    bool serviceFound = false;
+    for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS; ++attempt) {
+        LOG_INFO(
+            "HOBO TEST: service discovery attempt %u/%u",
+            attempt,
+            SERVICE_DISCOVERY_ATTEMPTS);
+
+        if (hoboService.discover(connHandle)) {
+            serviceFound = true;
+            break;
+        }
+
+        if (attempt < SERVICE_DISCOVERY_ATTEMPTS)
+            delay(SERVICE_RETRY_DELAY_MS);
+    }
+
+    if (!serviceFound) {
+        LOG_WARN("HOBO TEST: candidate has no HOBO service after retries");
         rejectCurrentCandidate();
         Bluefruit.disconnect(connHandle);
         return;
     }
 
-    if (!hoboCharacteristic.discover()) {
-        LOG_WARN("HOBO TEST: HOBO characteristic discovery failed");
+    bool characteristicFound = false;
+    for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS; ++attempt) {
+        if (hoboCharacteristic.discover()) {
+            characteristicFound = true;
+            break;
+        }
+
+        LOG_WARN(
+            "HOBO TEST: characteristic discovery attempt %u/%u failed",
+            attempt,
+            SERVICE_DISCOVERY_ATTEMPTS);
+
+        if (attempt < SERVICE_DISCOVERY_ATTEMPTS)
+            delay(SERVICE_RETRY_DELAY_MS);
+    }
+
+    if (!characteristicFound) {
+        LOG_WARN("HOBO TEST: HOBO characteristic discovery failed after retries");
         rejectCurrentCandidate();
         Bluefruit.disconnect(connHandle);
         return;
     }
 
-    if (!hoboCharacteristic.enableNotify()) {
-        LOG_WARN("HOBO TEST: notification enable failed");
+    bool notifyEnabled = false;
+    for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS; ++attempt) {
+        if (hoboCharacteristic.enableNotify()) {
+            notifyEnabled = true;
+            break;
+        }
+
+        LOG_WARN(
+            "HOBO TEST: notification enable attempt %u/%u failed",
+            attempt,
+            SERVICE_DISCOVERY_ATTEMPTS);
+
+        if (attempt < SERVICE_DISCOVERY_ATTEMPTS)
+            delay(SERVICE_RETRY_DELAY_MS);
+    }
+
+    if (!notifyEnabled) {
+        LOG_WARN("HOBO TEST: notification enable failed after retries");
         rejectCurrentCandidate();
         Bluefruit.disconnect(connHandle);
         return;
