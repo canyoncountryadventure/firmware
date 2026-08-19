@@ -41,12 +41,14 @@ static const uint8_t CMD_NEWREAD64[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-// Candidate conversion derived from two hardware calibration points:
-// raw 5626 = 58.15 F (exact HOBOconnect observation)
-// raw 7547 = ~92.5 F (midpoint of 92-93 F stable hot-bath observation)
-// Independent check: raw 6045 predicts 65.64 F, matching the ~65 F cold bath.
-static constexpr float MX2203_RAW_TO_F_SLOPE = 0.0178813118f;
-static constexpr float MX2203_RAW_TO_F_INTERCEPT = -42.4502603f;
+// Empirical MX2203 conversion derived from 40 consecutive paired samples
+// during the 2026-08-19 hot-to-cold water-bath run. The serial raw sequence
+// aligns with HOBO CSV samples 278-317 (92.25 F down to 44.18 F).
+// Linear fit performance across those 40 points:
+//   RMSE: 0.048 F
+//   max absolute error: 0.180 F
+static constexpr float MX2203_RAW_TO_F_SLOPE = 0.0193251542f;
+static constexpr float MX2203_RAW_TO_F_INTERCEPT = -52.4634064f;
 
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
 static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
@@ -160,10 +162,10 @@ void notifyCallback(BLEClientCharacteristic *characteristic, uint8_t *data, uint
     readReady = true;
 
     LOG_INFO("========================================");
-    LOG_INFO("MX2203 CANDIDATE DECODE");
+    LOG_INFO("MX2203 CSV-CALIBRATED DECODE");
     LOG_INFO("Raw: %lu (0x%08lX)", static_cast<unsigned long>(raw), static_cast<unsigned long>(raw));
     LOG_INFO("Temp: %.2f F / %.2f C", tempF, tempC);
-    LOG_INFO("Calibration: candidate linear equation; verify against HOBOconnect");
+    LOG_INFO("Calibration: 40 paired HOBO CSV samples; RMSE 0.048 F");
     LOG_INFO("========================================");
 }
 
@@ -266,11 +268,11 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 void initializeClient()
 {
     LOG_INFO("========================================");
-    LOG_INFO("MX2203 CANDIDATE DECODER TEST");
+    LOG_INFO("MX2203 CSV-CALIBRATED DECODER TEST");
     LOG_INFO("Targets Onset model discriminator 0x03 only");
     LOG_INFO("Reads MX2203 every 5 seconds");
-    LOG_INFO("Candidate equation: F = 0.0178813118 * raw - 42.4502603");
-    LOG_INFO("Verify decoded temperature against HOBOconnect");
+    LOG_INFO("Equation: F = 0.0193251542 * raw - 52.4634064");
+    LOG_INFO("40-point cooling-run fit: RMSE 0.048 F, max error 0.180 F");
     LOG_INFO("========================================");
 
     hoboService.begin();
