@@ -167,6 +167,7 @@ uint8_t readChannel = 0;
 static constexpr uint32_t COMMAND_DELAY_MS = 400;
 static constexpr uint32_t READ_TIMEOUT_MS = 3000;
 static constexpr uint32_t REJECT_RETRY_MS = 60000;
+static constexpr uint32_t TRANSIENT_RETRY_MS = 5000;
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
 static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
 static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
@@ -348,11 +349,11 @@ bool isRejectedCandidate(const uint8_t rawAddr[6])
     return memcmp(rawAddr, rejectedAddrRaw, 6) == 0;
 }
 
-void rejectCurrentCandidate()
+void rejectCurrentCandidate(uint32_t retryMs = REJECT_RETRY_MS)
 {
     memcpy(rejectedAddrRaw, candidateAddrRaw, 6);
     haveRejectedAddr = true;
-    rejectedUntilMs = millis() + REJECT_RETRY_MS;
+    rejectedUntilMs = millis() + retryMs;
 }
 
 bool isReadCommand(const uint8_t *bytes, size_t size)
@@ -625,7 +626,7 @@ void connectCallback(uint16_t connHandle)
 
     if (!serviceFound) {
         LOG_WARN("HOBO TEST: candidate has no HOBO service after retries");
-        rejectCurrentCandidate();
+        rejectCurrentCandidate(TRANSIENT_RETRY_MS);
         Bluefruit.disconnect(connHandle);
         return;
     }
@@ -648,7 +649,7 @@ void connectCallback(uint16_t connHandle)
 
     if (!characteristicFound) {
         LOG_WARN("HOBO TEST: HOBO characteristic discovery failed after retries");
-        rejectCurrentCandidate();
+        rejectCurrentCandidate(TRANSIENT_RETRY_MS);
         Bluefruit.disconnect(connHandle);
         return;
     }
@@ -671,7 +672,7 @@ void connectCallback(uint16_t connHandle)
 
     if (!notifyEnabled) {
         LOG_WARN("HOBO TEST: notification enable failed after retries");
-        rejectCurrentCandidate();
+        rejectCurrentCandidate(TRANSIENT_RETRY_MS);
         Bluefruit.disconnect(connHandle);
         return;
     }
