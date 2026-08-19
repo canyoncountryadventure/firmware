@@ -2,6 +2,13 @@
 
 This is the production implementation used by branch `hobo-mx2001-mx2201-mx2203`.
 
+## Supported hardware
+
+- Seeed XIAO nRF52840 + Wio-SX1262
+- RAK4631 / RAK19003
+
+Both targets were hardware-validated with MX2001, MX2201, and MX2203 on 2026-08-19.
+
 ## Supported logger data
 
 - **MX2001:** live water level + temperature
@@ -66,7 +73,7 @@ The MX2001 response arrives in the two hardware-proven fragments used by the pri
 
 ## Discovery and fallback
 
-The reader discovers Onset candidates dynamically from manufacturer data, the common HOBO service UUID, or a HOBO/MX local name. No logger MAC is hard-coded.
+The reader discovers Onset candidates dynamically from manufacturer data, the common HOBO service UUID, or a HOBO/MX local name. No production logger MAC is hard-coded.
 
 The first model probe is always:
 
@@ -77,12 +84,26 @@ This directly identifies MX2201 and MX2203 and normally identifies MX2001. For o
 
 A positively identified MX2203 advertisement does not receive MX2001/MX2201 metadata fallback commands.
 
+## Board integration
+
+`HOBOMX2001MX2201MX2203Telemetry.cpp` is the hardware-proven shared implementation used by the Seeed build.
+
+`HOBOMX2001MX2201MX2203TelemetryRAK.cpp` is the small RAK4631 compile adapter that reuses that exact implementation after the shared dependencies are loaded under the real `RAK_4631` configuration. This adapter was the code physically tested on the RAK4631.
+
+The RAK Meshtastic module hook still uses the historical `MX2001Diagnostic` include name, but on the canonical universal branch that header is only an alias to `HOBOMX2001MX2201MX2203TelemetryModule`. The old MX2001-only RAK implementation is not compiled on this branch.
+
+## BLE connection model
+
+The nRF52 Bluetooth layer allocates:
+
+- one BLE peripheral link for a Meshtastic phone connection
+- one BLE central link for the HOBO logger
+
+The HOBO reader intentionally maintains only one logger BLE connection at a time. If multiple valid HOBOs are nearby, candidate selection is discovery-order dependent. Intended field deployment places one HOBO near each radio.
+
 ## Code provenance
 
 - MX2001 + MX2201 behavior is based on the hardware-proven `hobo-mx2201-mx2001` reader.
 - MX2203 response parsing is based on the hardware-proven `hobo-mx2203` reader.
 - MX2203 temperature conversion comes from HOBOconnect `OnsetSDK.dll`, not a fitted field equation.
-
-## Production naming
-
-This folder is the active implementation. The older `HOBOMX2201MX2001` include path is retained only as a small compatibility router for the existing Meshtastic module registration.
+- RAK4631 universal behavior was physically validated before being folded into the canonical branch.
