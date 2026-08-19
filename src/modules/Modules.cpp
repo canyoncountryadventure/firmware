@@ -186,7 +186,6 @@ void setupModules()
 #if HAS_SCREEN && !MESHTASTIC_EXCLUDE_CANNEDMESSAGES
     if (config.display.displaymode != meshtastic_Config_DisplayConfig_DisplayMode_COLOR) {
         cannedMessageModule = new CannedMessageModule();
-        systemCommandsModule = new SystemCommandsModule();
     }
 #endif
 #if ARCH_PORTDUINO
@@ -257,10 +256,10 @@ void setupModules()
 #endif
 #if !MESHTASTIC_EXCLUDE_RANGETEST && !MESHTASTIC_EXCLUDE_GPS
     if (moduleConfig.has_range_test && moduleConfig.range_test.enabled)
-        rangeTestModule = new RangeTestModule();
+        new RangeTestModule();
 #endif
 #if defined(HAS_HARDWARE_WATCHDOG)
-    watchdog = new WatchdogThread();
+    watchdogThread = new WatchdogThread();
 #endif
     // NOTE! This module must be added LAST because it likes to check for replies from other modules and avoid sending extra
     // acks
