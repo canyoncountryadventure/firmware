@@ -41,14 +41,20 @@ static const uint8_t CMD_NEWREAD64[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-// Empirical MX2203 conversion derived from 40 consecutive paired samples
-// during the 2026-08-19 hot-to-cold water-bath run. The serial raw sequence
-// aligns with HOBO CSV samples 278-317 (92.25 F down to 44.18 F).
-// Linear fit performance across those 40 points:
-//   RMSE: 0.048 F
-//   max absolute error: 0.180 F
-static constexpr float MX2203_RAW_TO_F_SLOPE = 0.0193251542f;
-static constexpr float MX2203_RAW_TO_F_INTERCEPT = -52.4634064f;
+// Onset HOBOconnect / OnsetSDK maps MX2203 (PID 0x2203) to TempSensor2F.
+// TempSensor2F is the 14-bit version of the same linear temperature transfer
+// used by TempSensor32 on MX2201/MX2202 (12-bit). OnsetSDK initializes:
+//   SensorBitSize = 14
+//   CONST_A = 175.72
+//   CONST_B = 2^14 = 16384
+//   CONST_C = 46.85
+// and getCelsiusWithRawValue() performs:
+//   C = raw * CONST_A / CONST_B - CONST_C
+// This exact conversion matches the 2026-08-19 MX2203 HOBO CSV cooling run
+// to the displayed hundredth for the stable raw samples.
+static constexpr float MX2203_CONST_A = 175.72f;
+static constexpr float MX2203_FULL_RAW = 16384.0f;
+static constexpr float MX2203_CONST_C = 46.85f;
 
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
 static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
@@ -155,17 +161,18 @@ void notifyCallback(BLEClientCharacteristic *characteristic, uint8_t *data, uint
     }
 
     const uint32_t raw = readBE32(&data[8]);
-    const float tempF = MX2203_RAW_TO_F_SLOPE * static_cast<float>(raw) + MX2203_RAW_TO_F_INTERCEPT;
-    const float tempC = (tempF - 32.0f) * (5.0f / 9.0f);
+    const float tempC =
+        static_cast<float>(raw) * MX2203_CONST_A / MX2203_FULL_RAW - MX2203_CONST_C;
+    const float tempF = tempC * (9.0f / 5.0f) + 32.0f;
 
     readActive = false;
     readReady = true;
 
     LOG_INFO("========================================");
-    LOG_INFO("MX2203 CSV-CALIBRATED DECODE");
+    LOG_INFO("MX2203 ONSETSDK DECODE");
     LOG_INFO("Raw: %lu (0x%08lX)", static_cast<unsigned long>(raw), static_cast<unsigned long>(raw));
     LOG_INFO("Temp: %.2f F / %.2f C", tempF, tempC);
-    LOG_INFO("Calibration: 40 paired HOBO CSV samples; RMSE 0.048 F");
+    LOG_INFO("Conversion: OnsetSDK TempSensor2F, 14-bit, A=175.72 C=46.85");
     LOG_INFO("========================================");
 }
 
@@ -268,11 +275,11 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 void initializeClient()
 {
     LOG_INFO("========================================");
-    LOG_INFO("MX2203 CSV-CALIBRATED DECODER TEST");
+    LOG_INFO("MX2203 ONSETSDK DECODER TEST");
     LOG_INFO("Targets Onset model discriminator 0x03 only");
     LOG_INFO("Reads MX2203 every 5 seconds");
-    LOG_INFO("Equation: F = 0.0193251542 * raw - 52.4634064");
-    LOG_INFO("40-point cooling-run fit: RMSE 0.048 F, max error 0.180 F");
+    LOG_INFO("OnsetSDK: TempSensor2F, 14-bit");
+    LOG_INFO("Equation: C = raw * 175.72 / 16384 - 46.85");
     LOG_INFO("========================================");
 
     hoboService.begin();
