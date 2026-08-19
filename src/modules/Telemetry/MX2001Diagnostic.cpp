@@ -5,9 +5,11 @@
 #include "MX2001Diagnostic.h"
 
 #include "MeshService.h"
+#include "NodeDB.h"
 #include "main.h"
 
 #include <bluefruit.h>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -95,6 +97,11 @@ float latestStageFeet = NAN;
 
 uint16_t measurementSequence = 0;
 
+bool onDemandReadPending = false;
+bool onDemandReadInProgress = false;
+uint32_t onDemandRequester = 0;
+uint8_t onDemandChannel = 0;
+
 static constexpr uint32_t COMMAND_DELAY_MS = 500;
 static constexpr uint32_t STATUS_TIMEOUT_MS = 3000;
 static constexpr uint32_t NEWREAD_TIMEOUT_MS = 3000;
@@ -174,6 +181,38 @@ uint32_t nextRecordPrecheckDelayMs()
         return intervalMs / 2;
 
     return 500;
+}
+
+bool isReadCommand(const uint8_t *bytes, size_t size)
+{
+    if (bytes == nullptr || size == 0)
+        return false;
+
+    char command[24] = {};
+    size_t n = size;
+    if (n > sizeof(command) - 1)
+        n = sizeof(command) - 1;
+
+    memcpy(command, bytes, n);
+
+    char *p = command;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+        ++p;
+
+    if (*p == '/')
+        ++p;
+
+    if (strlen(p) < 4)
+        return false;
+
+    if (std::toupper(static_cast<unsigned char>(p[0])) != 'R' ||
+        std::toupper(static_cast<unsigned char>(p[1])) != 'E' ||
+        std::toupper(static_cast<unsigned char>(p[2])) != 'A' ||
+        std::toupper(static_cast<unsigned char>(p[3])) != 'D')
+        return false;
+
+    return p[4] == '\0' ||
+           std::isspace(static_cast<unsigned char>(p[4]));
 }
 
 bool isMX2001(const ble_gap_evt_adv_report_t *report)
@@ -444,6 +483,9 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
     statusReady = false;
     directReadActive = false;
     measurementReady = false;
+    onDemandReadPending = false;
+    onDemandReadInProgress = false;
+    onDemandRequester = 0;
     state = MX2001State::IDLE;
 }
 
@@ -454,6 +496,7 @@ void initializeClient()
     LOG_INFO("Reads: WL + temperature");
     LOG_INFO("Uses logger's actual configured interval");
     LOG_INFO("Mesh port: PRIVATE_APP 256");
+    LOG_INFO("DM command: READ");
     LOG_INFO("One packet per new logger record");
     LOG_INFO("========================================");
 
@@ -484,14 +527,99 @@ MX2001DiagnosticModule::MX2001DiagnosticModule()
       concurrency::OSThread(
           "MX2001")
 {
+    isPromiscuous = true;
     setIntervalFromNow(500);
+}
+
+bool MX2001DiagnosticModule::wantPacket(
+    const meshtastic_MeshPacket *p)
+{
+    if (p == nullptr)
+        return false;
+
+    return
+        p->decoded.portnum == meshtastic_PortNum_PRIVATE_APP ||
+        p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP;
 }
 
 ProcessMessage MX2001DiagnosticModule::handleReceived(
     const meshtastic_MeshPacket &mp)
 {
-    (void)mp;
+    if (mp.decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
+        return ProcessMessage::CONTINUE;
+
+    if (nodeDB == nullptr)
+        return ProcessMessage::CONTINUE;
+
+    const uint32_t ourNode = nodeDB->getNodeNum();
+
+    if (mp.to != ourNode || mp.from == ourNode)
+        return ProcessMessage::CONTINUE;
+
+    if (!isReadCommand(
+            mp.decoded.payload.bytes,
+            mp.decoded.payload.size))
+        return ProcessMessage::CONTINUE;
+
+    LOG_INFO(
+        "MX2001 READ DM received from !%08lx",
+        static_cast<unsigned long>(mp.from));
+
+    if (!connected) {
+        sendTextReply(
+            mp.from,
+            mp.channel,
+            "MX2001 unavailable");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (onDemandReadPending || onDemandReadInProgress) {
+        sendTextReply(
+            mp.from,
+            mp.channel,
+            "MX2001 read already in progress");
+        return ProcessMessage::CONTINUE;
+    }
+
+    onDemandRequester = mp.from;
+    onDemandChannel = mp.channel;
+    onDemandReadPending = true;
+
+    setIntervalFromNow(10);
+
     return ProcessMessage::CONTINUE;
+}
+
+bool MX2001DiagnosticModule::sendTextReply(
+    uint32_t destination,
+    uint8_t channel,
+    const char *text)
+{
+    if (text == nullptr || destination == 0)
+        return false;
+
+    meshtastic_MeshPacket *packet = allocDataPacket();
+
+    if (packet == nullptr) {
+        LOG_WARN("MX2001: text packet allocation failed");
+        return false;
+    }
+
+    size_t len = strlen(text);
+    if (len > sizeof(packet->decoded.payload.bytes))
+        len = sizeof(packet->decoded.payload.bytes);
+
+    memcpy(packet->decoded.payload.bytes, text, len);
+    packet->decoded.payload.size = len;
+    packet->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    packet->decoded.want_response = false;
+    packet->to = destination;
+    packet->channel = channel;
+    packet->want_ack = true;
+    packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
+
+    service->sendToMesh(packet, RX_SRC_LOCAL, true);
+    return true;
 }
 
 bool MX2001DiagnosticModule::sendMeasurementPacket(
@@ -594,6 +722,22 @@ int32_t MX2001DiagnosticModule::runOnce()
         return 500;
     }
 
+    if (onDemandReadPending &&
+        state == MX2001State::WAIT_EXPECTED_RECORD) {
+
+        onDemandReadPending = false;
+        onDemandReadInProgress = true;
+        pendingWritePointer = currentWritePointer;
+
+        LOG_INFO("========================================");
+        LOG_INFO("MX2001 ON-DEMAND READ");
+        LOG_INFO("Requesting level + temperature");
+        LOG_INFO("========================================");
+
+        state = MX2001State::SEND_NEWREAD;
+        stateDueMs = now;
+    }
+
     switch (state) {
     case MX2001State::SEND_INIT:
         if (!reached(now, stateDueMs))
@@ -693,6 +837,30 @@ int32_t MX2001DiagnosticModule::runOnce()
         if (measurementReady) {
             measurementReady = false;
 
+            if (onDemandReadInProgress) {
+                char reply[96];
+                snprintf(
+                    reply,
+                    sizeof(reply),
+                    "Level: %.2f ft\nTemp: %.1f F",
+                    latestStageFeet,
+                    latestTempF);
+
+                sendTextReply(
+                    onDemandRequester,
+                    onDemandChannel,
+                    reply);
+
+                LOG_INFO("MX2001 READ DM reply sent");
+
+                onDemandReadInProgress = false;
+                onDemandRequester = 0;
+
+                state = MX2001State::WAIT_EXPECTED_RECORD;
+                stateDueMs = now + POINTER_FINE_POLL_MS;
+                break;
+            }
+
             if (sendMeasurementPacket(
                     latestStageFeet,
                     latestTempF,
@@ -712,8 +880,21 @@ int32_t MX2001DiagnosticModule::runOnce()
         if (reached(now, stateDueMs)) {
             directReadActive = false;
             LOG_WARN("MX2001 NEWREAD timeout");
-            state = MX2001State::SEND_NEWREAD;
-            stateDueMs = now + 1000;
+
+            if (onDemandReadInProgress) {
+                sendTextReply(
+                    onDemandRequester,
+                    onDemandChannel,
+                    "MX2001 read failed");
+
+                onDemandReadInProgress = false;
+                onDemandRequester = 0;
+                state = MX2001State::WAIT_EXPECTED_RECORD;
+                stateDueMs = now + POINTER_FINE_POLL_MS;
+            } else {
+                state = MX2001State::SEND_NEWREAD;
+                stateDueMs = now + 1000;
+            }
         }
         break;
 
