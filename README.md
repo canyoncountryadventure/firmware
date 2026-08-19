@@ -1,16 +1,18 @@
 # DWQ Meshtastic HOBO Firmware
 
-This repository preserves two separate HOBO logger integrations built on Meshtastic firmware.
+This repository preserves separate HOBO logger integrations built on Meshtastic firmware.
+
+The long-lived branches are named for the **logger model**, not the radio board. Hardware such as RAK4631 or Seeed XIAO is treated as an implementation target inside each logger integration.
 
 ## Branch map
 
-| Branch | Purpose | Hardware | Status |
+| Branch | Purpose | Currently proven hardware | Status |
 |---|---|---|---|
 | `mx2201-integration` | HOBO MX2201 temperature integration | Seeed XIAO nRF52840 + Wio-SX1262 | Stable / default branch |
-| `mx2001-rak` | HOBO MX2001 water-level + temperature integration | RAK19003 + RAK4631 | Finalized working branch |
+| `mx2001-integration` | HOBO MX2001 water-level + temperature integration | RAK19003 + RAK4631 | Finalized working branch |
 | `mx2201-newread-test` | Historical MX2201 NEWREAD64 test work | Seeed XIAO nRF52840 + Wio-SX1262 | Historical only; do not deploy from this branch |
 
-Keep MX2201 and MX2001 work on their respective branches. The two integrations target different field hardware and should not be mixed during builds or deployment.
+If a logger is later ported to another board, keep the same integration branch name. Board-specific development can use temporary feature branches such as `mx2201-rak4631` or `mx2001-seeed-xiao` until validated.
 
 ---
 
@@ -22,7 +24,7 @@ This default branch contains the bench-proven HOBO MX2201 integration for the Se
 **Current stable firmware commit:** `38891aa8e13708ce97de1d3bb4c493eafecb2886`  
 **Legacy rollback tag:** `mx2201-stable-2026-08-13`  
 **Meshtastic base:** `2.7.26` at `54e0d8d0ab2ff56b3a9ce967e53f79e49af560fb`  
-**PlatformIO target:** `seeed_xiao_nrf52840_kit`  
+**Currently proven PlatformIO target:** `seeed_xiao_nrf52840_kit`  
 **Full technical documentation:** [MX2201_INTEGRATION.md](MX2201_INTEGRATION.md)
 
 ## Current proven behavior
@@ -86,7 +88,7 @@ Stable tags are immutable recovery points. Do not move or overwrite them.
 Keep separate local clones/workspaces:
 
 ```text
-C:\Meshtastic\MX2001\firmware   -> mx2001-rak
+C:\Meshtastic\MX2001\firmware   -> mx2001-integration
 C:\Meshtastic\MX2201\firmware   -> mx2201-integration
 ```
 
