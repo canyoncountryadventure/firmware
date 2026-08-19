@@ -1,6 +1,8 @@
 #pragma once
 
-#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+#include "configuration.h"
+
+#if defined(ARCH_NRF52) && (defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631))
 
 #include "../mesh/generated/meshtastic/telemetry.pb.h"
 #include "ProtobufModule.h"
