@@ -72,6 +72,16 @@ static constexpr uint32_t COMMAND_DELAY_MS = 400;
 static constexpr uint32_t READ_TIMEOUT_MS = 3000;
 static constexpr uint32_t SAMPLE_INTERVAL_MS = 3000;
 
+// A plateau requires one full minute of samples whose raw spread is no more
+// than four counts. This is intentionally conservative so a logger that is
+// still warming toward the bath temperature is not declared stable early.
+static constexpr uint8_t STABILITY_SAMPLE_COUNT = 20;
+static constexpr uint32_t STABILITY_MAX_SPREAD = 4;
+uint32_t stabilitySamples[STABILITY_SAMPLE_COUNT] = {};
+uint8_t stabilityCount = 0;
+uint8_t stabilityIndex = 0;
+bool plateauAnnounced = false;
+
 bool reached(uint32_t now, uint32_t target)
 {
     return static_cast<int32_t>(now - target) >= 0;
@@ -84,6 +94,75 @@ uint32_t readBE32(const uint8_t *p)
         (static_cast<uint32_t>(p[1]) << 16) |
         (static_cast<uint32_t>(p[2]) << 8) |
         static_cast<uint32_t>(p[3]);
+}
+
+void resetStabilityWindow()
+{
+    memset(stabilitySamples, 0, sizeof(stabilitySamples));
+    stabilityCount = 0;
+    stabilityIndex = 0;
+    plateauAnnounced = false;
+}
+
+void updateStabilityWindow(uint32_t raw)
+{
+    stabilitySamples[stabilityIndex] = raw;
+    stabilityIndex = static_cast<uint8_t>((stabilityIndex + 1) % STABILITY_SAMPLE_COUNT);
+
+    if (stabilityCount < STABILITY_SAMPLE_COUNT)
+        ++stabilityCount;
+
+    if (stabilityCount < STABILITY_SAMPLE_COUNT) {
+        LOG_INFO(
+            "MX2203 CAL: stability window %u/%u samples",
+            stabilityCount,
+            STABILITY_SAMPLE_COUNT);
+        return;
+    }
+
+    uint32_t minRaw = stabilitySamples[0];
+    uint32_t maxRaw = stabilitySamples[0];
+    uint64_t sumRaw = 0;
+
+    for (uint8_t i = 0; i < STABILITY_SAMPLE_COUNT; ++i) {
+        const uint32_t value = stabilitySamples[i];
+        if (value < minRaw)
+            minRaw = value;
+        if (value > maxRaw)
+            maxRaw = value;
+        sumRaw += value;
+    }
+
+    const uint32_t spread = maxRaw - minRaw;
+    const uint32_t average = static_cast<uint32_t>(
+        (sumRaw + (STABILITY_SAMPLE_COUNT / 2)) / STABILITY_SAMPLE_COUNT);
+
+    if (spread <= STABILITY_MAX_SPREAD) {
+        if (!plateauAnnounced) {
+            LOG_INFO("########################################");
+            LOG_INFO("MX2203 CAL: STABLE RAW PLATEAU DETECTED");
+            LOG_INFO(
+                "STABLE RAW: %lu (window min=%lu max=%lu spread=%lu)",
+                static_cast<unsigned long>(average),
+                static_cast<unsigned long>(minRaw),
+                static_cast<unsigned long>(maxRaw),
+                static_cast<unsigned long>(spread));
+            LOG_INFO("Now stop serial and immediately read exact temperature in HOBOconnect");
+            LOG_INFO("########################################");
+            plateauAnnounced = true;
+        }
+    } else {
+        if (plateauAnnounced) {
+            LOG_INFO("MX2203 CAL: plateau lost; sensor is changing again");
+            plateauAnnounced = false;
+        }
+
+        LOG_INFO(
+            "MX2203 CAL: still changing; 60s raw range=%lu..%lu spread=%lu",
+            static_cast<unsigned long>(minRaw),
+            static_cast<unsigned long>(maxRaw),
+            static_cast<unsigned long>(spread));
+    }
 }
 
 void makeHumanMac(const uint8_t in[6], uint8_t out[6])
@@ -203,6 +282,8 @@ void notifyCallback(
         LOG_INFO("Known calibration point: raw 5626 = 58.15 F / 14.53 C");
         LOG_INFO("No temperature conversion assumed yet");
         LOG_INFO("========================================");
+
+        updateStabilityWindow(latestRaw);
     }
 }
 
@@ -285,6 +366,7 @@ void connectCallback(uint16_t connHandle)
     LOG_INFO("MX2203 CAL: command channel ready");
     readActive = false;
     readReady = false;
+    resetStabilityWindow();
     state = State::SEND_INIT;
     dueMs = millis() + 500;
 }
@@ -299,16 +381,18 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
     connectionHandle = BLE_CONN_HANDLE_INVALID;
     readActive = false;
     readReady = false;
+    resetStabilityWindow();
     state = State::IDLE;
 }
 
 void initializeClient()
 {
     LOG_INFO("========================================");
-    LOG_INFO("MX2203 CALIBRATION SAMPLER");
+    LOG_INFO("MX2203 HOT-BATH CALIBRATION SAMPLER");
     LOG_INFO("Only Onset model discriminator 0x03 is accepted");
     LOG_INFO("NEWREAD64 raw TempSensor32 sampled every 3 seconds");
-    LOG_INFO("No conversion is assumed yet");
+    LOG_INFO("Stable plateau = 20 samples / ~60 seconds, spread <= 4 raw counts");
+    LOG_INFO("Wait for STABLE RAW before checking HOBOconnect");
     LOG_INFO("========================================");
 
     hoboService.begin();
