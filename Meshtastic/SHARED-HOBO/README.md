@@ -1,37 +1,113 @@
 # Shared HOBO Protocol
 
-This folder documents the common HOBO logic used by both production radio targets:
+This folder documents the universal HOBO logic shared by both production radio targets:
 
 - Seeed XIAO nRF52840 + Wio-SX1262
 - RAK4631 / RAK19003
 
-Both use the same HOBO BLE protocol implementation. The radio-specific code only handles board integration/compilation.
+## Production branches
 
-## Production branch
+Current production:
 
 ```text
 hobo-mx2001-mx2201-mx2203
 ```
 
-## Supported loggers
-
-| Logger | Data returned by direct `READ` |
-|---|---|
-| MX2001 | Water level + temperature |
-| MX2201 | Temperature |
-| MX2203 | Temperature |
-
-## Meshtastic command
-
-Send a direct text message to the field node:
+Frozen validated snapshot:
 
 ```text
-READ
+hobo-universal-validated-2026-08-19
 ```
 
-`/READ`, lowercase, and mixed case are accepted.
+## Supported loggers
 
-The firmware does not periodically poll the HOBO in this production build. It keeps/establishes a BLE connection, waits for a direct `READ`, performs a fresh `NEWREAD64` measurement, and replies over Meshtastic.
+| Logger | Automatic telemetry | Direct `READ` |
+|---|---|---|
+| MX2001 | Water level + temperature | Water level + temperature |
+| MX2201 | Temperature | Temperature |
+| MX2203 | Temperature | Temperature |
+
+## Automatic telemetry timing
+
+The production firmware **does automatically transmit new HOBO records**.
+
+It does not use a blind periodic radio timer. Instead, it synchronizes to the logger itself:
+
+1. Connect to the HOBO over BLE.
+2. Perform an identification/probe `NEWREAD64`; this startup probe is not automatically transmitted.
+3. Request HOBO `STATUS`.
+4. Read the logger's configured logging interval and current write pointer.
+5. Poll until the write pointer advances, establishing the real logger record boundary.
+6. Perform one fresh `NEWREAD64`.
+7. Queue one Meshtastic packet.
+8. Mark that write pointer transmitted only after successful queueing.
+9. Repeat at each subsequent HOBO record boundary.
+
+This means the radio follows whatever interval is configured in the physical HOBO: 20 seconds, 300 seconds, 600 seconds, etc.
+
+A direct manual `READ` is independent of this automatic schedule and does not consume the pending automatic pointer.
+
+If repeated `STATUS` requests fail, automatic telemetry pauses and retries `STATUS`; it does not revert to guessed periodic transmissions.
+
+### Final interval validation
+
+On physical RAK4631 hardware, MX2201 logger `E4:27:8C:B9:F4:B8` was configured for a 20-second interval. Consecutive automatic packet timing was observed as:
+
+```text
+count=1  pointer_to_tx=202 ms  cadence=0 ms
+count=2  pointer_to_tx=202 ms  cadence=19848 ms
+count=3  pointer_to_tx=202 ms  cadence=19879 ms
+```
+
+Average non-baseline cadence: **19.864 seconds**.
+
+Each packet followed a confirmed HOBO write-pointer change and fresh `NEWREAD64` read.
+
+## Meshtastic commands
+
+Commands are sent as direct text messages to the field radio. A leading `/` is optional and matching is case-insensitive.
+
+### `LOGGER`
+
+Reports the connected logger without forcing a measurement:
+
+```text
+HOBO CONNECTED
+Model: MX2201
+MAC: E4:27:8C:B9:F4:B8
+BLE: -67 dBm
+Interval: 20 sec
+Lock: OFF
+```
+
+When locked it also reports the saved target MAC. If the target is absent, it reports that it is waiting for the locked target.
+
+### `READ`
+
+Performs one fresh `NEWREAD64` measurement and replies directly to the requester. The reply includes model, full BLE MAC, BLE RSSI and the current measurement.
+
+### `LOCK`
+
+Persistently assigns the radio to the currently connected, positively identified MX2001/MX2201/MX2203. The logger BLE address is saved in:
+
+```text
+/prefs/hobo_lock.bin
+```
+
+After reboot, the radio restores that target and ignores every other HOBO until the assignment is cleared.
+
+### `UNLOCK`
+
+Deletes the saved logger assignment, releases the current BLE link and resumes discovery of any supported HOBO.
+
+## Field workflow
+
+1. Flash the universal firmware.
+2. Keep the radio unlocked during bench work.
+3. At the actual monitoring site, place it beside the intended HOBO.
+4. Send `LOGGER` and verify model, MAC and logging interval.
+5. Send `LOCK`.
+6. Reboot once and verify with `LOGGER` before leaving the site.
 
 ## BLE protocol
 
@@ -59,6 +135,14 @@ NEWREAD64:
 01 01 08 04 04 00 00 00 00 00 00
 ```
 
+STATUS:
+
+```text
+01 01 08 04 05 00 00 00 00 00 00
+```
+
+The STATUS response supplies the write pointer and logger interval used for automatic scheduling.
+
 ## Model response identification
 
 MX2201:
@@ -73,52 +157,42 @@ MX2203:
 01 01 0B 04 04 00 04 04 [TEMP32 BE] ...
 ```
 
-MX2001 uses the known two-fragment live response recovered and physically validated during the MX2001 work.
+MX2001 uses the hardware-proven two-fragment live response.
 
-## Temperature / level decoding
+## Decoding
 
 ### MX2203
-
-The production code uses the conversion recovered from `OnsetSDK.dll` in the HOBOconnect Android APK:
 
 ```text
 C = raw × 175.72 / 16384 - 46.85
 F = C × 9/5 + 32
 ```
 
-This was validated against the physical MX2203 data export.
+Recovered from `OnsetSDK.dll` and hardware validated.
 
 ### MX2201
-
-The current production universal code intentionally preserves the already hardware-proven calibration used by the combined MX2201/MX2001 reader:
 
 ```text
 F = 0.0771942720 × raw - 52.2825573
 C = (F - 32) × 5/9
 ```
 
-The exact HOBOconnect `TempSensor32` formula is also known from the APK reverse engineering, but the production universal code was not changed after successful hardware validation solely for cosmetic/precision cleanup.
-
 ### MX2001
-
-Current production decoding preserves the hardware-proven MX2001 path:
 
 ```text
 Temperature F = -0.1805 × raw + 169.64
 Level feet = big-endian stage float in meters × 3.280839895
 ```
 
-## Discovery behavior
+## Discovery and assignment behavior
 
-No logger MAC is hard-coded in the production universal firmware.
+No production logger MAC is hard-coded in the firmware.
 
-The node scans for Onset/HOBO candidates and connects to one valid logger at a time. If multiple HOBOs are simultaneously in range, it may connect to whichever suitable candidate it reaches first.
+When unlocked, the node discovers compatible HOBOs dynamically and maintains one logger BLE connection at a time. If several are nearby, discovery order determines which one it initially selects.
 
-For the intended field deployment this is acceptable because one monitoring site is expected to have one nearby HOBO logger.
+When `LOCK` is active, only the saved BLE MAC is eligible for connection. If that logger is unavailable, the radio waits for it instead of silently switching to another site/logger.
 
 ## Source files
-
-Primary implementation:
 
 ```text
 src/modules/Telemetry/HOBOMX2001MX2201MX2203/
@@ -129,7 +203,7 @@ src/modules/Telemetry/HOBOMX2001MX2201MX2203/
 └── README.md
 ```
 
-Shared Bluetooth setup:
+Shared BLE setup:
 
 ```text
 src/platform/nrf52/NRF52Bluetooth.cpp
@@ -141,14 +215,4 @@ Module registration:
 src/modules/Modules.cpp
 ```
 
-The Bluetooth layer reserves one BLE peripheral connection for the Meshtastic phone and one BLE central connection for the HOBO logger on both supported nRF52840 targets.
-
-## APK reverse-engineering record
-
-Permanent details from the HOBOconnect / OnsetSDK reverse engineering are kept in:
-
-```text
-src/modules/Telemetry/HOBOMX2001MX2201MX2203/ONSETSDK.md
-```
-
-Do not replace those recovered formulas or protocol facts with guesses from unsynchronized field samples.
+Permanent APK/OnsetSDK reverse-engineering details remain in `ONSETSDK.md`.
