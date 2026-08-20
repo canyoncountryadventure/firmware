@@ -258,3 +258,27 @@ The HOBO reader intentionally maintains only one logger BLE connection at a time
 - MX2203 temperature conversion comes from HOBOconnect `OnsetSDK.dll`, not a fitted field equation.
 - RAK4631 universal BLE behavior has been physically validated with MX2001, MX2201, and MX2203.
 - MX2001, MX2201, and MX2203 `STATUS` responses have now all been observed on hardware, including logging intervals and changing write pointers.
+
+### Final RAK4631 timing validation — 2026-08-19
+
+The final pointer-gated firmware was bench-tested on physical RAK4631 hardware against MX2001, MX2201, and MX2203 loggers.
+
+For MX2201 logger `E4:27:8C:B9:F4:B8` configured for a 20-second logging interval, consecutive automatic packets were observed at:
+
+```text
+count=1  pointer_to_tx=202 ms  cadence=0 ms
+count=2  pointer_to_tx=202 ms  cadence=19848 ms
+count=3  pointer_to_tx=202 ms  cadence=19879 ms
+```
+
+The measured non-baseline cadence averaged 19.864 seconds. Each automatic packet was generated only after a `STATUS` write-pointer change and a fresh `NEWREAD64` read. No free-running automatic timer is used for record generation.
+
+Persistent logger assignment was also validated across a real RAK4631 reboot: the saved BLE MAC was restored from `/prefs/hobo_lock.bin`, non-target HOBO advertisements were ignored, and the node reconnected only to the saved logger.
+
+Field deployment workflow is intentionally simple:
+
+1. Flash the universal firmware.
+2. Place the radio beside the intended HOBO.
+3. Send `LOGGER` and verify model, MAC, and logging interval.
+4. Send `LOCK` only when physically installing that radio with that logger.
+5. Reboot once and use `LOGGER` to verify the saved target before leaving the site.
