@@ -4,9 +4,12 @@
 
 #include "HOBOMX2001MX2201MX2203Telemetry.h"
 
+#include "../../../mesh/generated/meshtastic/telemetry.pb.h"
 #include "MeshService.h"
 #include "NodeDB.h"
+#include "RTC.h"
 #include "main.h"
+#include "pb_encode.h"
 
 #include <bluefruit.h>
 #include <cctype>
@@ -50,6 +53,11 @@ static const uint8_t CMD_NEWREAD64[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
+static const uint8_t CMD_STATUS[] = {
+    0x01, 0x01, 0x08, 0x04, 0x05,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
 static const uint8_t CMD_MX2001_META0[] = {
     0x01, 0x01, 0x0A, 0x0A, 0x01,
     0x00, 0x00, 0x00, 0x00,
@@ -90,6 +98,13 @@ enum class MetaProfile : uint8_t
     MX2201
 };
 
+enum class ReadPurpose : uint8_t
+{
+    PROBE = 0,
+    AUTOMATIC,
+    ON_DEMAND
+};
+
 enum class UniversalState : uint8_t
 {
     IDLE = 0,
@@ -101,6 +116,8 @@ enum class UniversalState : uint8_t
     WAIT_META8,
     SEND_READ,
     WAIT_READ,
+    SEND_STATUS,
+    WAIT_STATUS,
     READY
 };
 
@@ -111,6 +128,7 @@ uint16_t connectionHandle = BLE_CONN_HANDLE_INVALID;
 
 LoggerType loggerType = LoggerType::UNKNOWN;
 MetaProfile activeMetaProfile = MetaProfile::NONE;
+ReadPurpose readPurpose = ReadPurpose::PROBE;
 UniversalState universalState = UniversalState::IDLE;
 uint32_t stateDueMs = 0;
 
@@ -142,6 +160,17 @@ uint16_t mx2001Fragment2Length = 0;
 bool gotMX2001Fragment1 = false;
 bool gotMX2001Fragment2 = false;
 
+bool statusReady = false;
+uint32_t currentWritePointer = 0;
+uint32_t lastWritePointer = 0;
+uint32_t pendingWritePointer = 0;
+uint16_t loggerIntervalSeconds = 0;
+bool haveStatusBaseline = false;
+bool statusTrackingAvailable = true;
+uint8_t consecutiveStatusTimeouts = 0;
+uint32_t nextStatusCheckMs = 0;
+uint16_t measurementSequence = 0;
+
 bool readRequestPending = false;
 bool readRequestInProgress = false;
 bool readFailureReplyPending = false;
@@ -150,19 +179,21 @@ uint8_t readChannel = 0;
 
 static constexpr uint32_t COMMAND_DELAY_MS = 400;
 static constexpr uint32_t READ_TIMEOUT_MS = 3000;
+static constexpr uint32_t STATUS_TIMEOUT_MS = 3000;
+static constexpr uint32_t POINTER_FINE_POLL_MS = 500;
+static constexpr uint8_t STATUS_TIMEOUT_LIMIT = 3;
+static constexpr uint32_t FALLBACK_AUTO_INTERVAL_MS = 60000;
 static constexpr uint32_t REJECT_RETRY_MS = 60000;
 static constexpr uint32_t TRANSIENT_RETRY_MS = 5000;
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
 static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
 static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
 
-// Preserve the hardware-proven MX2201 conversion from the combined reader.
 static constexpr uint32_t MX2201_MIN_RAW = 400;
 static constexpr uint32_t MX2201_MAX_RAW = 2400;
 static constexpr float MX2201_RAW_TO_F_SLOPE = 0.0771942720f;
 static constexpr float MX2201_RAW_TO_F_INTERCEPT = -52.2825573f;
 
-// HOBOconnect / OnsetSDK TempSensor2F conversion for MX2203.
 static constexpr float MX2203_CONST_A = 175.72f;
 static constexpr float MX2203_FULL_RAW = 16384.0f;
 static constexpr float MX2203_CONST_C = 46.85f;
@@ -219,6 +250,34 @@ const char *loggerTypeName(LoggerType type)
     default:
         return "UNKNOWN";
     }
+}
+
+uint32_t nextRecordPrecheckDelayMs()
+{
+    if (loggerIntervalSeconds == 0)
+        return 5000;
+
+    const uint32_t intervalMs =
+        static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL;
+
+    if (intervalMs > 3000)
+        return intervalMs - 2000;
+    if (intervalMs > 1000)
+        return intervalMs / 2;
+
+    return 500;
+}
+
+uint32_t fallbackAutoIntervalMs()
+{
+    if (loggerIntervalSeconds == 0)
+        return FALLBACK_AUTO_INTERVAL_MS;
+
+    uint32_t intervalMs =
+        static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL;
+    if (intervalMs < 1000)
+        intervalMs = 1000;
+    return intervalMs;
 }
 
 bool containsAsciiIgnoreCase(const uint8_t *data, uint16_t length, const char *needle)
@@ -285,12 +344,9 @@ CandidateInfo inspectAdvertisement(const ble_gap_evt_adv_report_t *report)
             payload[0] == 0xC5 && payload[1] == 0x00) {
             result.onsetManufacturer = true;
 
-            // Existing MX2001 discovery hint retained from the proven reader.
             if (payloadLength == 22)
                 result.likelyMX2001 = true;
 
-            // Hardware-observed MX2203 manufacturer signature:
-            // C5 00 ... 01 03 22 02 ...
             if (payloadLength >= 10 &&
                 payload[6] == 0x01 && payload[7] == 0x03 &&
                 payload[8] == 0x22 && payload[9] == 0x02) {
@@ -347,37 +403,38 @@ void rejectCurrentCandidate(uint32_t retryMs = REJECT_RETRY_MS)
     rejectedUntilMs = millis() + retryMs;
 }
 
-bool isReadCommand(const uint8_t *bytes, size_t size)
+bool isCommand(const uint8_t *bytes, size_t size, const char *expected)
 {
-    if (bytes == nullptr || size == 0)
+    if (bytes == nullptr || size == 0 || expected == nullptr)
         return false;
 
-    char command[24] = {};
+    char command[32] = {};
     size_t n = size;
     if (n > sizeof(command) - 1)
         n = sizeof(command) - 1;
-
     memcpy(command, bytes, n);
 
     char *p = command;
     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
         ++p;
-
     if (*p == '/')
         ++p;
 
-    if (strlen(p) < 4)
-        return false;
-
-    if (std::toupper(static_cast<unsigned char>(p[0])) != 'R' ||
-        std::toupper(static_cast<unsigned char>(p[1])) != 'E' ||
-        std::toupper(static_cast<unsigned char>(p[2])) != 'A' ||
-        std::toupper(static_cast<unsigned char>(p[3])) != 'D') {
-        return false;
+    const size_t expectedLength = strlen(expected);
+    for (size_t i = 0; i < expectedLength; ++i) {
+        if (p[i] == '\0')
+            return false;
+        if (std::toupper(static_cast<unsigned char>(p[i])) !=
+            std::toupper(static_cast<unsigned char>(expected[i]))) {
+            return false;
+        }
     }
 
-    return p[4] == '\0' ||
-           std::isspace(static_cast<unsigned char>(p[4]));
+    p += expectedLength;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+        ++p;
+
+    return *p == '\0';
 }
 
 void resetMeasurementCapture()
@@ -460,11 +517,37 @@ void notifyCallback(
 {
     (void)characteristic;
 
-    if (!directReadActive || data == nullptr || len == 0)
+    if (data == nullptr || len == 0)
         return;
 
-    // MX2203 NEWREAD64 response:
-    // 01 01 0B 04 04 00 04 04 [TEMP32 BE] ...
+    if (len >= 14 &&
+        data[0] == 0x01 && data[1] == 0x02 &&
+        data[2] == 0x04 && data[3] == 0x05) {
+
+        currentWritePointer =
+            (static_cast<uint32_t>(data[8]) << 24) |
+            (static_cast<uint32_t>(data[9]) << 16) |
+            (static_cast<uint32_t>(data[10]) << 8) |
+            static_cast<uint32_t>(data[11]);
+
+        loggerIntervalSeconds =
+            static_cast<uint16_t>(
+                (static_cast<uint16_t>(data[12]) << 8) |
+                static_cast<uint16_t>(data[13]));
+
+        statusReady = true;
+
+        LOG_DEBUG(
+            "HOBO universal STATUS model=%s pointer=0x%08lX interval=%u",
+            loggerTypeName(loggerType),
+            static_cast<unsigned long>(currentWritePointer),
+            loggerIntervalSeconds);
+        return;
+    }
+
+    if (!directReadActive)
+        return;
+
     if (len >= 12 &&
         data[0] == 0x01 && data[1] == 0x01 && data[2] == 0x0B &&
         data[3] == 0x04 && data[4] == 0x04 && data[5] == 0x00 &&
@@ -496,8 +579,6 @@ void notifyCallback(
         return;
     }
 
-    // MX2201 NEWREAD64 response:
-    // 01 01 07 04 04 00 04 04 [TEMP32 BE] ...
     if (len >= 12 &&
         data[0] == 0x01 && data[1] == 0x01 && data[2] == 0x07 &&
         data[3] == 0x04 && data[4] == 0x04 && data[5] == 0x00 &&
@@ -524,7 +605,6 @@ void notifyCallback(
         return;
     }
 
-    // MX2001 first NEWREAD64 fragment.
     if (len >= 20 &&
         data[0] == 0x01 && data[1] == 0x02 &&
         data[2] == 0x04 && data[3] == 0x04) {
@@ -649,13 +729,25 @@ void connectCallback(uint16_t connHandle)
 
     loggerType = LoggerType::UNKNOWN;
     activeMetaProfile = MetaProfile::NONE;
+    readPurpose = ReadPurpose::PROBE;
     probeAttempt = 0;
     resetMeasurementCapture();
+
+    statusReady = false;
+    currentWritePointer = 0;
+    lastWritePointer = 0;
+    pendingWritePointer = 0;
+    loggerIntervalSeconds = 0;
+    haveStatusBaseline = false;
+    statusTrackingAvailable = true;
+    consecutiveStatusTimeouts = 0;
+    nextStatusCheckMs = 0;
 
     universalState = UniversalState::SEND_INIT;
     stateDueMs = millis() + 500;
 
     LOG_INFO("HOBO universal: BLE command channel ready");
+    logMac("HOBO universal locked logger:", loggerMac);
 }
 
 void disconnectCallback(uint16_t connHandle, uint8_t reason)
@@ -669,8 +761,19 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
     connectionHandle = BLE_CONN_HANDLE_INVALID;
     loggerType = LoggerType::UNKNOWN;
     activeMetaProfile = MetaProfile::NONE;
+    readPurpose = ReadPurpose::PROBE;
     universalState = UniversalState::IDLE;
     resetMeasurementCapture();
+
+    statusReady = false;
+    currentWritePointer = 0;
+    lastWritePointer = 0;
+    pendingWritePointer = 0;
+    loggerIntervalSeconds = 0;
+    haveStatusBaseline = false;
+    statusTrackingAvailable = true;
+    consecutiveStatusTimeouts = 0;
+    nextStatusCheckMs = 0;
 
     if (readRequestInProgress || readRequestPending) {
         readRequestInProgress = false;
@@ -713,9 +816,6 @@ MetaProfile alternateMetaProfile(MetaProfile profile)
 
 bool prepareFallbackProbe()
 {
-    // The MX2203 is hardware-proven to answer the direct INIT + NEWREAD64 path.
-    // Do not send MX2001/MX2201 metadata commands to a positively identified
-    // MX2203 advertisement if its direct read fails.
     if (candidateLikelyMX2203)
         return false;
 
@@ -793,7 +893,37 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
 
-    if (!isReadCommand(mp.decoded.payload.bytes, mp.decoded.payload.size))
+    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOGGER")) {
+        char reply[180] = {};
+
+        if (!connected) {
+            snprintf(reply, sizeof(reply), "HOBO NOT CONNECTED");
+        } else if (loggerIntervalSeconds > 0) {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: %u sec",
+                loggerTypeName(loggerType),
+                loggerMac[0], loggerMac[1], loggerMac[2],
+                loggerMac[3], loggerMac[4], loggerMac[5],
+                loggerBleRssi,
+                loggerIntervalSeconds);
+        } else {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: detecting",
+                loggerTypeName(loggerType),
+                loggerMac[0], loggerMac[1], loggerMac[2],
+                loggerMac[3], loggerMac[4], loggerMac[5],
+                loggerBleRssi);
+        }
+
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (!isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "READ"))
         return ProcessMessage::CONTINUE;
 
     if (!connected) {
@@ -849,6 +979,131 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 {
     const uint32_t now = millis();
 
+    auto sendTemperatureTelemetry = [&](float temperatureC) -> bool {
+        meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
+        telemetry.time = getTime();
+        telemetry.which_variant = meshtastic_Telemetry_environment_metrics_tag;
+        telemetry.variant.environment_metrics = meshtastic_EnvironmentMetrics_init_zero;
+        telemetry.variant.environment_metrics.has_temperature = true;
+        telemetry.variant.environment_metrics.temperature = temperatureC;
+
+        if (nodeDB != nullptr) {
+            nodeDB->updateTelemetry(
+                nodeDB->getNodeNum(),
+                telemetry,
+                RX_SRC_LOCAL);
+        }
+
+        meshtastic_MeshPacket *packet = allocDataPacket();
+        if (packet == nullptr) {
+            LOG_WARN("HOBO universal: telemetry packet allocation failed");
+            return false;
+        }
+
+        const size_t encoded = pb_encode_to_bytes(
+            packet->decoded.payload.bytes,
+            sizeof(packet->decoded.payload.bytes),
+            &meshtastic_Telemetry_msg,
+            &telemetry);
+
+        if (encoded == 0) {
+            LOG_WARN("HOBO universal: telemetry protobuf encode failed");
+            return false;
+        }
+
+        packet->decoded.payload.size = encoded;
+        packet->decoded.portnum = meshtastic_PortNum_TELEMETRY_APP;
+        packet->decoded.want_response = false;
+        packet->to = NODENUM_BROADCAST;
+        packet->priority =
+            config.device.role == meshtastic_Config_DeviceConfig_Role_SENSOR ?
+                meshtastic_MeshPacket_Priority_RELIABLE :
+                meshtastic_MeshPacket_Priority_BACKGROUND;
+
+        LOG_INFO(
+            "HOBO universal TELEMETRY TX model=%s temp=%.2f C / %.2f F logger=%02X:%02X:%02X:%02X:%02X:%02X",
+            loggerTypeName(loggerType),
+            temperatureC,
+            latestTemperatureF,
+            loggerMac[0], loggerMac[1], loggerMac[2],
+            loggerMac[3], loggerMac[4], loggerMac[5]);
+
+        service->sendToMesh(packet, RX_SRC_LOCAL, true);
+        return true;
+    };
+
+    auto sendMX2001MeasurementPacket = [&]() -> bool {
+        meshtastic_MeshPacket *packet = allocDataPacket();
+        if (packet == nullptr) {
+            LOG_WARN("HOBO universal: MX2001 packet allocation failed");
+            return false;
+        }
+
+        int32_t stageScaled = static_cast<int32_t>(lroundf(latestStageFeet * 10.0f));
+        int32_t tempScaled = static_cast<int32_t>(lroundf(latestTemperatureF * 10.0f));
+
+        if (stageScaled < -32768)
+            stageScaled = -32768;
+        if (stageScaled > 32767)
+            stageScaled = 32767;
+        if (tempScaled < -32768)
+            tempScaled = -32768;
+        if (tempScaled > 32767)
+            tempScaled = 32767;
+
+        const int16_t stageTenths = static_cast<int16_t>(stageScaled);
+        const int16_t tempTenths = static_cast<int16_t>(tempScaled);
+        const uint16_t stageBits = static_cast<uint16_t>(stageTenths);
+        const uint16_t tempBits = static_cast<uint16_t>(tempTenths);
+        const uint16_t raw16 = static_cast<uint16_t>(latestTemperatureRaw & 0xFFFFU);
+
+        measurementSequence++;
+        uint8_t *payload = packet->decoded.payload.bytes;
+
+        payload[0] = 'M';
+        payload[1] = 'X';
+        payload[2] = 1;
+        payload[3] = 0x03;
+        payload[4] = static_cast<uint8_t>(measurementSequence & 0xFF);
+        payload[5] = static_cast<uint8_t>((measurementSequence >> 8) & 0xFF);
+        payload[6] = static_cast<uint8_t>(stageBits & 0xFF);
+        payload[7] = static_cast<uint8_t>((stageBits >> 8) & 0xFF);
+        payload[8] = static_cast<uint8_t>(tempBits & 0xFF);
+        payload[9] = static_cast<uint8_t>((tempBits >> 8) & 0xFF);
+        payload[10] = static_cast<uint8_t>(raw16 & 0xFF);
+        payload[11] = static_cast<uint8_t>((raw16 >> 8) & 0xFF);
+        memcpy(&payload[12], loggerMac, 6);
+        payload[18] = static_cast<uint8_t>(loggerBleRssi);
+
+        packet->decoded.payload.size = 19;
+        packet->decoded.portnum = meshtastic_PortNum_PRIVATE_APP;
+        packet->decoded.want_response = false;
+        packet->to = NODENUM_BROADCAST;
+        packet->channel = 0;
+        packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
+
+        LOG_INFO(
+            "HOBO universal MX2001 TX sequence=%u level=%.1f ft temp=%.1f F logger=%02X:%02X:%02X:%02X:%02X:%02X",
+            measurementSequence,
+            stageTenths / 10.0f,
+            tempTenths / 10.0f,
+            loggerMac[0], loggerMac[1], loggerMac[2],
+            loggerMac[3], loggerMac[4], loggerMac[5]);
+
+        service->sendToMesh(packet, RX_SRC_LOCAL, true);
+        return true;
+    };
+
+    auto sendAutomaticMeasurement = [&]() -> bool {
+        if (loggerType == LoggerType::MX2001 && measurementHasStage)
+            return sendMX2001MeasurementPacket();
+
+        if (loggerType == LoggerType::MX2201 || loggerType == LoggerType::MX2203)
+            return sendTemperatureTelemetry(latestTemperatureC);
+
+        return false;
+    };
+
     if (now < 15000)
         return 500;
 
@@ -876,6 +1131,7 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
     if (readRequestPending && universalState == UniversalState::READY) {
         readRequestPending = false;
         readRequestInProgress = true;
+        readPurpose = ReadPurpose::ON_DEMAND;
         universalState = UniversalState::SEND_READ;
         stateDueMs = now;
     }
@@ -894,8 +1150,10 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         break;
 
     case UniversalState::WAIT_INIT:
-        if (reached(now, stateDueMs))
+        if (reached(now, stateDueMs)) {
+            readPurpose = ReadPurpose::PROBE;
             universalState = UniversalState::SEND_READ;
+        }
         break;
 
     case UniversalState::SEND_META0: {
@@ -932,8 +1190,10 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
     }
 
     case UniversalState::WAIT_META8:
-        if (reached(now, stateDueMs))
+        if (reached(now, stateDueMs)) {
+            readPurpose = ReadPurpose::PROBE;
             universalState = UniversalState::SEND_READ;
+        }
         break;
 
     case UniversalState::SEND_READ:
@@ -945,13 +1205,15 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             stateDueMs = now + READ_TIMEOUT_MS;
         } else {
             directReadActive = false;
-            if (readRequestInProgress) {
+
+            if (readPurpose == ReadPurpose::ON_DEMAND && readRequestInProgress) {
                 sendTextReply(readRequester, readChannel, "HOBO READ failed");
                 readRequestInProgress = false;
                 readRequester = 0;
                 universalState = UniversalState::READY;
             } else {
-                stateDueMs = now + 1000;
+                universalState = UniversalState::READY;
+                nextStatusCheckMs = now + 1000;
             }
         }
         break;
@@ -961,78 +1223,214 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             measurementReady = false;
 
             LOG_INFO(
-                "HOBO universal: READ complete model=%s",
-                loggerTypeName(loggerType));
+                "HOBO universal: READ complete model=%s logger=%02X:%02X:%02X:%02X:%02X:%02X",
+                loggerTypeName(loggerType),
+                loggerMac[0], loggerMac[1], loggerMac[2],
+                loggerMac[3], loggerMac[4], loggerMac[5]);
 
-            if (readRequestInProgress) {
-                char reply[128] = {};
+            if (readPurpose == ReadPurpose::ON_DEMAND && readRequestInProgress) {
+                char reply[190] = {};
 
                 if (loggerType == LoggerType::MX2001 && measurementHasStage) {
                     snprintf(
                         reply,
                         sizeof(reply),
-                        "MX2001\nLevel: %.2f ft\nTemp: %.1f F",
+                        "MX2001\nLogger: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nLevel: %.2f ft\nTemp: %.1f F",
+                        loggerMac[0], loggerMac[1], loggerMac[2],
+                        loggerMac[3], loggerMac[4], loggerMac[5],
+                        loggerBleRssi,
                         latestStageFeet,
                         latestTemperatureF);
                 } else if (loggerType == LoggerType::MX2201) {
                     snprintf(
                         reply,
                         sizeof(reply),
-                        "MX2201\nTemp: %.1f F",
+                        "MX2201\nLogger: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nTemp: %.1f F",
+                        loggerMac[0], loggerMac[1], loggerMac[2],
+                        loggerMac[3], loggerMac[4], loggerMac[5],
+                        loggerBleRssi,
                         latestTemperatureF);
                 } else if (loggerType == LoggerType::MX2203) {
                     snprintf(
                         reply,
                         sizeof(reply),
-                        "MX2203\nTemp: %.2f F / %.2f C",
+                        "MX2203\nLogger: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nTemp: %.2f F / %.2f C",
+                        loggerMac[0], loggerMac[1], loggerMac[2],
+                        loggerMac[3], loggerMac[4], loggerMac[5],
+                        loggerBleRssi,
                         latestTemperatureF,
                         latestTemperatureC);
                 } else {
                     snprintf(
                         reply,
                         sizeof(reply),
-                        "HOBO read completed; model unknown");
+                        "HOBO read completed; model unknown\nLogger: %02X:%02X:%02X:%02X:%02X:%02X",
+                        loggerMac[0], loggerMac[1], loggerMac[2],
+                        loggerMac[3], loggerMac[4], loggerMac[5]);
                 }
 
                 sendTextReply(readRequester, readChannel, reply);
                 readRequestInProgress = false;
                 readRequester = 0;
+                readPurpose = ReadPurpose::AUTOMATIC;
+                universalState = UniversalState::READY;
+                break;
             }
 
-            universalState = UniversalState::READY;
-            break;
+            const bool sent = sendAutomaticMeasurement();
+
+            if (readPurpose == ReadPurpose::PROBE) {
+                LOG_INFO(
+                    "HOBO universal: startup telemetry %s",
+                    sent ? "sent" : "failed");
+
+                readPurpose = ReadPurpose::AUTOMATIC;
+                consecutiveStatusTimeouts = 0;
+                statusTrackingAvailable = true;
+                universalState = UniversalState::SEND_STATUS;
+                stateDueMs = now + 200;
+                break;
+            }
+
+            if (readPurpose == ReadPurpose::AUTOMATIC) {
+                if (sent && statusTrackingAvailable && haveStatusBaseline)
+                    lastWritePointer = pendingWritePointer;
+
+                nextStatusCheckMs = now +
+                    (statusTrackingAvailable ?
+                         nextRecordPrecheckDelayMs() :
+                         fallbackAutoIntervalMs());
+
+                universalState = UniversalState::READY;
+                break;
+            }
         }
 
         if (reached(now, stateDueMs)) {
             directReadActive = false;
 
-            if (loggerType == LoggerType::UNKNOWN && prepareFallbackProbe()) {
+            if (readPurpose == ReadPurpose::PROBE &&
+                loggerType == LoggerType::UNKNOWN &&
+                prepareFallbackProbe()) {
                 universalState = UniversalState::SEND_META0;
                 stateDueMs = now + 200;
                 break;
             }
 
-            if (readRequestInProgress) {
+            if (readPurpose == ReadPurpose::ON_DEMAND && readRequestInProgress) {
                 sendTextReply(readRequester, readChannel, "HOBO READ failed");
                 readRequestInProgress = false;
                 readRequester = 0;
+                readPurpose = ReadPurpose::AUTOMATIC;
                 universalState = UniversalState::READY;
                 break;
             }
 
-            if (loggerType == LoggerType::UNKNOWN) {
+            if (readPurpose == ReadPurpose::PROBE && loggerType == LoggerType::UNKNOWN) {
                 loggerType = LoggerType::UNSUPPORTED;
                 LOG_WARN("HOBO universal: unsupported NEWREAD64 response");
                 rejectCurrentCandidate();
                 Bluefruit.disconnect(connectionHandle);
-            } else {
+                break;
+            }
+
+            LOG_WARN("HOBO universal: automatic NEWREAD64 timeout");
+            readPurpose = ReadPurpose::AUTOMATIC;
+            nextStatusCheckMs = now + 1000;
+            universalState = UniversalState::READY;
+        }
+        break;
+
+    case UniversalState::SEND_STATUS:
+        statusReady = false;
+
+        if (sendCommand(CMD_STATUS, sizeof(CMD_STATUS), "STATUS")) {
+            universalState = UniversalState::WAIT_STATUS;
+            stateDueMs = now + STATUS_TIMEOUT_MS;
+        } else {
+            consecutiveStatusTimeouts++;
+            nextStatusCheckMs = now + 1000;
+            universalState = UniversalState::READY;
+        }
+        break;
+
+    case UniversalState::WAIT_STATUS:
+        if (statusReady) {
+            statusReady = false;
+            consecutiveStatusTimeouts = 0;
+            statusTrackingAvailable = true;
+
+            if (!haveStatusBaseline) {
+                haveStatusBaseline = true;
+                lastWritePointer = currentWritePointer;
+
+                LOG_INFO(
+                    "HOBO universal: status baseline model=%s pointer=0x%08lX interval=%u sec",
+                    loggerTypeName(loggerType),
+                    static_cast<unsigned long>(lastWritePointer),
+                    loggerIntervalSeconds);
+
+                nextStatusCheckMs = now + nextRecordPrecheckDelayMs();
                 universalState = UniversalState::READY;
+                break;
+            }
+
+            if (currentWritePointer != lastWritePointer) {
+                pendingWritePointer = currentWritePointer;
+                readPurpose = ReadPurpose::AUTOMATIC;
+
+                LOG_INFO(
+                    "HOBO universal: new logger record model=%s old=0x%08lX new=0x%08lX",
+                    loggerTypeName(loggerType),
+                    static_cast<unsigned long>(lastWritePointer),
+                    static_cast<unsigned long>(currentWritePointer));
+
+                universalState = UniversalState::SEND_READ;
+                stateDueMs = now;
+            } else {
+                nextStatusCheckMs = now + POINTER_FINE_POLL_MS;
+                universalState = UniversalState::READY;
+            }
+            break;
+        }
+
+        if (reached(now, stateDueMs)) {
+            consecutiveStatusTimeouts++;
+            LOG_WARN(
+                "HOBO universal: STATUS timeout %u/%u",
+                consecutiveStatusTimeouts,
+                STATUS_TIMEOUT_LIMIT);
+
+            if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
+                statusTrackingAvailable = false;
+                nextStatusCheckMs = now + fallbackAutoIntervalMs();
+
+                LOG_WARN(
+                    "HOBO universal: write-pointer tracking unavailable; falling back to %lu ms live-read interval",
+                    static_cast<unsigned long>(fallbackAutoIntervalMs()));
+
+                universalState = UniversalState::READY;
+            } else {
+                universalState = UniversalState::SEND_STATUS;
+                stateDueMs = now + 1000;
             }
         }
         break;
 
     case UniversalState::READY:
-        // No periodic polling. Idle until a direct Meshtastic READ arrives.
+        if (readRequestPending)
+            break;
+
+        if (statusTrackingAvailable) {
+            if (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs)) {
+                universalState = UniversalState::SEND_STATUS;
+                stateDueMs = now;
+            }
+        } else if (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs)) {
+            readPurpose = ReadPurpose::AUTOMATIC;
+            universalState = UniversalState::SEND_READ;
+            stateDueMs = now;
+        }
         break;
 
     case UniversalState::IDLE:
