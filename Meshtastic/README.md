@@ -1,18 +1,53 @@
 # Meshtastic HOBO Project
 
-This folder is the **user-facing project structure** for the HOBO → Meshtastic work.
+This folder is the user-facing project structure for the HOBO → Meshtastic firmware.
 
-You normally do **not** need to browse the rest of the upstream Meshtastic firmware tree. The underlying `src/`, `variants/`, `bin/`, and other directories are retained because PlatformIO needs them to compile the firmware.
+## Branches to use
 
-## Production branch
-
-Use only:
+**Production branch:**
 
 ```text
 hobo-mx2001-mx2201-mx2203
 ```
 
-This is the canonical hardware-validated branch for both supported radios.
+**Frozen hardware-validated snapshot:**
+
+```text
+hobo-universal-validated-2026-08-19
+```
+
+Use the production branch for normal builds and deployments. The frozen branch exists as a rollback/reference point for the exact validated universal implementation.
+
+## What the firmware does automatically
+
+Once connected to a supported HOBO, the radio reads the logger's own `STATUS` response to learn:
+
+- logging interval in seconds;
+- current write pointer.
+
+It then waits for the HOBO write pointer to advance. A confirmed new logger record triggers one fresh `NEWREAD64` measurement and one Meshtastic transmission. Automatic telemetry is therefore synchronized to the HOBO's actual record creation, not to an unrelated radio timer.
+
+If pointer tracking fails, automatic telemetry pauses until `STATUS` recovers rather than transmitting on a guessed schedule.
+
+Final RAK4631 bench validation with an MX2201 configured at 20 seconds measured automatic packet cadences of 19.848 s and 19.879 s, with about 202 ms from detected logger record to telemetry queueing.
+
+## Direct Meshtastic commands
+
+Send these directly to the field radio:
+
+```text
+LOGGER
+READ
+LOCK
+UNLOCK
+```
+
+- `LOGGER` — model, logger MAC, BLE RSSI, detected logging interval, lock state and target.
+- `READ` — immediate fresh measurement; does not consume or reset automatic interval tracking.
+- `LOCK` — persistently assign the radio to the currently identified HOBO MAC.
+- `UNLOCK` — clear the assignment and resume general HOBO discovery.
+
+For field deployment, use `LOGGER` to verify the physical logger first, then `LOCK` at the site.
 
 ## Project layout
 
@@ -33,13 +68,11 @@ Meshtastic/
     └── README.md
 ```
 
-## Choose the radio
+## Supported radio targets
 
 ### Seeed XIAO nRF52840 + Wio-SX1262
 
-Go to:
-
-[`SEEED-XIAO/README.md`](SEEED-XIAO/README.md)
+Guide: [`SEEED-XIAO/README.md`](SEEED-XIAO/README.md)
 
 PlatformIO target:
 
@@ -47,17 +80,9 @@ PlatformIO target:
 seeed_xiao_nrf52840_kit
 ```
 
-Generated UF2 location:
-
-```text
-.pio\build\seeed_xiao_nrf52840_kit\firmware-seeed_xiao_nrf52840_kit-<version>.uf2
-```
-
 ### RAK4631 / RAK19003
 
-Go to:
-
-[`RAK4631/README.md`](RAK4631/README.md)
+Guide: [`RAK4631/README.md`](RAK4631/README.md)
 
 PlatformIO target:
 
@@ -65,50 +90,39 @@ PlatformIO target:
 rak4631
 ```
 
-Generated UF2 location:
-
-```text
-.pio\build\rak4631\firmware-rak4631-<version>.uf2
-```
-
-`<version>` changes with the firmware version/commit, so use the newest `.uf2` in the target build directory rather than relying on an old filename.
-
 ## Supported HOBO loggers
 
-| Logger | Live `READ` result |
-|---|---|
-| MX2001 | Water level + temperature |
-| MX2201 | Temperature |
-| MX2203 | Temperature |
+| Logger | Automatic telemetry | Direct `READ` |
+|---|---|---|
+| MX2001 | Water level + temperature | Water level + temperature |
+| MX2201 | Temperature | Temperature |
+| MX2203 | Temperature | Temperature |
 
-The same universal HOBO protocol implementation is used on both radios.
+The same universal HOBO implementation is used on both supported radios.
 
-See [`SHARED-HOBO/README.md`](SHARED-HOBO/README.md) for protocol, source files, decoder details, and validation notes.
+See [`SHARED-HOBO/README.md`](SHARED-HOBO/README.md) for the exact automatic interval behavior, command semantics, protocol details, and validation notes.
 
-## Generated firmware files are local
-
-The `.pio` directory is a PlatformIO build directory on your computer. Generated `.uf2` files are **not committed to GitHub**.
-
-On your Windows machine the repository is currently used from:
+## Local Windows repository
 
 ```text
-C:\Meshtastic\HOBO\firmware
+C:\Meshtastic-HOBO\firmware
 ```
 
-So a RAK build file will be under:
+Generated PlatformIO build files are under:
 
 ```text
-C:\Meshtastic\HOBO\firmware\.pio\build\rak4631\
+C:\Meshtastic-HOBO\firmware\.pio\build\
 ```
 
-and a Seeed build file will be under:
+Sync production with:
 
-```text
-C:\Meshtastic\HOBO\firmware\.pio\build\seeed_xiao_nrf52840_kit\
+```powershell
+cd C:\Meshtastic-HOBO\firmware
+git fetch origin
+git switch hobo-mx2001-mx2201-mx2203
+git pull --ff-only origin hobo-mx2001-mx2201-mx2203
 ```
 
 ## Old branches
 
-Old integration, discovery, model-specific, validation, and raw-debug branches are retained only for rollback and protocol history. Do not use them for a normal deployment.
-
-See [`ARCHIVE/README.md`](ARCHIVE/README.md).
+Old model-specific, discovery, integration, recovery, and raw-debug branches are retained only for rollback/protocol history. Do not use them for normal field deployment. See [`ARCHIVE/README.md`](ARCHIVE/README.md).
