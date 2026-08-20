@@ -5,9 +5,11 @@
 #include "HOBOMX2001MX2201MX2203Telemetry.h"
 
 #include "../../../mesh/generated/meshtastic/telemetry.pb.h"
+#include "FSCommon.h"
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "RTC.h"
+#include "SPILock.h"
 #include "main.h"
 #include "pb_encode.h"
 
@@ -144,6 +146,9 @@ uint8_t rejectedAddrRaw[6] = {};
 bool haveRejectedAddr = false;
 uint32_t rejectedUntilMs = 0;
 
+bool loggerLockEnabled = false;
+uint8_t lockedAddrRaw[6] = {};
+
 bool directReadActive = false;
 bool measurementReady = false;
 bool measurementHasStage = false;
@@ -167,8 +172,12 @@ uint32_t pendingWritePointer = 0;
 uint16_t loggerIntervalSeconds = 0;
 bool haveStatusBaseline = false;
 bool statusTrackingAvailable = true;
+bool intervalPhaseLocked = false;
 uint8_t consecutiveStatusTimeouts = 0;
 uint32_t nextStatusCheckMs = 0;
+uint32_t pendingPointerDetectedMs = 0;
+uint32_t lastAutomaticTxMs = 0;
+uint32_t automaticTxCount = 0;
 uint16_t measurementSequence = 0;
 
 bool readRequestPending = false;
@@ -181,13 +190,15 @@ static constexpr uint32_t COMMAND_DELAY_MS = 400;
 static constexpr uint32_t READ_TIMEOUT_MS = 3000;
 static constexpr uint32_t STATUS_TIMEOUT_MS = 3000;
 static constexpr uint32_t POINTER_FINE_POLL_MS = 500;
+static constexpr uint32_t POINTER_INITIAL_SYNC_POLL_MS = 1000;
+static constexpr uint32_t STATUS_RECOVERY_RETRY_MS = 5000;
 static constexpr uint8_t STATUS_TIMEOUT_LIMIT = 3;
-static constexpr uint32_t FALLBACK_AUTO_INTERVAL_MS = 60000;
 static constexpr uint32_t REJECT_RETRY_MS = 60000;
 static constexpr uint32_t TRANSIENT_RETRY_MS = 5000;
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
 static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
 static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
+static constexpr char LOCK_FILE_PATH[] = "/prefs/hobo_lock.bin";
 
 static constexpr uint32_t MX2201_MIN_RAW = 400;
 static constexpr uint32_t MX2201_MAX_RAW = 2400;
@@ -236,6 +247,94 @@ void logMac(const char *prefix, const uint8_t mac[6])
         mac[3], mac[4], mac[5]);
 }
 
+uint8_t lockChecksum(const uint8_t *data, size_t length)
+{
+    uint8_t checksum = 0;
+    for (size_t i = 0; i < length; ++i)
+        checksum ^= data[i];
+    return checksum;
+}
+
+void logLockTarget(const char *prefix)
+{
+    if (!loggerLockEnabled)
+        return;
+
+    uint8_t human[6] = {};
+    makeHumanMac(lockedAddrRaw, human);
+    logMac(prefix, human);
+}
+
+bool saveLoggerLock()
+{
+    uint8_t record[12] = {
+        'H', 'B', 'L', '1', 1,
+        0, 0, 0, 0, 0, 0,
+        0
+    };
+    memcpy(&record[5], lockedAddrRaw, 6);
+    record[11] = lockChecksum(record, 11);
+
+    concurrency::LockGuard g(spiLock);
+    File file = FSCom.open(LOCK_FILE_PATH, FILE_O_WRITE);
+    if (!file) {
+        LOG_WARN("HOBO universal: failed to open logger lock file for write");
+        return false;
+    }
+
+    const size_t written = file.write(record, sizeof(record));
+    file.flush();
+    file.close();
+
+    if (written != sizeof(record)) {
+        LOG_WARN("HOBO universal: logger lock file short write");
+        return false;
+    }
+
+    return true;
+}
+
+void clearLoggerLock()
+{
+    loggerLockEnabled = false;
+    memset(lockedAddrRaw, 0, sizeof(lockedAddrRaw));
+
+    concurrency::LockGuard g(spiLock);
+    FSCom.remove(LOCK_FILE_PATH);
+}
+
+void loadLoggerLock()
+{
+    loggerLockEnabled = false;
+    memset(lockedAddrRaw, 0, sizeof(lockedAddrRaw));
+
+    uint8_t record[12] = {};
+    size_t readLength = 0;
+
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(LOCK_FILE_PATH, FILE_O_READ);
+        if (!file)
+            return;
+
+        readLength = file.read(record, sizeof(record));
+        file.close();
+    }
+
+    if (readLength != sizeof(record) ||
+        record[0] != 'H' || record[1] != 'B' ||
+        record[2] != 'L' || record[3] != '1' ||
+        record[4] != 1 ||
+        record[11] != lockChecksum(record, 11)) {
+        LOG_WARN("HOBO universal: ignoring invalid logger lock file");
+        return;
+    }
+
+    memcpy(lockedAddrRaw, &record[5], 6);
+    loggerLockEnabled = true;
+    logLockTarget("HOBO universal: restored logger lock:");
+}
+
 const char *loggerTypeName(LoggerType type)
 {
     switch (type) {
@@ -255,7 +354,7 @@ const char *loggerTypeName(LoggerType type)
 uint32_t nextRecordPrecheckDelayMs()
 {
     if (loggerIntervalSeconds == 0)
-        return 5000;
+        return POINTER_INITIAL_SYNC_POLL_MS;
 
     const uint32_t intervalMs =
         static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL;
@@ -266,18 +365,6 @@ uint32_t nextRecordPrecheckDelayMs()
         return intervalMs / 2;
 
     return 500;
-}
-
-uint32_t fallbackAutoIntervalMs()
-{
-    if (loggerIntervalSeconds == 0)
-        return FALLBACK_AUTO_INTERVAL_MS;
-
-    uint32_t intervalMs =
-        static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL;
-    if (intervalMs < 1000)
-        intervalMs = 1000;
-    return intervalMs;
 }
 
 bool containsAsciiIgnoreCase(const uint8_t *data, uint16_t length, const char *needle)
@@ -635,6 +722,12 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
         return;
     }
 
+    if (loggerLockEnabled &&
+        memcmp(report->peer_addr.addr, lockedAddrRaw, 6) != 0) {
+        Bluefruit.Scanner.resume();
+        return;
+    }
+
     if (isRejectedCandidate(report->peer_addr.addr)) {
         Bluefruit.Scanner.resume();
         return;
@@ -653,10 +746,11 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
     candidateLikelyMX2203 = info.likelyMX2203;
 
     LOG_INFO(
-        "HOBO universal: candidate %02X:%02X:%02X:%02X:%02X:%02X RSSI=%d",
+        "HOBO universal: candidate %02X:%02X:%02X:%02X:%02X:%02X RSSI=%d%s",
         loggerMac[0], loggerMac[1], loggerMac[2],
         loggerMac[3], loggerMac[4], loggerMac[5],
-        loggerBleRssi);
+        loggerBleRssi,
+        loggerLockEnabled ? " LOCKED-TARGET" : "");
 
     connecting = true;
     Bluefruit.Scanner.stop();
@@ -740,14 +834,18 @@ void connectCallback(uint16_t connHandle)
     loggerIntervalSeconds = 0;
     haveStatusBaseline = false;
     statusTrackingAvailable = true;
+    intervalPhaseLocked = false;
     consecutiveStatusTimeouts = 0;
     nextStatusCheckMs = 0;
+    pendingPointerDetectedMs = 0;
+    lastAutomaticTxMs = 0;
+    automaticTxCount = 0;
 
     universalState = UniversalState::SEND_INIT;
     stateDueMs = millis() + 500;
 
     LOG_INFO("HOBO universal: BLE command channel ready");
-    logMac("HOBO universal locked logger:", loggerMac);
+    logMac("HOBO universal connected logger:", loggerMac);
 }
 
 void disconnectCallback(uint16_t connHandle, uint8_t reason)
@@ -772,8 +870,12 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
     loggerIntervalSeconds = 0;
     haveStatusBaseline = false;
     statusTrackingAvailable = true;
+    intervalPhaseLocked = false;
     consecutiveStatusTimeouts = 0;
     nextStatusCheckMs = 0;
+    pendingPointerDetectedMs = 0;
+    lastAutomaticTxMs = 0;
+    automaticTxCount = 0;
 
     if (readRequestInProgress || readRequestPending) {
         readRequestInProgress = false;
@@ -785,6 +887,8 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 void initializeClient()
 {
     LOG_INFO("HOBO universal bridge: MX2001 + MX2201 + MX2203");
+
+    loadLoggerLock();
 
     hoboService.begin();
     hoboCharacteristic.setNotifyCallback(notifyCallback);
@@ -894,32 +998,119 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
         return ProcessMessage::CONTINUE;
 
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOGGER")) {
-        char reply[180] = {};
+        char reply[220] = {};
+        uint8_t targetHuman[6] = {};
+        if (loggerLockEnabled)
+            makeHumanMac(lockedAddrRaw, targetHuman);
 
         if (!connected) {
-            snprintf(reply, sizeof(reply), "HOBO NOT CONNECTED");
+            if (loggerLockEnabled) {
+                snprintf(
+                    reply,
+                    sizeof(reply),
+                    "HOBO NOT CONNECTED\nLock: ON\nTarget: %02X:%02X:%02X:%02X:%02X:%02X\nWaiting for target",
+                    targetHuman[0], targetHuman[1], targetHuman[2],
+                    targetHuman[3], targetHuman[4], targetHuman[5]);
+            } else {
+                snprintf(reply, sizeof(reply), "HOBO NOT CONNECTED\nLock: OFF");
+            }
         } else if (loggerIntervalSeconds > 0) {
-            snprintf(
-                reply,
-                sizeof(reply),
-                "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: %u sec",
-                loggerTypeName(loggerType),
-                loggerMac[0], loggerMac[1], loggerMac[2],
-                loggerMac[3], loggerMac[4], loggerMac[5],
-                loggerBleRssi,
-                loggerIntervalSeconds);
+            if (loggerLockEnabled) {
+                snprintf(
+                    reply,
+                    sizeof(reply),
+                    "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: %u sec\nLock: ON\nTarget: %02X:%02X:%02X:%02X:%02X:%02X",
+                    loggerTypeName(loggerType),
+                    loggerMac[0], loggerMac[1], loggerMac[2],
+                    loggerMac[3], loggerMac[4], loggerMac[5],
+                    loggerBleRssi,
+                    loggerIntervalSeconds,
+                    targetHuman[0], targetHuman[1], targetHuman[2],
+                    targetHuman[3], targetHuman[4], targetHuman[5]);
+            } else {
+                snprintf(
+                    reply,
+                    sizeof(reply),
+                    "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: %u sec\nLock: OFF",
+                    loggerTypeName(loggerType),
+                    loggerMac[0], loggerMac[1], loggerMac[2],
+                    loggerMac[3], loggerMac[4], loggerMac[5],
+                    loggerBleRssi,
+                    loggerIntervalSeconds);
+            }
         } else {
-            snprintf(
-                reply,
-                sizeof(reply),
-                "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: detecting",
-                loggerTypeName(loggerType),
-                loggerMac[0], loggerMac[1], loggerMac[2],
-                loggerMac[3], loggerMac[4], loggerMac[5],
-                loggerBleRssi);
+            if (loggerLockEnabled) {
+                snprintf(
+                    reply,
+                    sizeof(reply),
+                    "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: detecting\nLock: ON\nTarget: %02X:%02X:%02X:%02X:%02X:%02X",
+                    loggerTypeName(loggerType),
+                    loggerMac[0], loggerMac[1], loggerMac[2],
+                    loggerMac[3], loggerMac[4], loggerMac[5],
+                    loggerBleRssi,
+                    targetHuman[0], targetHuman[1], targetHuman[2],
+                    targetHuman[3], targetHuman[4], targetHuman[5]);
+            } else {
+                snprintf(
+                    reply,
+                    sizeof(reply),
+                    "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: detecting\nLock: OFF",
+                    loggerTypeName(loggerType),
+                    loggerMac[0], loggerMac[1], loggerMac[2],
+                    loggerMac[3], loggerMac[4], loggerMac[5],
+                    loggerBleRssi);
+            }
         }
 
         sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOCK")) {
+        if (!connected ||
+            (loggerType != LoggerType::MX2001 &&
+             loggerType != LoggerType::MX2201 &&
+             loggerType != LoggerType::MX2203)) {
+            sendTextReply(
+                mp.from,
+                mp.channel,
+                "LOCK failed: connect to an identified MX2001/MX2201/MX2203 first");
+            return ProcessMessage::CONTINUE;
+        }
+
+        memcpy(lockedAddrRaw, candidateAddrRaw, 6);
+        loggerLockEnabled = true;
+
+        if (!saveLoggerLock()) {
+            loggerLockEnabled = false;
+            memset(lockedAddrRaw, 0, sizeof(lockedAddrRaw));
+            sendTextReply(mp.from, mp.channel, "LOCK failed: could not save to flash");
+            return ProcessMessage::CONTINUE;
+        }
+
+        char reply[150] = {};
+        snprintf(
+            reply,
+            sizeof(reply),
+            "LOGGER LOCKED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nPersists after reboot",
+            loggerTypeName(loggerType),
+            loggerMac[0], loggerMac[1], loggerMac[2],
+            loggerMac[3], loggerMac[4], loggerMac[5]);
+        sendTextReply(mp.from, mp.channel, reply);
+        logLockTarget("HOBO universal: saved logger lock:");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "UNLOCK")) {
+        clearLoggerLock();
+        sendTextReply(
+            mp.from,
+            mp.channel,
+            "LOGGER UNLOCKED\nScanning any supported HOBO\nCurrent BLE link will be released");
+
+        if (connected && connectionHandle != BLE_CONN_HANDLE_INVALID)
+            Bluefruit.disconnect(connectionHandle);
+
         return ProcessMessage::CONTINUE;
     }
 
@@ -1015,10 +1206,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         packet->decoded.portnum = meshtastic_PortNum_TELEMETRY_APP;
         packet->decoded.want_response = false;
         packet->to = NODENUM_BROADCAST;
-        packet->priority =
-            config.device.role == meshtastic_Config_DeviceConfig_Role_SENSOR ?
-                meshtastic_MeshPacket_Priority_RELIABLE :
-                meshtastic_MeshPacket_Priority_BACKGROUND;
+        packet->channel = 0;
+        packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
 
         LOG_INFO(
             "HOBO universal TELEMETRY TX model=%s temp=%.2f C / %.2f F logger=%02X:%02X:%02X:%02X:%02X:%02X",
@@ -1277,30 +1466,71 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 break;
             }
 
-            const bool sent = sendAutomaticMeasurement();
-
             if (readPurpose == ReadPurpose::PROBE) {
                 LOG_INFO(
-                    "HOBO universal: startup telemetry %s",
-                    sent ? "sent" : "failed");
+                    "HOBO universal: probe identified model=%s; automatic TX waits for logger STATUS pointer advance",
+                    loggerTypeName(loggerType));
 
                 readPurpose = ReadPurpose::AUTOMATIC;
                 consecutiveStatusTimeouts = 0;
                 statusTrackingAvailable = true;
+                intervalPhaseLocked = false;
                 universalState = UniversalState::SEND_STATUS;
                 stateDueMs = now + 200;
                 break;
             }
 
             if (readPurpose == ReadPurpose::AUTOMATIC) {
-                if (sent && statusTrackingAvailable && haveStatusBaseline)
+                if (!haveStatusBaseline || pendingWritePointer == lastWritePointer) {
+                    LOG_WARN(
+                        "HOBO universal: suppressing automatic TX without a confirmed new logger pointer");
+                    nextStatusCheckMs = now + POINTER_FINE_POLL_MS;
+                    universalState = UniversalState::READY;
+                    break;
+                }
+
+                const bool sent = sendAutomaticMeasurement();
+
+                if (sent) {
+                    const uint32_t previousTxMs = lastAutomaticTxMs;
+                    const uint32_t cadenceMs = previousTxMs == 0 ? 0 : now - previousTxMs;
+                    const uint32_t pointerToTxMs =
+                        pendingPointerDetectedMs == 0 ? 0 : now - pendingPointerDetectedMs;
+
+                    automaticTxCount++;
+                    lastAutomaticTxMs = now;
                     lastWritePointer = pendingWritePointer;
+                    intervalPhaseLocked = true;
 
-                nextStatusCheckMs = now +
-                    (statusTrackingAvailable ?
-                         nextRecordPrecheckDelayMs() :
-                         fallbackAutoIntervalMs());
+                    LOG_INFO(
+                        "HOBO universal AUTO TX confirmed count=%lu pointer=0x%08lX interval=%u sec pointer_to_tx=%lu ms cadence=%lu ms",
+                        static_cast<unsigned long>(automaticTxCount),
+                        static_cast<unsigned long>(lastWritePointer),
+                        loggerIntervalSeconds,
+                        static_cast<unsigned long>(pointerToTxMs),
+                        static_cast<unsigned long>(cadenceMs));
 
+                    if (previousTxMs != 0 && loggerIntervalSeconds > 0) {
+                        const uint32_t expectedMs =
+                            static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL;
+                        const uint32_t driftMs =
+                            cadenceMs > expectedMs ? cadenceMs - expectedMs : expectedMs - cadenceMs;
+
+                        if (driftMs > 2000) {
+                            LOG_WARN(
+                                "HOBO universal AUTO TX cadence differs from logger interval by %lu ms (pointer-gated; no duplicate generated)",
+                                static_cast<unsigned long>(driftMs));
+                        }
+                    }
+
+                    nextStatusCheckMs = now + nextRecordPrecheckDelayMs();
+                } else {
+                    LOG_WARN(
+                        "HOBO universal: automatic mesh enqueue failed; retaining pointer for retry");
+                    nextStatusCheckMs = now + 1000;
+                }
+
+                pendingPointerDetectedMs = 0;
                 universalState = UniversalState::READY;
                 break;
             }
@@ -1349,7 +1579,14 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             stateDueMs = now + STATUS_TIMEOUT_MS;
         } else {
             consecutiveStatusTimeouts++;
-            nextStatusCheckMs = now + 1000;
+            if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
+                statusTrackingAvailable = false;
+                nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
+                LOG_WARN(
+                    "HOBO universal: STATUS command unavailable; automatic TX PAUSED until pointer tracking recovers");
+            } else {
+                nextStatusCheckMs = now + 1000;
+            }
             universalState = UniversalState::READY;
         }
         break;
@@ -1363,32 +1600,37 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             if (!haveStatusBaseline) {
                 haveStatusBaseline = true;
                 lastWritePointer = currentWritePointer;
+                intervalPhaseLocked = false;
 
                 LOG_INFO(
-                    "HOBO universal: status baseline model=%s pointer=0x%08lX interval=%u sec",
+                    "HOBO universal: status baseline model=%s pointer=0x%08lX interval=%u sec; syncing to next true record boundary",
                     loggerTypeName(loggerType),
                     static_cast<unsigned long>(lastWritePointer),
                     loggerIntervalSeconds);
 
-                nextStatusCheckMs = now + nextRecordPrecheckDelayMs();
+                nextStatusCheckMs = now + POINTER_INITIAL_SYNC_POLL_MS;
                 universalState = UniversalState::READY;
                 break;
             }
 
             if (currentWritePointer != lastWritePointer) {
                 pendingWritePointer = currentWritePointer;
+                pendingPointerDetectedMs = now;
                 readPurpose = ReadPurpose::AUTOMATIC;
 
                 LOG_INFO(
-                    "HOBO universal: new logger record model=%s old=0x%08lX new=0x%08lX",
+                    "HOBO universal: new logger record model=%s old=0x%08lX new=0x%08lX interval=%u sec phase=%s",
                     loggerTypeName(loggerType),
                     static_cast<unsigned long>(lastWritePointer),
-                    static_cast<unsigned long>(currentWritePointer));
+                    static_cast<unsigned long>(currentWritePointer),
+                    loggerIntervalSeconds,
+                    intervalPhaseLocked ? "LOCKED" : "SYNCING");
 
                 universalState = UniversalState::SEND_READ;
                 stateDueMs = now;
             } else {
-                nextStatusCheckMs = now + POINTER_FINE_POLL_MS;
+                nextStatusCheckMs = now +
+                    (intervalPhaseLocked ? POINTER_FINE_POLL_MS : POINTER_INITIAL_SYNC_POLL_MS);
                 universalState = UniversalState::READY;
             }
             break;
@@ -1403,11 +1645,10 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
                 statusTrackingAvailable = false;
-                nextStatusCheckMs = now + fallbackAutoIntervalMs();
+                nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
 
                 LOG_WARN(
-                    "HOBO universal: write-pointer tracking unavailable; falling back to %lu ms live-read interval",
-                    static_cast<unsigned long>(fallbackAutoIntervalMs()));
+                    "HOBO universal: write-pointer tracking unavailable; automatic TX PAUSED until STATUS recovers");
 
                 universalState = UniversalState::READY;
             } else {
@@ -1421,14 +1662,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         if (readRequestPending)
             break;
 
-        if (statusTrackingAvailable) {
-            if (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs)) {
-                universalState = UniversalState::SEND_STATUS;
-                stateDueMs = now;
-            }
-        } else if (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs)) {
-            readPurpose = ReadPurpose::AUTOMATIC;
-            universalState = UniversalState::SEND_READ;
+        if (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs)) {
+            universalState = UniversalState::SEND_STATUS;
             stateDueMs = now;
         }
         break;
