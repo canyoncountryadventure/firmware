@@ -1,31 +1,56 @@
 # RAK4631 / RAK19003
 
 **Status:** Production / hardware validated 2026-08-19  
-**Branch:** `hobo-mx2001-mx2201-mx2203`  
+**Production branch:** `hobo-mx2001-mx2201-mx2203`  
+**Frozen validated branch:** `hobo-universal-validated-2026-08-19`  
 **PlatformIO target:** `rak4631`
 
-This is the production firmware path for the RAK4631 mounted on a RAK19003 base board.
+This is the production RAK4631 firmware for HOBO → Meshtastic field nodes.
 
 ## Supported loggers
 
-The same firmware image supports:
+- MX2001 — automatic water level + temperature
+- MX2201 — automatic temperature
+- MX2203 — automatic temperature
 
-- MX2001 — water level + temperature
-- MX2201 — temperature
-- MX2203 — temperature
+## Automatic telemetry
 
-Send a direct Meshtastic text message:
+The RAK reads the HOBO's own `STATUS` response to learn its configured logging interval and current write pointer. It waits for a real write-pointer change, then performs one fresh `NEWREAD64` and queues one Meshtastic packet.
+
+The radio therefore follows the physical logger's actual record interval rather than running an unrelated timer.
+
+If `STATUS` tracking fails, automatic telemetry pauses until pointer tracking recovers.
+
+Final MX2201 hardware validation at a 20-second interval measured:
 
 ```text
-READ
+count=1  pointer_to_tx=202 ms
+count=2  cadence=19848 ms  pointer_to_tx=202 ms
+count=3  cadence=19879 ms  pointer_to_tx=202 ms
 ```
 
-The node performs a fresh BLE read and replies to the requesting Meshtastic node.
+## Meshtastic commands
 
-## Sync the production branch
+Send direct text messages to the RAK:
+
+```text
+LOGGER
+READ
+LOCK
+UNLOCK
+```
+
+- `LOGGER` — show model, HOBO MAC, BLE RSSI, detected interval and lock state.
+- `READ` — immediate fresh read without disrupting automatic telemetry.
+- `LOCK` — save the current logger MAC to flash and reconnect only to that logger after reboot.
+- `UNLOCK` — clear the saved assignment and resume general discovery.
+
+For field deployment, leave the node unlocked during bench testing. At the site, verify the intended logger with `LOGGER`, then send `LOCK`.
+
+## Sync production
 
 ```powershell
-cd C:\Meshtastic\HOBO\firmware
+cd C:\Meshtastic-HOBO\firmware
 git fetch origin
 git switch hobo-mx2001-mx2201-mx2203
 git pull --ff-only origin hobo-mx2001-mx2201-mx2203
@@ -33,99 +58,56 @@ git pull --ff-only origin hobo-mx2001-mx2201-mx2203
 
 ## Build
 
-From the repository root, use:
-
-```powershell
-& .\Meshtastic\RAK4631\build.ps1
-```
-
-Manual equivalent:
-
 ```powershell
 & "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e rak4631
 ```
 
-## Where the flash file is
+## Flash
 
-After a successful build, the UF2 is generated under:
-
-```text
-C:\Meshtastic\HOBO\firmware\.pio\build\rak4631\
-```
-
-The filename follows:
-
-```text
-firmware-rak4631-<version>.uf2
-```
-
-Example from the 2026-08-19 validation work:
-
-```text
-firmware-rak4631-2.7.26.fd44453.uf2
-```
-
-The version/commit suffix changes. Use the newest `.uf2` in the `rak4631` build directory.
-
-## Flash — one command
-
-1. Connect the RAK by USB.
-2. Double-tap RESET so the UF2 bootloader drive appears in Windows.
-3. Run one command from the repository root:
+With the RAK connected by USB:
 
 ```powershell
-& .\Meshtastic\RAK4631\flash.ps1
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e rak4631 -t upload
 ```
 
-The script:
-
-- builds the current `rak4631` production firmware;
-- finds the newest generated RAK UF2;
-- finds the mounted UF2 bootloader drive;
-- refuses to continue if zero or multiple UF2 drives are mounted;
-- copies the firmware to the bootloader drive.
-
-This replaces the old multi-step "find filename, find drive letter, then copy" process.
+The upload target builds first if needed, then uploads the resulting firmware.
 
 ## Serial monitor
 
+Identify the correct COM port first:
+
 ```powershell
-& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" device monitor -b 115200
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" device list
 ```
 
-## Expected replies
+Then monitor it:
 
-MX2001:
+```powershell
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" device monitor --port COMx --baud 115200
+```
+
+Useful validation lines include:
 
 ```text
-MX2001
-Level: 1.04 ft
-Temp: 78.9 F
+HOBO universal: status baseline ... interval=20 sec
+HOBO universal: new logger record ...
+HOBO universal TELEMETRY TX ...
+HOBO universal AUTO TX confirmed ... cadence=...
 ```
 
-MX2201:
+## Persistent logger assignment
+
+`LOCK` stores the logger address in:
 
 ```text
-MX2201
-Temp: 70.5 F
+/prefs/hobo_lock.bin
 ```
 
-MX2203:
+The assignment was hardware-validated across a real RAK4631 reboot. When locked, non-target HOBO advertisements are ignored.
 
-```text
-MX2203
-Temp: 72.38 F / 22.43 C
-```
+## Source files
 
-## Hardware validation
-
-On 2026-08-19, the RAK4631 universal build physically completed reads from MX2001, MX2201, and MX2203. The apparent 108.4 F MX2201 problem was a false alarm: the RAK had connected to a second nearby MX2201 in a hot attic area where approximately 108 F was legitimate. A dedicated raw-read check on the other MX2201 returned raw 1726 = 80.95 F, confirming the RAK NEWREAD64 decode and conversion path.
-
-No further model-by-model validation is required for the production code that was merged from that tested RAK build.
-
-## Source files used by this build
-
-Shared universal HOBO implementation:
+Shared universal implementation:
 
 ```text
 src/modules/Telemetry/HOBOMX2001MX2201MX2203/
@@ -134,12 +116,6 @@ src/modules/Telemetry/HOBOMX2001MX2201MX2203/
 ├── HOBOMX2001MX2201MX2203TelemetryRAK.cpp
 ├── ONSETSDK.md
 └── README.md
-```
-
-RAK compatibility module hook:
-
-```text
-src/modules/Telemetry/MX2001Diagnostic.h
 ```
 
 RAK board definition:
@@ -154,4 +130,4 @@ Shared nRF52 BLE setup:
 src/platform/nrf52/NRF52Bluetooth.cpp
 ```
 
-The RAK adapter intentionally reuses the hardware-proven universal HOBO implementation rather than maintaining a second protocol implementation.
+The RAK adapter reuses the same hardware-proven universal HOBO implementation as the Seeed target.
