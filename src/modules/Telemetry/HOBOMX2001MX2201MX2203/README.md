@@ -15,23 +15,132 @@ Both targets were hardware-validated with MX2001, MX2201, and MX2203 on 2026-08-
 - **MX2201:** live temperature
 - **MX2203:** live temperature
 
-## Automatic telemetry
+## Automatic telemetry timing
 
-After connecting and identifying the HOBO, the bridge takes one startup reading and transmits it automatically.
+Automatic telemetry is controlled by the HOBO logger's own `STATUS` response, not by a free-running radio timer.
 
-It then uses the common Onset `STATUS` request to read the logger write pointer and logging interval. The radio checks near the next expected logger record, and a write-pointer change triggers exactly one fresh `NEWREAD64` read and one Meshtastic transmission.
+After connecting, the bridge performs a probe `NEWREAD64` only to identify the model and verify that live data can be decoded. The probe measurement is **not** automatically transmitted. This prevents an off-cycle startup packet.
+
+The bridge then requests `STATUS`, which supplies:
+
+- the current logger write pointer
+- the logger logging interval in seconds
+
+On a fresh connection or reboot, knowing the interval is not enough to know where the logger currently is inside that interval. The bridge therefore polls the write pointer until it observes the first real pointer change. That first pointer transition establishes the actual logger record phase. A fresh `NEWREAD64` is then performed and exactly one automatic Meshtastic packet is queued.
+
+After the phase is established, the bridge waits until shortly before the next expected logger record, then fine-polls the write pointer. A pointer change triggers exactly one fresh `NEWREAD64` and one automatic Meshtastic transmission.
+
+Automatic transmissions are therefore **pointer-gated**:
+
+1. `STATUS` confirms a new logger record.
+2. The bridge records the new write pointer.
+3. A fresh `NEWREAD64` is performed.
+4. The measurement is queued to Meshtastic.
+5. Only after a successful queue operation is the write pointer marked as transmitted.
+
+If the mesh packet cannot be queued, the pointer is retained and the bridge retries rather than silently consuming that record.
+
+A direct manual `READ` does not consume the automatic write pointer and does not reset the automatic schedule.
+
+If repeated `STATUS` requests fail, automatic telemetry **pauses**. The bridge keeps retrying `STATUS` and resumes only after write-pointer tracking recovers. It does not fall back to blind periodic transmissions because those cannot guarantee alignment with the logger's actual record time.
+
+The serial log includes explicit timing diagnostics such as:
+
+```text
+HOBO universal: new logger record model=MX2201 old=0x00001ADB new=0x00001ADD interval=20 sec phase=LOCKED
+HOBO universal AUTO TX confirmed count=7 pointer=0x00001ADD interval=20 sec pointer_to_tx=412 ms cadence=20037 ms
+```
+
+`pointer_to_tx` is the time from detecting the new HOBO record to queuing its Meshtastic packet. `cadence` is the elapsed time since the preceding automatic packet. These diagnostics make interval behavior directly testable on hardware.
+
+### Model-specific automatic output
 
 - **MX2001:** sends the existing 19-byte `PRIVATE_APP` packet containing water level, temperature, logger MAC, sequence, and BLE RSSI. This remains compatible with `tools/mx2001_receiver.py` and the water dashboard ingest path.
 - **MX2201:** sends standard Meshtastic environmental temperature telemetry on `TELEMETRY_APP`.
 - **MX2203:** sends standard Meshtastic environmental temperature telemetry on `TELEMETRY_APP`.
 
-A direct manual `READ` does not consume the logger write pointer or reset the automatic schedule.
+HOBO automatic packets use reliable queue priority. Actual RF airtime can still be delayed by normal LoRa channel activity, but the packet is generated and queued immediately after the new logger record is confirmed and read.
 
-If repeated `STATUS` requests fail, the bridge falls back to periodic fresh `NEWREAD64` reads. If the logger interval was learned before the failure, that interval is retained; otherwise the fallback is 60 seconds.
+## Persistent logger assignment
+
+A radio can be permanently assigned to one physical HOBO by BLE MAC address. This prevents a field node from reconnecting to a different nearby logger after a reboot, temporary obstruction, or BLE disconnect.
+
+The assignment is saved in the node's internal flash at:
+
+```text
+/prefs/hobo_lock.bin
+```
+
+The record contains a version marker, the raw six-byte BLE address, and a checksum. It is restored automatically when the HOBO bridge starts.
+
+When a lock is active, advertisements from every other HOBO are ignored. If the assigned logger is unavailable, the radio waits for that exact logger instead of silently switching to another one.
 
 ## Meshtastic commands
 
 Commands are direct messages to the radio. A leading slash is optional.
+
+### `LOGGER`
+
+Reports the current logger, interval, BLE signal, and persistent assignment state without taking a measurement.
+
+Unlocked example:
+
+```text
+HOBO CONNECTED
+Model: MX2203
+MAC: E2:16:BF:17:50:2E
+BLE: -63 dBm
+Interval: 600 sec
+Lock: OFF
+```
+
+Locked example:
+
+```text
+HOBO CONNECTED
+Model: MX2203
+MAC: E2:16:BF:17:50:2E
+BLE: -63 dBm
+Interval: 600 sec
+Lock: ON
+Target: E2:16:BF:17:50:2E
+```
+
+If the target is temporarily unavailable:
+
+```text
+HOBO NOT CONNECTED
+Lock: ON
+Target: E2:16:BF:17:50:2E
+Waiting for target
+```
+
+### `LOCK`
+
+Locks the radio to the currently connected, positively identified MX2001, MX2201, or MX2203 and saves the BLE address to internal flash.
+
+Example reply:
+
+```text
+LOGGER LOCKED
+Model: MX2203
+MAC: E2:16:BF:17:50:2E
+Persists after reboot
+```
+
+A lock is accepted only after the current HOBO has been identified as a supported model.
+
+### `UNLOCK`
+
+Deletes the persistent assignment, releases the current HOBO BLE connection, and returns the node to discovery mode.
+
+Example reply:
+
+```text
+LOGGER UNLOCKED
+Scanning any supported HOBO
+Current BLE link will be released
+```
 
 ### `READ`
 
@@ -52,21 +161,7 @@ Level: 0.91 ft
 Temp: 75.4 F
 ```
 
-### `LOGGER`
-
-Reports which physical HOBO the radio is currently locked to without taking a measurement.
-
-Example:
-
-```text
-HOBO CONNECTED
-Model: MX2203
-MAC: F1:0D:9D:29:C3:2D
-BLE: -63 dBm
-Interval: 10 sec
-```
-
-This is intended for bench setups where several radios and several HOBOs are powered at the same time and discovery order determines which logger each radio selects.
+A manual `READ` is independent of the automatic pointer-gated telemetry schedule.
 
 ## Shared Onset BLE protocol
 
@@ -122,9 +217,11 @@ MX2203 uses the OnsetSDK `TempSensor2F` 14-bit conversion documented in `ONSETSD
 
 The MX2001 response arrives in the two hardware-proven fragments used by the prior combined reader. Temperature is decoded from bytes 17-18 of fragment 1. Water level is the big-endian float beginning at byte 3 of fragment 2 and is converted from meters to feet.
 
-## Discovery and fallback
+## Discovery
 
-The reader discovers Onset candidates dynamically from manufacturer data, the common HOBO service UUID, or a HOBO/MX local name. No production logger MAC is hard-coded.
+The reader discovers Onset candidates dynamically from manufacturer data, the common HOBO service UUID, or a HOBO/MX local name. No production logger MAC is hard-coded into the firmware.
+
+Without a persistent lock, discovery order determines which valid HOBO the radio selects. With a lock, only the saved BLE address is eligible for connection.
 
 The first model probe is always:
 
@@ -150,13 +247,14 @@ The nRF52 Bluetooth layer allocates:
 - one BLE peripheral link for a Meshtastic phone connection
 - one BLE central link for the HOBO logger
 
-The HOBO reader intentionally maintains only one logger BLE connection at a time. If multiple valid HOBOs are nearby, candidate selection is discovery-order dependent. Use the `LOGGER` command to confirm which physical logger was selected.
+The HOBO reader intentionally maintains only one logger BLE connection at a time.
 
-## Code provenance
+## Code provenance and validation
 
 - MX2001 automatic write-pointer scheduling and `PRIVATE_APP` packet behavior come from the hardware-proven MX2001 production sender.
 - MX2201 automatic telemetry behavior follows the earlier hardware-proven interval-aligned telemetry implementation.
 - MX2001 + MX2201 live BLE behavior is based on the hardware-proven combined reader.
 - MX2203 response parsing is based on the hardware-proven MX2203 reader.
 - MX2203 temperature conversion comes from HOBOconnect `OnsetSDK.dll`, not a fitted field equation.
-- RAK4631 universal BLE behavior was physically validated before being folded into the canonical branch.
+- RAK4631 universal BLE behavior has been physically validated with MX2001, MX2201, and MX2203.
+- MX2001, MX2201, and MX2203 `STATUS` responses have now all been observed on hardware, including logging intervals and changing write pointers.
