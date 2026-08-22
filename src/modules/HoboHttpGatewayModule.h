@@ -12,6 +12,24 @@
 #define HOBO_HTTP_GATEWAY_ENABLED 0
 #endif
 
+#ifndef HOBO_HTTP_GATEWAY_URL
+#define HOBO_HTTP_GATEWAY_URL "https://meshtastic-ecru.vercel.app/api/ingest"
+#endif
+
+#ifndef HOBO_HTTP_GATEWAY_INGEST_KEY
+#define HOBO_HTTP_GATEWAY_INGEST_KEY ""
+#endif
+
+#ifndef HOBO_HTTP_GATEWAY_NAME
+#define HOBO_HTTP_GATEWAY_NAME "Heltec Hub"
+#endif
+
+// Keep random public LongFast telemetry out of the private monitoring database.
+// Favorite each field/data node on the Heltec to authorize its uploads.
+#ifndef HOBO_HTTP_GATEWAY_FAVORITES_ONLY
+#define HOBO_HTTP_GATEWAY_FAVORITES_ONLY 1
+#endif
+
 #if HOBO_HTTP_GATEWAY_ENABLED
 
 #include "concurrency/OSThread.h"
