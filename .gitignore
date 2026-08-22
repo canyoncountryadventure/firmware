@@ -40,6 +40,9 @@ release/
 src/mesh/raspihttp/certificate.pem
 src/mesh/raspihttp/private_key.pem
 
+# Local Heltec HTTP gateway credentials - never commit this file.
+src/hobo_gateway_secrets.h
+
 # Ignore logo (set at build time with platformio-custom.py)
 data/boot/logo.*
 
