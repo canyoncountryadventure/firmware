@@ -9,7 +9,11 @@
 #endif
 
 #ifndef HOBO_HTTP_GATEWAY_ENABLED
+#if defined(HELTEC_V4_TFT)
+#define HOBO_HTTP_GATEWAY_ENABLED 1
+#else
 #define HOBO_HTTP_GATEWAY_ENABLED 0
+#endif
 #endif
 
 #ifndef HOBO_HTTP_GATEWAY_URL
@@ -81,7 +85,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t id;
     };
 
-    static constexpr uint8_t UPLOAD_QUEUE_SIZE = 8;
+    static constexpr uint8_t UPLOAD_QUEUE_SIZE = 16;
     static constexpr uint8_t SEEN_PACKET_SLOTS = 32;
     static constexpr uint8_t MAX_RETRIES = 4;
 
