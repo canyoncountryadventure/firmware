@@ -78,6 +78,10 @@
 #include "modules/GenericThreadModule.h"
 #endif
 
+#if defined(ARCH_ESP32) && HAS_WIFI
+#include "modules/HoboHttpGatewayModule.h"
+#endif
+
 #ifdef ARCH_ESP32
 #if defined(USE_SX1280) && !MESHTASTIC_EXCLUDE_AUDIO
 #include "modules/esp32/AudioModule.h"
@@ -257,6 +261,9 @@ void setupModules()
 #if !MESHTASTIC_EXCLUDE_RANGETEST && !MESHTASTIC_EXCLUDE_GPS
     if (moduleConfig.has_range_test && moduleConfig.range_test.enabled)
         new RangeTestModule();
+#endif
+#if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    new HoboHttpGatewayModule();
 #endif
 #if defined(HAS_HARDWARE_WATCHDOG)
     watchdogThread = new WatchdogThread();
