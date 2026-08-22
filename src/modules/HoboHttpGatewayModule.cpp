@@ -87,7 +87,7 @@ uint8_t hopsAway(uint8_t hopStart, uint8_t hopLimit)
 } // namespace
 
 HoboHttpGatewayModule::HoboHttpGatewayModule()
-    : MeshModule("hobo_http_gateway", meshtastic_PortNum_UNKNOWN_APP),
+    : MeshModule("hobo_http_gateway"),
       concurrency::OSThread("hobo_http_gateway"),
       uploadQueue(UPLOAD_QUEUE_SIZE)
 {
@@ -147,13 +147,13 @@ void HoboHttpGatewayModule::fillStationName(char *dest, size_t destSize, uint32_
 
     dest[0] = '\0';
     const meshtastic_NodeInfoLite *node = nodeDB ? nodeDB->getMeshNode(from) : nullptr;
-    if (node != nullptr) {
-        const size_t sourceLength = strnlen(node->long_name, sizeof(node->long_name));
+    if (node != nullptr && node->has_user) {
+        const size_t sourceLength = strnlen(node->user.long_name, sizeof(node->user.long_name));
         if (sourceLength > 0) {
             size_t copyLength = sourceLength;
             if (copyLength >= destSize)
                 copyLength = destSize - 1;
-            memcpy(dest, node->long_name, copyLength);
+            memcpy(dest, node->user.long_name, copyLength);
             dest[copyLength] = '\0';
             return;
         }
