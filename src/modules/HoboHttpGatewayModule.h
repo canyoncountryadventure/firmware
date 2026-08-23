@@ -28,10 +28,10 @@
 #define HOBO_HTTP_GATEWAY_NAME "Heltec Hub"
 #endif
 
-// Keep random public LongFast telemetry out of the private monitoring database.
-// Favorite each field/data node on the Heltec to authorize its uploads.
+// MX2001-only build: authorization is based on the custom 19-byte PRIVATE_APP
+// packet format ("MX" signature), not on Meshtastic NodeDB favorites.
 #ifndef HOBO_HTTP_GATEWAY_FAVORITES_ONLY
-#define HOBO_HTTP_GATEWAY_FAVORITES_ONLY 1
+#define HOBO_HTTP_GATEWAY_FAVORITES_ONLY 0
 #endif
 
 #if HOBO_HTTP_GATEWAY_ENABLED
@@ -53,13 +53,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     int32_t runOnce() override;
 
   private:
-    enum class JobType : uint8_t {
-        MX2001 = 1,
-        ENVIRONMENT = 2,
-    };
-
     struct UploadJob {
-        JobType type;
         uint8_t retries;
         uint8_t channel;
         uint8_t hopStart;
@@ -95,7 +89,6 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 
     bool isDuplicate(const meshtastic_MeshPacket &mp);
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);
-    bool enqueueEnvironment(const meshtastic_MeshPacket &mp);
     void fillCommon(UploadJob &job, const meshtastic_MeshPacket &mp);
     void fillStationName(char *dest, size_t destSize, uint32_t from);
     bool upload(const UploadJob &job);
