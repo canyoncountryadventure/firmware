@@ -1,8 +1,10 @@
-# Meshtastic HOBO Project
+# Meshtastic Monitoring Firmware
 
-This folder is the user-facing project structure for the HOBO → Meshtastic firmware.
+This folder is the user-facing project structure for the custom Meshtastic monitoring firmware.
 
 ## Branches to use
+
+### Field HOBO radios
 
 **Production branch:**
 
@@ -16,38 +18,20 @@ hobo-mx2001-mx2201-mx2203
 hobo-universal-validated-2026-08-19
 ```
 
-Use the production branch for normal builds and deployments. The frozen branch exists as a rollback/reference point for the exact validated universal implementation.
+These branches support Seeed XIAO nRF52840 + Wio-SX1262 and RAK4631 / RAK19003 field radios reading HOBO loggers over BLE.
 
-## What the firmware does automatically
+### Home internet gateway
 
-Once connected to a supported HOBO, the radio reads the logger's own `STATUS` response to learn:
-
-- logging interval in seconds;
-- current write pointer.
-
-It then waits for the HOBO write pointer to advance. A confirmed new logger record triggers one fresh `NEWREAD64` measurement and one Meshtastic transmission. Automatic telemetry is therefore synchronized to the HOBO's actual record creation, not to an unrelated radio timer.
-
-If pointer tracking fails, automatic telemetry pauses until `STATUS` recovers rather than transmitting on a guessed schedule.
-
-Final RAK4631 bench validation with an MX2201 configured at 20 seconds measured automatic packet cadences of 19.848 s and 19.879 s, with about 202 ms from detected logger record to telemetry queueing.
-
-## Direct Meshtastic commands
-
-Send these directly to the field radio:
+**Production branch:**
 
 ```text
-LOGGER
-READ
-LOCK
-UNLOCK
+heltec-home-http-gateway
 ```
 
-- `LOGGER` — model, logger MAC, BLE RSSI, detected logging interval, lock state and target.
-- `READ` — immediate fresh measurement; does not consume or reset automatic interval tracking.
-- `LOCK` — persistently assign the radio to the currently identified HOBO MAC.
-- `UNLOCK` — clear the assignment and resume general HOBO discovery.
+**Hardware:** Heltec WiFi LoRa 32 V4 + TFT  
+**PlatformIO target:** `heltec-v4-tft`
 
-For field deployment, use `LOGGER` to verify the physical logger first, then `LOCK` at the site.
+This branch receives the custom MX2001 mesh packet and uploads it directly over Wi-Fi/HTTPS to the Vercel ingest API and Neon PostgreSQL. The end-to-end MX2001 path was validated on 2026-08-22.
 
 ## Project layout
 
@@ -62,13 +46,15 @@ Meshtastic/
 │   ├── README.md
 │   ├── build.ps1
 │   └── flash.ps1
+├── HELTEC-HOME/
+│   └── README.md
 ├── SHARED-HOBO/
 │   └── README.md
 └── ARCHIVE/
     └── README.md
 ```
 
-## Supported radio targets
+## Field radio guides
 
 ### Seeed XIAO nRF52840 + Wio-SX1262
 
@@ -90,7 +76,19 @@ PlatformIO target:
 rak4631
 ```
 
-## Supported HOBO loggers
+### Heltec V4 home gateway
+
+Guide: [`HELTEC-HOME/README.md`](HELTEC-HOME/README.md)
+
+PlatformIO target:
+
+```text
+heltec-v4-tft
+```
+
+## HOBO field-node behavior
+
+The field firmware supports:
 
 | Logger | Automatic telemetry | Direct `READ` |
 |---|---|---|
@@ -98,31 +96,44 @@ rak4631
 | MX2201 | Temperature | Temperature |
 | MX2203 | Temperature | Temperature |
 
-The same universal HOBO implementation is used on both supported radios.
+Automatic telemetry is tied to the HOBO logger's own write pointer and configured logging interval. The radio waits for a confirmed new logger record, performs one fresh read, then queues one Meshtastic packet.
 
-See [`SHARED-HOBO/README.md`](SHARED-HOBO/README.md) for the exact automatic interval behavior, command semantics, protocol details, and validation notes.
-
-## Local Windows repository
+Direct commands to a field radio:
 
 ```text
-C:\Meshtastic-HOBO\firmware
+LOGGER
+READ
+LOCK
+UNLOCK
 ```
 
-Generated PlatformIO build files are under:
+- `LOGGER` — model, logger MAC, BLE RSSI, detected logging interval and lock state.
+- `READ` — immediate fresh measurement without disturbing the automatic schedule.
+- `LOCK` — persistently assign the radio to the currently identified HOBO BLE MAC.
+- `UNLOCK` — clear that assignment and resume discovery.
+
+See [`SHARED-HOBO/README.md`](SHARED-HOBO/README.md) for protocol and scheduler details.
+
+## MX2001 cloud path
+
+The finalized Heltec home-gateway build accepts only the custom MX2001 packet format:
 
 ```text
-C:\Meshtastic-HOBO\firmware\.pio\build\
+HOBO MX2001
+   -> BLE
+Field radio
+   -> PRIVATE_APP "MX..."
+Meshtastic mesh
+   ->
+Heltec Home
+   -> HTTPS
+Vercel ingest API
+   ->
+Neon PostgreSQL
 ```
 
-Sync production with:
-
-```powershell
-cd C:\Meshtastic-HOBO\firmware
-git fetch origin
-git switch hobo-mx2001-mx2201-mx2203
-git pull --ff-only origin hobo-mx2001-mx2201-mx2203
-```
+Normal environmental telemetry from neighboring Meshtastic nodes is not uploaded by the Heltec gateway. Favorites are not required for MX2001 ingestion; the custom packet format itself is the filter.
 
 ## Old branches
 
-Old model-specific, discovery, integration, recovery, and raw-debug branches are retained only for rollback/protocol history. Do not use them for normal field deployment. See [`ARCHIVE/README.md`](ARCHIVE/README.md).
+Old model-specific, discovery, integration, recovery and raw-debug branches are retained only for rollback/protocol history. Do not use them for normal deployment. See [`ARCHIVE/README.md`](ARCHIVE/README.md).
