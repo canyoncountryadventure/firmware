@@ -5,14 +5,11 @@
 #include "NodeDB.h"
 #include "gps/RTC.h"
 #include "main.h"
-#include "mesh/generated/meshtastic/telemetry.pb.h"
 
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <pb_decode.h>
 
-#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -91,12 +88,12 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
       concurrency::OSThread("hobo_http_gateway"),
       uploadQueue(UPLOAD_QUEUE_SIZE)
 {
-    // The home gateway must see packets even when they are not addressed to it.
+    // The home gateway must see broadcast packets even when they are not addressed to it.
     isPromiscuous = true;
     uploadQueue.setReader(this);
     setInterval(5000);
 
-    LOG_INFO("HOBO HTTP gateway enabled: %s", HOBO_HTTP_GATEWAY_URL);
+    LOG_INFO("HOBO HTTP gateway enabled: MX2001-only -> %s", HOBO_HTTP_GATEWAY_URL);
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     LOG_INFO("HOBO HTTP gateway: favorite-nodes-only filtering enabled");
 #endif
@@ -107,8 +104,8 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     if (p == nullptr || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
         return false;
 
-    if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
-        p->decoded.portnum != meshtastic_PortNum_TELEMETRY_APP)
+    // Final MX2001 build intentionally ignores all normal Meshtastic telemetry.
+    if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP)
         return false;
 
     const uint32_t from = getFrom(p);
@@ -184,6 +181,7 @@ void HoboHttpGatewayModule::fillCommon(UploadJob &job, const meshtastic_MeshPack
 
 bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
 {
+    // Our MX2001 wire format is exactly 19 bytes and starts with ASCII "MX".
     if (mp.decoded.payload.size != 19)
         return false;
 
@@ -192,7 +190,6 @@ bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
         return false;
 
     UploadJob job = {};
-    job.type = JobType::MX2001;
     fillCommon(job, mp);
 
     job.sequence = readLE16(&payload[4]);
@@ -218,51 +215,14 @@ bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
     return true;
 }
 
-bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
-{
-    meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
-    pb_istream_t stream = pb_istream_from_buffer(mp.decoded.payload.bytes, mp.decoded.payload.size);
-    if (!pb_decode(&stream, &meshtastic_Telemetry_msg, &telemetry)) {
-        LOG_DEBUG("HOBO HTTP gateway: telemetry protobuf decode failed");
-        return false;
-    }
-
-    if (telemetry.which_variant != meshtastic_Telemetry_environment_metrics_tag ||
-        !telemetry.variant.environment_metrics.has_temperature)
-        return false;
-
-    const float temperatureC = telemetry.variant.environment_metrics.temperature;
-    if (!std::isfinite(temperatureC))
-        return false;
-
-    UploadJob job = {};
-    job.type = JobType::ENVIRONMENT;
-    fillCommon(job, mp);
-    if (telemetry.time > 0)
-        job.timestamp = telemetry.time;
-    job.temperatureC = temperatureC;
-    job.temperatureF = temperatureC * 9.0f / 5.0f + 32.0f;
-
-    if (!uploadQueue.enqueue(job, 0)) {
-        LOG_WARN("HOBO HTTP gateway: upload queue full, dropped telemetry packet 0x%08lx",
-                 static_cast<unsigned long>(mp.id));
-        return false;
-    }
-
-    LOG_INFO("HOBO HTTP gateway: queued environment telemetry from 0x%08lx",
-             static_cast<unsigned long>(job.from));
-    return true;
-}
-
 ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket &mp)
 {
     if (isDuplicate(mp))
         return ProcessMessage::CONTINUE;
 
-    if (mp.decoded.portnum == meshtastic_PortNum_PRIVATE_APP)
-        enqueueMX2001(mp);
-    else if (mp.decoded.portnum == meshtastic_PortNum_TELEMETRY_APP)
-        enqueueEnvironment(mp);
+    // wantPacket() already restricts this module to PRIVATE_APP. enqueueMX2001()
+    // performs the final 19-byte + "MX" signature validation.
+    enqueueMX2001(mp);
 
     // Never consume the packet; normal Meshtastic processing continues.
     return ProcessMessage::CONTINUE;
@@ -281,8 +241,7 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     String body;
     body.reserve(768);
     body += "{";
-    body += "\"type\":";
-    body += jsonQuoted(job.type == JobType::MX2001 ? "mx2001" : "telemetry");
+    body += "\"type\":\"mx2001\"";
     body += ",\"timestamp\":";
     body += String(job.timestamp);
     body += ",\"from\":";
@@ -292,27 +251,20 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     body += ",\"station_name\":";
     body += jsonQuoted(job.stationName);
     body += ",\"payload\":{";
-
-    if (job.type == JobType::MX2001) {
-        body += "\"water_level_ft\":";
-        body += String(job.waterLevelFt, 3);
-        body += ",\"temperature_f\":";
-        body += String(job.temperatureF, 3);
-        body += ",\"temperature_c\":";
-        body += String(job.temperatureC, 3);
-        body += ",\"temperature_raw\":";
-        body += String(job.temperatureRaw);
-        body += ",\"logger_mac\":";
-        body += jsonQuoted(job.loggerMac);
-        body += ",\"sequence\":";
-        body += String(job.sequence);
-        body += ",\"ble_rssi_dbm\":";
-        body += String(job.bleRssi);
-    } else {
-        body += "\"temperature\":";
-        body += String(job.temperatureC, 3);
-    }
-
+    body += "\"water_level_ft\":";
+    body += String(job.waterLevelFt, 3);
+    body += ",\"temperature_f\":";
+    body += String(job.temperatureF, 3);
+    body += ",\"temperature_c\":";
+    body += String(job.temperatureC, 3);
+    body += ",\"temperature_raw\":";
+    body += String(job.temperatureRaw);
+    body += ",\"logger_mac\":";
+    body += jsonQuoted(job.loggerMac);
+    body += ",\"sequence\":";
+    body += String(job.sequence);
+    body += ",\"ble_rssi_dbm\":";
+    body += String(job.bleRssi);
     body += "},\"radio\":{";
     body += "\"rssi\":";
     body += String(job.rssi);
