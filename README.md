@@ -1,99 +1,116 @@
-# Meshtastic HOBO Firmware
+# Heltec Home MX2001 Gateway
 
-Custom Meshtastic firmware for remotely reading Onset HOBO loggers over Bluetooth and transmitting their measurements over the Meshtastic mesh.
+**Status:** Production / end-to-end validated 2026-08-22  
+**Branch:** `heltec-home-http-gateway`  
+**Hardware:** Heltec WiFi LoRa 32 V4 + TFT  
+**PlatformIO target:** `heltec-v4-tft`
 
-## Production status
+This branch turns a Heltec V4 into a direct Meshtastic-to-cloud gateway for HOBO MX2001 water-level monitoring.
 
-**Production branch:** `hobo-mx2001-mx2201-mx2203`  
-**Frozen validated snapshot:** `hobo-universal-validated-2026-08-19`
+## Data path
 
-The same universal firmware supports both:
+```text
+HOBO MX2001
+   -> BLE
+Field Meshtastic node
+   -> LoRa mesh
+Heltec Home Gateway
+   -> Wi-Fi / HTTPS
+Vercel ingest API
+   ->
+Neon PostgreSQL
+```
 
-- Seeed XIAO nRF52840 + Wio-SX1262
-- RAK4631 / RAK19003
+No Raspberry Pi or always-on PC is required after deployment.
 
-and all three supported HOBO logger families:
+## What this gateway uploads
 
-| HOBO | Automatic data | Direct `READ` |
-|---|---|---|
-| MX2001 | Water level + temperature | Water level + temperature |
-| MX2201 | Temperature | Temperature |
-| MX2203 | Temperature | Temperature |
+The finalized gateway is deliberately **MX2001-only**.
 
-## Automatic telemetry is tied to the HOBO logging interval
+It accepts only decoded Meshtastic packets that are:
 
-Automatic packets are **not** produced by an independent free-running radio timer.
+- `PRIVATE_APP`;
+- exactly 19 bytes;
+- prefixed with ASCII `MX`.
 
-The radio reads the HOBO `STATUS` response, learns the logger's configured interval and current write pointer, then waits for the write pointer to advance. Each confirmed new HOBO record triggers:
+Those packets carry:
 
-1. one fresh `NEWREAD64` read;
-2. one Meshtastic telemetry packet;
-3. write-pointer advancement only after the packet is successfully queued.
+- water level / stage;
+- temperature;
+- raw temperature value;
+- logger BLE MAC;
+- measurement sequence;
+- BLE RSSI;
+- Meshtastic radio metadata including RSSI, SNR, hop start/limit, hops away, relay node, channel and packet ID.
 
-If `STATUS` tracking fails, automatic telemetry pauses instead of guessing the schedule.
+The gateway ignores normal Meshtastic environmental telemetry, position, NodeInfo, text messages, routing traffic and device telemetry. Node Favorites are not required; the custom MX2001 packet format identifies eligible data.
 
-Final RAK4631 hardware validation on MX2201 at a 20-second logger interval produced consecutive automatic packet cadences of **19.848 s** and **19.879 s**, with the packet queued about **202 ms** after the new logger record was detected.
+## Validated result
 
-## Meshtastic commands
+The direct path has been confirmed end-to-end:
 
-Send these as direct text messages to the field radio:
+```text
+MX2001 -> field node -> LoRa -> Heltec -> HTTPS -> Vercel -> Neon
+```
 
-- `LOGGER` — show connected HOBO model, MAC, BLE RSSI, logging interval, and lock state.
-- `READ` — perform an immediate fresh read without disturbing the automatic schedule.
-- `LOCK` — save the currently identified HOBO BLE MAC to flash and reconnect only to that logger after reboot.
-- `UNLOCK` — clear the saved assignment and resume discovery of any supported HOBO.
-
-A leading slash is optional and command matching is case-insensitive.
-
-For field deployment, leave radios unlocked during bench work. At the monitoring site, verify the intended logger with `LOGGER`, then use `LOCK`.
+A live automatic MX2001 record was received by the Heltec, queued by the HTTP gateway, returned `HTTP 201`, and appeared in Neon with stage, temperature, logger metadata and radio metadata intact.
 
 ## Start here
 
-**Open:** [`Meshtastic/README.md`](Meshtastic/README.md)
+- Heltec deployment guide: [`Meshtastic/HELTEC-HOME/README.md`](Meshtastic/HELTEC-HOME/README.md)
+- Detailed HTTP gateway notes: [`docs/heltec-home-http-gateway.md`](docs/heltec-home-http-gateway.md)
+- Field-node firmware lives on branch: `hobo-mx2001-mx2201-mx2203`
+
+## Local secret
+
+The Vercel ingest key belongs only in:
 
 ```text
-Meshtastic/
-├── SEEED-XIAO/     ← Seeed XIAO nRF52840 + Wio-SX1262
-├── RAK4631/        ← RAK4631 / RAK19003
-├── SHARED-HOBO/    ← automatic telemetry, commands, shared BLE protocol
-└── ARCHIVE/        ← old branches and recovery history
+src/modules/hobo_gateway_secrets.h
 ```
 
-## Radio guides
+That file is git-ignored. Never commit the real key.
 
-- Seeed: [`Meshtastic/SEEED-XIAO/README.md`](Meshtastic/SEEED-XIAO/README.md)
-- RAK4631: [`Meshtastic/RAK4631/README.md`](Meshtastic/RAK4631/README.md)
-- Shared HOBO behavior: [`Meshtastic/SHARED-HOBO/README.md`](Meshtastic/SHARED-HOBO/README.md)
+## Build on Windows
 
-## PlatformIO targets
-
-Seeed:
-
-```text
-seeed_xiao_nrf52840_kit
-```
-
-RAK4631:
-
-```text
-rak4631
-```
-
-## Local Windows repository
-
-Current working location:
-
-```text
-C:\Meshtastic-HOBO\firmware
-```
-
-Sync the production branch with:
+The validated Windows build uses a short PlatformIO core path and disables LTO because the ESP32-S3 Windows linker otherwise failed to launch its LTO helper.
 
 ```powershell
-cd C:\Meshtastic-HOBO\firmware
-git fetch origin
-git switch hobo-mx2001-mx2201-mx2203
-git pull --ff-only origin hobo-mx2001-mx2201-mx2203
+cd C:\mt
+$env:PLATFORMIO_CORE_DIR="C:\p"
+$env:PLATFORMIO_BUILD_UNFLAGS="-std=c++11 -std=gnu++11 -flto"
+py -m platformio run -e heltec-v4-tft -j 1
 ```
 
-The rest of this repository remains the full Meshtastic source tree because `src/`, `variants/`, `lib/`, PlatformIO configuration, and related directories are required to compile the firmware.
+## Flash
+
+Put the Heltec into the ESP32-S3 ROM bootloader:
+
+1. Hold LEFT/PRG.
+2. Tap RIGHT/RST.
+3. Release LEFT/PRG.
+
+Then flash the non-factory application image at `0x10000`:
+
+```powershell
+py -m esptool --port COM20 write-flash 0x10000 .\.pio\build\heltec-v4-tft\firmware-heltec-v4-tft-<version>.bin
+```
+
+Use the actual COM port if different.
+
+## Verification
+
+Expected serial lines after an automatic MX2001 record:
+
+```text
+HOBO HTTP gateway: queued MX2001 packet from ...
+HOBO HTTP gateway: cloud stored packet ... (HTTP 201)
+```
+
+Normal environmental telemetry should not generate a gateway upload.
+
+## Future sensors
+
+This branch is intentionally frozen around the proven MX2001 path. Future wired sensors such as soil moisture or trail counters can be added later using their own explicit custom packet signatures and ingest types without weakening the current MX2001 filter.
+
+The rest of the repository remains the full Meshtastic source tree because the normal firmware source, variants, libraries and PlatformIO configuration are required to compile the gateway.
