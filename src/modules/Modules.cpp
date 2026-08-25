@@ -22,6 +22,9 @@
 #if !MESHTASTIC_EXCLUDE_DETECTIONSENSOR
 #include "modules/DetectionSensorModule.h"
 #endif
+#if defined(TRAIL_COUNTER_SEN0171)
+#include "modules/TrailCounterModule.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_NEIGHBORINFO
 #include "modules/NeighborInfoModule.h"
 #endif
@@ -54,7 +57,7 @@
 #if HAS_TELEMETRY
 #include "modules/Telemetry/DeviceTelemetry.h"
 #endif
-#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT) && !defined(TRAIL_COUNTER_SEN0171)
 #include "modules/Telemetry/HOBOMX2201MX2001/HOBOMX2201MX2001Telemetry.h"
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
@@ -154,6 +157,9 @@ void setupModules()
         detectionSensorModule = new DetectionSensorModule();
     }
 #endif
+#if defined(TRAIL_COUNTER_SEN0171)
+    trailCounterModule = new TrailCounterModule();
+#endif
 #if !MESHTASTIC_EXCLUDE_ATAK
     if (config.device.role == meshtastic_Config_DeviceConfig_Role_TAK ||
         config.device.role == meshtastic_Config_DeviceConfig_Role_TAK_TRACKER) {
@@ -194,7 +200,7 @@ void setupModules()
 #if HAS_TELEMETRY
     new DeviceTelemetryModule();
 #endif
-#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT) && !defined(TRAIL_COUNTER_SEN0171)
     new HOBOMX2201MX2001TelemetryModule();
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
