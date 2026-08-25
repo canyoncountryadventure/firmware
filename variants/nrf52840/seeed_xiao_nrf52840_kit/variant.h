@@ -36,8 +36,8 @@ Xiao pin assignments
 | D30   |          |      |      |       |     | D31   |         |      |      |       |
 |       |          |      |      |       |     |       |         |      |      |       |
 |       | Internal |      |      |       |     |       |         |      |      |       |
-| D16   | SCL1     | SCL1 | SCL1 | SCL1  |     |       |         |      |      |       |
-| D17   | SDA1     | SDA1 | SDA1 | SDA1  |     |       |         |      |      |       |
+| D16   | SCL1     | SCL1 | SCL1 | SCL1  |     |       |        |      |      |       |
+| D17   | SDA1     | SDA1 | SDA1 | SDA1  |     |       |        |      |      |       |
 
 The default column shows the pin assignments for the Wio-SX1262 for XIAO
 (standalone SKU 113010003 or nRF52840 kit SKU 102010710).
@@ -173,9 +173,15 @@ static const uint8_t SCK = PIN_SPI_SCK;
 /*
  * GPS
  */
+#if defined(TRAIL_COUNTER_SEN0171)
+// Trail-counter firmware reserves D0 exclusively for the SEN0171 PIR.
+// Keep Serial1 pin definitions valid for the core, but advertise no GPS and,
+// critically, do not define PIN_GPS_STANDBY on D0.
+#define GPS_TX_PIN D6
+#define GPS_RX_PIN D7
+#define HAS_GPS 0
+#else
 // GPS L76K
-
-// Default GPS L76K
 #if defined(SEEED_XIAO_NRF_KIT_DEFAULT) || defined(SEEED_XIAO_NRF_WIO_BTB)
 #define GPS_L76K
 #define GPS_TX_PIN D6 // This is data from the MCU
@@ -188,8 +194,9 @@ static const uint8_t SCK = PIN_SPI_SCK;
 #define GPS_TX_PIN (30)
 #define GPS_RX_PIN (31)
 #endif
-
 #define HAS_GPS 1
+#endif // defined(TRAIL_COUNTER_SEN0171)
+
 #define GPS_BAUDRATE 9600
 #define GPS_THREAD_INTERVAL 50
 #define PIN_SERIAL1_TX GPS_TX_PIN
