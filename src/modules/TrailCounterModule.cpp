@@ -1,7 +1,10 @@
+#include "configuration.h"
+
+#if defined(TRAIL_COUNTER_SEN0171)
+
 #include "TrailCounterModule.h"
 
 #include "MeshService.h"
-#include "configuration.h"
 #include "main.h"
 
 #include <Arduino.h>
@@ -97,9 +100,11 @@ void TrailCounterModule::sendPersonMessage(uint32_t lowGapMs)
 
     meshtastic_MeshPacket *p = allocDataPacket();
     p->want_ack = false;
-    p->decoded.payload.size = strnlen(message, sizeof(message));
+    p->decoded.payload.size = strlen(message);
     memcpy(p->decoded.payload.bytes, message, p->decoded.payload.size);
 
     LOG_INFO("Trail counter: transmit id=%lu msg=%s", (unsigned long)p->id, message);
     service->sendToMesh(p);
 }
+
+#endif // defined(TRAIL_COUNTER_SEN0171)
