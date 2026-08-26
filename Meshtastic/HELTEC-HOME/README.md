@@ -1,9 +1,9 @@
 # Heltec Home MX2001 Gateway
 
-**Status:** Production / end-to-end validated 2026-08-22  
+**Status:** Production / end-to-end validated 2026-08-22; recovery notes updated 2026-08-26  
 **Branch:** `heltec-home-http-gateway`  
-**Hardware:** Heltec WiFi LoRa 32 V4 + TFT  
-**PlatformIO target:** `heltec-v4-tft`
+**Hardware:** Heltec WiFi LoRa 32 V4 OLED  
+**PlatformIO target:** `heltec-v4`
 
 This is the home internet gateway for MX2001 monitoring traffic.
 
@@ -37,7 +37,7 @@ Meshtastic receive metadata is added by the Heltec before upload.
 
 The gateway does not upload:
 
-- `TELEMETRY_APP` environmental temperature from other Meshtastic nodes;
+- `TELEMETRY_APP` environmental temperature from unrelated nodes;
 - device/battery telemetry;
 - positions;
 - NodeInfo;
@@ -45,7 +45,21 @@ The gateway does not upload:
 - routing/ACK traffic;
 - arbitrary `PRIVATE_APP` packets that do not match the MX2001 format.
 
-Favorites are not used as an authorization mechanism. A future MX2001 field node running the same packet format can feed the gateway without first being added to the Heltec NodeDB.
+## Important OLED target correction
+
+The physical home gateway is the **OLED Heltec V4**, therefore use:
+
+```text
+heltec-v4
+```
+
+not:
+
+```text
+heltec-v4-tft
+```
+
+On 2026-08-26 the original module was found to be enabled only by `HELTEC_V4_TFT`, which allowed the OLED build to succeed while silently omitting the HTTP gateway. The branch was updated to use the common `HELTEC_V4` define so the module is available on the OLED target.
 
 ## Local configuration
 
@@ -55,71 +69,114 @@ Create this file locally and never commit it:
 src/modules/hobo_gateway_secrets.h
 ```
 
-It supplies the Vercel ingest key and gateway name. The path is listed in `.gitignore`.
+Minimal content:
+
+```cpp
+#pragma once
+#define HOBO_HTTP_GATEWAY_INGEST_KEY "YOUR_LOCAL_SECRET"
+```
+
+The value must match Vercel production `INGEST_KEY`.
+
+If the local file is missing or blank, the updated firmware emits:
+
+```text
+HOBO HTTP gateway: INGEST_KEY is empty; cloud uploads are disabled
+```
 
 ## Sync
 
 ```powershell
-cd C:\mt
-git fetch origin
+cd C:\Meshtastic-HOBO\firmware
+git fetch cca heltec-home-http-gateway
 git switch heltec-home-http-gateway
-git pull --ff-only origin heltec-home-http-gateway
+git pull --ff-only cca heltec-home-http-gateway
 ```
 
 ## Build
 
 ```powershell
-$env:PLATFORMIO_CORE_DIR="C:\p"
-$env:PLATFORMIO_BUILD_UNFLAGS="-std=c++11 -std=gnu++11 -flto"
-py -m platformio run -e heltec-v4-tft -j 1
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e heltec-v4
 ```
 
-The non-factory update image is generated under:
+## Flash by USB
 
-```text
-.pio\build\heltec-v4-tft\firmware-heltec-v4-tft-*.bin
-```
-
-## Flash
-
-Enter bootloader mode:
-
-1. Hold LEFT/PRG.
-2. Tap RIGHT/RST.
-3. Release LEFT/PRG.
-
-Flash at `0x10000`:
+For the known Heltec on `COM20`:
 
 ```powershell
-py -m esptool --port COM20 write-flash 0x10000 .\.pio\build\heltec-v4-tft\firmware-heltec-v4-tft-<version>.bin
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run `
+  -e heltec-v4 `
+  -t upload `
+  --upload-port COM20
 ```
 
-Use the actual COM port if different. Use the normal `.bin`, not `.factory.bin`, for an application update that preserves existing Meshtastic configuration.
+Use the actual COM port if different. Do not erase the full flash unless intentionally wiping Meshtastic configuration.
 
 ## Live verification
 
 ```powershell
-py -m meshtastic --port COM20 --seriallog stdout --listen 2>&1 |
-Select-String -Pattern "HOBO HTTP|PRIVATE_APP"
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" device monitor -p COM20 -b 115200
 ```
 
-Expected sequence:
+Expected startup:
+
+```text
+HOBO HTTP gateway enabled: MX2001-only -> https://meshtastic-ecru.vercel.app/api/ingest
+```
+
+Expected packet sequence:
 
 ```text
 HOBO HTTP gateway: queued MX2001 packet from ...
 HOBO HTTP gateway: cloud stored packet ... (HTTP 201)
 ```
 
-## Cloud behavior
+## Wi-Fi OTA quick diagnostic
 
-The Heltec POSTs the decoded MX2001 data and radio metadata to the Vercel ingest endpoint. The API writes the reading to Neon PostgreSQL.
+Normal Meshtastic TCP API:
 
-The HOBO remains the authoritative logger. If home internet is unavailable, the gateway retries a small number of times, but the original measurements remain stored on the HOBO itself.
+```text
+port 4403
+```
+
+Unified OTA loader:
+
+```text
+port 3232
+```
+
+Check both:
+
+```powershell
+Test-NetConnection 192.168.1.147 -Port 4403
+Test-NetConnection 192.168.1.147 -Port 3232
+```
+
+If an OTA attempt fails with `WinError 10061`, then `4403=True` and `3232=False`, the radio has returned to normal Meshtastic but the OTA loader is not available. Use USB recovery rather than repeatedly retrying Wi-Fi OTA.
+
+The verified 16 MB partition layout places:
+
+```text
+app0 at 0x10000
+app1 at 0x650000
+```
+
+The 2026-08-26 repair installed Meshtastic's `mt-esp32s3-ota.bin` into `app1` at `0x650000` after verifying that offset in the local manifest. Do not assume that offset for another partition layout without checking it first, and do not run `erase_flash` for this repair.
+
+## When data stops appearing in Neon
+
+Use this order:
+
+1. Confirm the field node is transmitting its `MX` packet.
+2. Confirm the Heltec serial log contains `HOBO HTTP gateway enabled`.
+3. Confirm the local ingest key exists.
+4. Check Vercel logs for POSTs to `/api/ingest`.
+5. No POSTs = Heltec/module/key/Wi-Fi problem.
+6. `HTTP 401` = ingest key mismatch.
+7. `HTTP 201` = Vercel accepted the reading; then inspect Neon/dashboard.
+
+This branch stays MX2001-only. Future sensor types should use separate explicit packet signatures rather than broadening the MX2001 filter.
 
 ## Security note
 
-The current firmware uses encrypted HTTPS with certificate verification disabled via `setInsecure()`. The ingest API still requires the application-layer secret key. Certificate validation can be hardened later without changing the packet architecture.
-
-## Future sensor expansion
-
-Do not broaden the MX2001 filter just to support a new sensor. Add each future sensor family with an explicit packet signature/type so unrelated public Meshtastic traffic remains excluded from the monitoring database.
+The current firmware uses encrypted HTTPS with certificate verification disabled via `setInsecure()`. The ingest API still requires the application-layer secret key.
