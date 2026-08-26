@@ -48,10 +48,8 @@ void writeLE32(uint8_t *p, uint32_t value)
 uint16_t readRockAverage()
 {
     // XIAO battery sensing is calibrated for a 10-bit ADC. analogReadResolution()
-    // is global on nRF52, so switching the whole MCU to 12 bits can corrupt a
-    // concurrent battery sample. Keep the hardware at the board's normal 10-bit
-    // setting and scale the averaged rock reading to a 0..4095 equivalent so all
-    // existing CCA rock/soil calibration values remain comparable.
+    // is global on nRF52, so never switch the MCU to 12-bit here. Average native
+    // 10-bit readings and scale to the established 0..4095 CCA calibration scale.
     uint32_t total10 = 0;
     for (uint8_t i = 0; i < ROCK_SAMPLE_COUNT; ++i) {
         total10 += static_cast<uint16_t>(analogRead(ROCK_PIN));
@@ -163,13 +161,22 @@ int32_t CCARockTelemetryModule::runOnce()
         pinMode(MOTION_PIN, INPUT);
         lastMotionState = digitalRead(MOTION_PIN) != 0;
         initialized = true;
-        LOG_INFO("CCA ROCK 1.0.2: D0/A0 sandstone probe + D6 motion; 60 s telemetry; safe battery ADC");
+        LOG_INFO("CCA ROCK 1.0.3: D0/A0 sandstone + D6 PIR; 60 s + PIR edge telemetry; safe battery ADC");
     }
 
     const bool motion = digitalRead(MOTION_PIN) != 0;
-    if (motion && !lastMotionState)
-        ++motionCount;
-    lastMotionState = motion;
+    const bool motionChanged = motion != lastMotionState;
+    if (motionChanged) {
+        if (motion)
+            ++motionCount;
+        lastMotionState = motion;
+
+        // Send immediately on both LOW->HIGH and HIGH->LOW. This gives the cloud
+        // an edge timestamp (within the 100 ms poll interval) for Last Motion and
+        // Last Clear instead of relying on the next 60-second periodic sample.
+        if (sendRockPacket())
+            lastTelemetryMs = now;
+    }
 
     if ((lastTelemetryMs == 0 && now >= FIRST_TELEMETRY_DELAY_MS) ||
         (lastTelemetryMs != 0 && now - lastTelemetryMs >= ROCK_INTERVAL_MS)) {
