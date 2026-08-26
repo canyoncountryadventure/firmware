@@ -5,6 +5,7 @@
 #include "NodeDB.h"
 #include "gps/RTC.h"
 #include "main.h"
+#include "../mesh/generated/meshtastic/telemetry.pb.h"
 
 #include <HTTPClient.h>
 #include <WiFi.h>
@@ -22,6 +23,14 @@ uint16_t readLE16(const uint8_t *p)
            (static_cast<uint16_t>(p[1]) << 8);
 }
 
+uint32_t readLE32(const uint8_t *p)
+{
+    return static_cast<uint32_t>(p[0]) |
+           (static_cast<uint32_t>(p[1]) << 8) |
+           (static_cast<uint32_t>(p[2]) << 16) |
+           (static_cast<uint32_t>(p[3]) << 24);
+}
+
 int16_t readLE16Signed(const uint8_t *p)
 {
     return static_cast<int16_t>(readLE16(p));
@@ -36,27 +45,13 @@ String jsonQuoted(const char *text)
     if (text != nullptr) {
         for (const unsigned char *p = reinterpret_cast<const unsigned char *>(text); *p; ++p) {
             switch (*p) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\b':
-                out += "\\b";
-                break;
-            case '\f':
-                out += "\\f";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
             default:
                 if (*p < 0x20) {
                     char escaped[7] = {};
@@ -88,14 +83,13 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
       concurrency::OSThread("hobo_http_gateway"),
       uploadQueue(UPLOAD_QUEUE_SIZE)
 {
-    // The home gateway must see broadcast packets even when they are not addressed to it.
     isPromiscuous = true;
     uploadQueue.setReader(this);
     setInterval(5000);
 
-    LOG_INFO("HOBO HTTP gateway enabled: MX2001-only -> %s", HOBO_HTTP_GATEWAY_URL);
+    LOG_INFO("CCA HTTP gateway enabled: MX2001 + ROCK + environment -> %s", HOBO_HTTP_GATEWAY_URL);
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
-    LOG_INFO("HOBO HTTP gateway: favorite-nodes-only filtering enabled");
+    LOG_INFO("CCA HTTP gateway: favorite-nodes-only filtering enabled");
 #endif
 }
 
@@ -104,8 +98,8 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     if (p == nullptr || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
         return false;
 
-    // Final MX2001 build intentionally ignores all normal Meshtastic telemetry.
-    if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP)
+    if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
+        p->decoded.portnum != meshtastic_PortNum_TELEMETRY_APP)
         return false;
 
     const uint32_t from = getFrom(p);
@@ -181,7 +175,6 @@ void HoboHttpGatewayModule::fillCommon(UploadJob &job, const meshtastic_MeshPack
 
 bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
 {
-    // Our MX2001 wire format is exactly 19 bytes and starts with ASCII "MX".
     if (mp.decoded.payload.size != 19)
         return false;
 
@@ -190,6 +183,7 @@ bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
         return false;
 
     UploadJob job = {};
+    job.type = JobType::MX2001;
     fillCommon(job, mp);
 
     job.sequence = readLE16(&payload[4]);
@@ -205,13 +199,71 @@ bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
              payload[12], payload[13], payload[14], payload[15], payload[16], payload[17]);
 
     if (!uploadQueue.enqueue(job, 0)) {
-        LOG_WARN("HOBO HTTP gateway: upload queue full, dropped MX2001 packet 0x%08lx",
+        LOG_WARN("CCA HTTP gateway: upload queue full, dropped MX2001 packet 0x%08lx",
                  static_cast<unsigned long>(mp.id));
         return false;
     }
 
-    LOG_INFO("HOBO HTTP gateway: queued MX2001 packet from 0x%08lx",
-             static_cast<unsigned long>(job.from));
+    LOG_INFO("CCA HTTP gateway: queued MX2001 from 0x%08lx", static_cast<unsigned long>(job.from));
+    return true;
+}
+
+bool HoboHttpGatewayModule::enqueueRockTest(const meshtastic_MeshPacket &mp)
+{
+    if (mp.decoded.payload.size != 16)
+        return false;
+
+    const uint8_t *payload = mp.decoded.payload.bytes;
+    if (payload[0] != 'R' || payload[1] != 'K' || payload[2] != 1)
+        return false;
+
+    UploadJob job = {};
+    job.type = JobType::ROCK_TEST;
+    fillCommon(job, mp);
+
+    job.motionDetected = (payload[3] & 0x01) != 0;
+    job.rockAdc = readLE16(&payload[4]);
+    job.rockSensorMv = readLE16(&payload[6]);
+    job.motionCount = readLE32(&payload[8]);
+    job.batteryMv = readLE16(&payload[12]);
+    job.batteryPercent = payload[14];
+
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("CCA HTTP gateway: upload queue full, dropped ROCK packet 0x%08lx",
+                 static_cast<unsigned long>(mp.id));
+        return false;
+    }
+
+    LOG_INFO("CCA HTTP gateway: queued ROCK ADC=%u from 0x%08lx",
+             job.rockAdc, static_cast<unsigned long>(job.from));
+    return true;
+}
+
+bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
+{
+    meshtastic_Telemetry decoded = meshtastic_Telemetry_init_zero;
+    if (!pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size,
+                              &meshtastic_Telemetry_msg, &decoded)) {
+        LOG_WARN("CCA HTTP gateway: could not decode TELEMETRY_APP packet");
+        return false;
+    }
+
+    if (decoded.which_variant != meshtastic_Telemetry_environment_metrics_tag)
+        return false;
+
+    UploadJob job = {};
+    job.type = JobType::ENVIRONMENT;
+    fillCommon(job, mp);
+    job.temperatureC = decoded.variant.environment_metrics.temperature;
+
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("CCA HTTP gateway: upload queue full, dropped environment packet 0x%08lx",
+                 static_cast<unsigned long>(mp.id));
+        return false;
+    }
+
+    LOG_INFO("CCA HTTP gateway: queued environment temp=%.2f C from 0x%08lx",
+             job.temperatureC, static_cast<unsigned long>(job.from));
     return true;
 }
 
@@ -220,11 +272,13 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
     if (isDuplicate(mp))
         return ProcessMessage::CONTINUE;
 
-    // wantPacket() already restricts this module to PRIVATE_APP. enqueueMX2001()
-    // performs the final 19-byte + "MX" signature validation.
-    enqueueMX2001(mp);
+    if (mp.decoded.portnum == meshtastic_PortNum_PRIVATE_APP) {
+        if (!enqueueRockTest(mp))
+            enqueueMX2001(mp);
+    } else if (mp.decoded.portnum == meshtastic_PortNum_TELEMETRY_APP) {
+        enqueueEnvironment(mp);
+    }
 
-    // Never consume the packet; normal Meshtastic processing continues.
     return ProcessMessage::CONTINUE;
 }
 
@@ -234,14 +288,21 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
         return false;
 
     if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) {
-        LOG_ERROR("HOBO HTTP gateway: INGEST_KEY is empty");
+        LOG_ERROR("CCA HTTP gateway: INGEST_KEY is empty");
         return false;
     }
 
     String body;
-    body.reserve(768);
+    body.reserve(900);
     body += "{";
-    body += "\"type\":\"mx2001\"";
+
+    if (job.type == JobType::MX2001)
+        body += "\"type\":\"mx2001\"";
+    else if (job.type == JobType::ROCK_TEST)
+        body += "\"type\":\"rock_test\"";
+    else
+        body += "\"type\":\"telemetry\"";
+
     body += ",\"timestamp\":";
     body += String(job.timestamp);
     body += ",\"from\":";
@@ -251,20 +312,40 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     body += ",\"station_name\":";
     body += jsonQuoted(job.stationName);
     body += ",\"payload\":{";
-    body += "\"water_level_ft\":";
-    body += String(job.waterLevelFt, 3);
-    body += ",\"temperature_f\":";
-    body += String(job.temperatureF, 3);
-    body += ",\"temperature_c\":";
-    body += String(job.temperatureC, 3);
-    body += ",\"temperature_raw\":";
-    body += String(job.temperatureRaw);
-    body += ",\"logger_mac\":";
-    body += jsonQuoted(job.loggerMac);
-    body += ",\"sequence\":";
-    body += String(job.sequence);
-    body += ",\"ble_rssi_dbm\":";
-    body += String(job.bleRssi);
+
+    if (job.type == JobType::MX2001) {
+        body += "\"water_level_ft\":";
+        body += String(job.waterLevelFt, 3);
+        body += ",\"temperature_f\":";
+        body += String(job.temperatureF, 3);
+        body += ",\"temperature_c\":";
+        body += String(job.temperatureC, 3);
+        body += ",\"temperature_raw\":";
+        body += String(job.temperatureRaw);
+        body += ",\"logger_mac\":";
+        body += jsonQuoted(job.loggerMac);
+        body += ",\"sequence\":";
+        body += String(job.sequence);
+        body += ",\"ble_rssi_dbm\":";
+        body += String(job.bleRssi);
+    } else if (job.type == JobType::ROCK_TEST) {
+        body += "\"rock_adc\":";
+        body += String(job.rockAdc);
+        body += ",\"rock_voltage_v\":";
+        body += String(job.rockSensorMv / 1000.0f, 3);
+        body += ",\"motion_detected\":";
+        body += job.motionDetected ? "true" : "false";
+        body += ",\"motion_count\":";
+        body += String(job.motionCount);
+        body += ",\"battery_voltage_v\":";
+        body += String(job.batteryMv / 1000.0f, 3);
+        body += ",\"battery_percent\":";
+        body += String(job.batteryPercent);
+    } else {
+        body += "\"temperature\":";
+        body += String(job.temperatureC, 3);
+    }
+
     body += "},\"radio\":{";
     body += "\"rssi\":";
     body += String(job.rssi);
@@ -285,25 +366,22 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     body += "}}";
 
     WiFiClientSecure client;
-    // Initial field build: HTTPS is encrypted, but certificate-chain validation is
-    // intentionally disabled to avoid bundling a changing Vercel CA in firmware.
-    // The application-layer INGEST_KEY still authenticates writes at the API.
     client.setInsecure();
 
     HTTPClient http;
     http.setTimeout(10000);
     if (!http.begin(client, HOBO_HTTP_GATEWAY_URL)) {
-        LOG_WARN("HOBO HTTP gateway: could not initialize HTTPS request");
+        LOG_WARN("CCA HTTP gateway: could not initialize HTTPS request");
         return false;
     }
 
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
-    http.addHeader("User-Agent", "heltec-hobo-http-gateway/1.0");
+    http.addHeader("User-Agent", "cca-heltec-http-gateway/1.1");
 
     const int status = http.POST(body);
     if (status >= 200 && status < 300) {
-        LOG_INFO("HOBO HTTP gateway: cloud stored packet 0x%08lx (HTTP %d)",
+        LOG_INFO("CCA HTTP gateway: cloud stored packet 0x%08lx (HTTP %d)",
                  static_cast<unsigned long>(job.packetId), status);
         http.end();
         return true;
@@ -311,9 +389,9 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
 
     if (status > 0) {
         const String response = http.getString();
-        LOG_WARN("HOBO HTTP gateway: HTTP %d: %.120s", status, response.c_str());
+        LOG_WARN("CCA HTTP gateway: HTTP %d: %.120s", status, response.c_str());
     } else {
-        LOG_WARN("HOBO HTTP gateway: POST failed: %s", http.errorToString(status).c_str());
+        LOG_WARN("CCA HTTP gateway: POST failed: %s", http.errorToString(status).c_str());
     }
 
     http.end();
@@ -339,13 +417,13 @@ int32_t HoboHttpGatewayModule::runOnce()
         ++job.retries;
         if (uploadQueue.enqueue(job, 0)) {
             const uint32_t delayMs = 1000UL << job.retries;
-            LOG_WARN("HOBO HTTP gateway: retry %u/%u in %lu ms",
+            LOG_WARN("CCA HTTP gateway: retry %u/%u in %lu ms",
                      job.retries, MAX_RETRIES, static_cast<unsigned long>(delayMs));
             return delayMs;
         }
     }
 
-    LOG_ERROR("HOBO HTTP gateway: dropping packet 0x%08lx after upload failure",
+    LOG_ERROR("CCA HTTP gateway: dropping packet 0x%08lx after upload failure",
               static_cast<unsigned long>(job.packetId));
     return 1000;
 }
