@@ -1,3 +1,19 @@
+# CCA TEST BRANCH — MX + HOBO + PIR
+
+> **YOU ARE VIEWING:** `CCA-MX-HOBO-PIR-SEEED-v1`
+>
+> **For the Seeed XIAO nRF52840 + Wio-SX1262 + HOBO MX + SEN0171 PIR build, open:**
+> **[`START_HERE_CCA_MX_PIR.md`](START_HERE_CCA_MX_PIR.md)**
+>
+> **Build target:** `seeed_xiao_nrf52840_cca_mx_pir`  
+> **Firmware identity:** `CCA-MX-PIR 1.0.0` / Schema 1  
+> **PIR SIGNAL PIN:** **D6 — NOT D0**  
+> **D0/A0:** reserved for future soil-moisture sensor; soil is **not included in v1**
+>
+> Do not follow the normal production build target below when testing the CCA PIR firmware. The detailed CCA guide above is authoritative for this branch.
+
+---
+
 # Meshtastic HOBO Firmware
 
 Custom Meshtastic firmware for remotely reading Onset HOBO loggers over Bluetooth and transmitting their measurements over the Meshtastic mesh.
