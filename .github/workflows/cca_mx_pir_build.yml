@@ -1,0 +1,17 @@
+name: CCA MX HOBO PIR Build
+
+on:
+  push:
+    branches:
+      - CCA-MX-HOBO-PIR-SEEED-v1
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build-cca-seeeds:
+    uses: ./.github/workflows/build_firmware.yml
+    with:
+      version: CCA-MX-PIR-1.0.0
+      platform: nrf52840
+      pio_env: seeed_xiao_nrf52840_cca_mx_pir
