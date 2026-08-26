@@ -23,7 +23,7 @@ namespace
 {
 
 constexpr char CCA_FW_NAME[] = "CCA-MX-PIR";
-constexpr char CCA_FW_VERSION[] = "1.0.0";
+constexpr char CCA_FW_VERSION[] = "1.0.1";
 constexpr uint8_t CCA_SCHEMA_VERSION = 1;
 constexpr char MESHTASTIC_BASE_VERSION[] = "2.7.26";
 
@@ -36,6 +36,7 @@ constexpr uint16_t POWER_CRITICAL_MV = 3450;
 constexpr uint16_t POWER_RECOVERY_MV = 3650;
 constexpr uint16_t POWER_TREND_STABLE_MV = 30;
 constexpr char STATE_FILE_PATH[] = "/prefs/cca_mx_pir.bin";
+constexpr char ALERT_DEST_FILE_PATH[] = "/prefs/cca_alert_dest.bin";
 
 constexpr uint8_t FLAG_PIR_ENABLED = 0x01;
 constexpr uint8_t FLAG_PIR_TX_ENABLED = 0x02;
@@ -50,6 +51,14 @@ struct __attribute__((packed)) PersistentState
     uint8_t checksum;
 };
 
+struct __attribute__((packed)) AlertDestinationRecord
+{
+    uint8_t magic[4];
+    uint8_t version;
+    uint32_t nodeNum;
+    uint8_t checksum;
+};
+
 PersistentState persisted = {{'C', 'C', 'A', '1'}, 1, FLAG_PIR_ENABLED | FLAG_PIR_TX_ENABLED, 0, 0, 0};
 
 bool stateLoaded = false;
@@ -61,6 +70,7 @@ bool bootAlertSent = false;
 bool pendingInitialPowerAlert = false;
 uint32_t pirBootCount = 0;
 uint32_t pirLastDetectionMs = 0;
+uint32_t alertDestinationNode = 0;
 
 struct PowerSample
 {
@@ -117,6 +127,18 @@ bool persistentRecordValid(const PersistentState &record)
            checksumBytes(reinterpret_cast<const uint8_t *>(&record), sizeof(record) - 1);
 }
 
+bool alertDestinationRecordValid(const AlertDestinationRecord &record)
+{
+    if (record.magic[0] != 'C' || record.magic[1] != 'C' ||
+        record.magic[2] != 'A' || record.magic[3] != 'D' ||
+        record.version != 1) {
+        return false;
+    }
+
+    return record.checksum ==
+           checksumBytes(reinterpret_cast<const uint8_t *>(&record), sizeof(record) - 1);
+}
+
 bool savePersistentState()
 {
     persisted.checksum =
@@ -136,6 +158,30 @@ bool savePersistentState()
 
     if (written != sizeof(persisted)) {
         LOG_WARN("CCA: persistent state short write");
+        return false;
+    }
+
+    return true;
+}
+
+bool saveAlertDestination()
+{
+    AlertDestinationRecord record = {{'C', 'C', 'A', 'D'}, 1, alertDestinationNode, 0};
+    record.checksum = checksumBytes(reinterpret_cast<const uint8_t *>(&record), sizeof(record) - 1);
+
+    concurrency::LockGuard g(spiLock);
+    File file = FSCom.open(ALERT_DEST_FILE_PATH, FILE_O_WRITE);
+    if (!file) {
+        LOG_WARN("CCA: failed to open alert destination for write");
+        return false;
+    }
+
+    const size_t written = file.write(reinterpret_cast<const uint8_t *>(&record), sizeof(record));
+    file.flush();
+    file.close();
+
+    if (written != sizeof(record)) {
+        LOG_WARN("CCA: alert destination short write");
         return false;
     }
 
@@ -168,6 +214,26 @@ void loadPersistentState()
 
     persisted.bootCount++;
     savePersistentState();
+}
+
+void loadAlertDestination()
+{
+    alertDestinationNode = 0;
+
+    AlertDestinationRecord candidate = {};
+    size_t readLength = 0;
+
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(ALERT_DEST_FILE_PATH, FILE_O_READ);
+        if (file) {
+            readLength = file.read(reinterpret_cast<uint8_t *>(&candidate), sizeof(candidate));
+            file.close();
+        }
+    }
+
+    if (readLength == sizeof(candidate) && alertDestinationRecordValid(candidate))
+        alertDestinationNode = candidate.nodeNum;
 }
 
 bool pirEnabled()
@@ -389,9 +455,14 @@ bool CCAStationModule::sendText(uint32_t destination, uint8_t channel, const cha
     return true;
 }
 
-bool CCAStationModule::sendBroadcast(const char *text)
+bool CCAStationModule::sendAutomaticAlert(const char *text)
 {
-    return sendText(NODENUM_BROADCAST, 0, text, false);
+    if (alertDestinationNode == 0) {
+        LOG_WARN("CCA alert suppressed: no private destination; DM ALERTS HERE from the receiver radio");
+        return false;
+    }
+
+    return sendText(alertDestinationNode, 0, text, true);
 }
 
 ProcessMessage CCAStationModule::handleReceived(const meshtastic_MeshPacket &mp)
@@ -420,21 +491,55 @@ ProcessMessage CCAStationModule::handleReceived(const meshtastic_MeshPacket &mp)
     } else if (strcmp(command, "STATUS") == 0) {
         char up[32] = {};
         formatDuration(uptimeSeconds(), up, sizeof(up));
+        char alertDest[28] = "NOT SET";
+        if (alertDestinationNode != 0)
+            snprintf(alertDest, sizeof(alertDest), "!%08lx", (unsigned long)alertDestinationNode);
         snprintf(reply, sizeof(reply),
-                 "%s %s\nUptime: %s\nBattery: %.3f V / %u%%\nCharging: %s\nPIR: %s | TX %s\nPIR Total: %lu | Boot: %lu\nHOBO: universal module active; use LOGGER",
+                 "%s %s\nUptime: %s\nBattery: %.3f V / %u%%\nCharging: %s\nPIR: %s | TX %s\nPIR Total: %lu | Boot: %lu\nAlerts: PRIVATE %s\nHOBO: use LOGGER",
                  CCA_FW_NAME, CCA_FW_VERSION, up, mv / 1000.0f, pct, chargingText(),
                  pirEnabled() ? "ON" : "OFF", pirTxEnabled() ? "ON" : "OFF",
-                 (unsigned long)persisted.pirTotalCount, (unsigned long)pirBootCount);
+                 (unsigned long)persisted.pirTotalCount, (unsigned long)pirBootCount, alertDest);
+    } else if (strcmp(command, "ALERTS HERE") == 0) {
+        if (alertDestinationNode == 0 || alertDestinationNode == mp.from) {
+            alertDestinationNode = mp.from;
+            const bool saved = saveAlertDestination();
+            snprintf(reply, sizeof(reply),
+                     "ALERTS PRIVATE\nDestination: !%08lx\nSaved: %s\nPIR/POWER/BOOT will DM this node",
+                     (unsigned long)alertDestinationNode, saved ? "YES" : "NO");
+        } else {
+            snprintf(reply, sizeof(reply),
+                     "ALERT DEST LOCKED\nCurrent: !%08lx\nClear it from the current receiver first",
+                     (unsigned long)alertDestinationNode);
+        }
+    } else if (strcmp(command, "ALERTS STATUS") == 0) {
+        if (alertDestinationNode == 0)
+            snprintf(reply, sizeof(reply), "Alerts: PRIVATE\nDestination: NOT SET\nSend ALERTS HERE from receiver radio");
+        else
+            snprintf(reply, sizeof(reply), "Alerts: PRIVATE DM ONLY\nDestination: !%08lx\nPublic fallback: DISABLED",
+                     (unsigned long)alertDestinationNode);
+    } else if (strcmp(command, "ALERTS CLEAR") == 0) {
+        if (alertDestinationNode == 0) {
+            snprintf(reply, sizeof(reply), "ALERT DESTINATION ALREADY CLEAR");
+        } else if (mp.from != alertDestinationNode) {
+            snprintf(reply, sizeof(reply), "ALERTS CLEAR DENIED\nOnly current destination !%08lx may clear it",
+                     (unsigned long)alertDestinationNode);
+        } else {
+            alertDestinationNode = 0;
+            const bool saved = saveAlertDestination();
+            snprintf(reply, sizeof(reply), "ALERT DESTINATION CLEARED\nSaved: %s\nAutomatic CCA alerts now suppressed", saved ? "YES" : "NO");
+        }
     } else if (strcmp(command, "PIR") == 0 || strcmp(command, "PIR STATUS") == 0) {
         char last[40] = "never";
-        if (pirLastDetectionMs != 0) {
+        if (pirLastDetectionMs != 0)
             formatDuration((now - pirLastDetectionMs) / 1000UL, last, sizeof(last));
-        }
+        char alertDest[28] = "NOT SET";
+        if (alertDestinationNode != 0)
+            snprintf(alertDest, sizeof(alertDest), "!%08lx", (unsigned long)alertDestinationNode);
         snprintf(reply, sizeof(reply),
-                 "PIR: %s\nSensor: %s\nTotal Detections: %lu\nSince Boot: %lu\nLast Detection: %s\nTX Alerts: %s\nPin: D6",
+                 "PIR: %s\nSensor: %s\nTotal Detections: %lu\nSince Boot: %lu\nLast Detection: %s\nTX Alerts: %s\nAlert DM: %s\nPin: D6",
                  pirEnabled() ? "ON" : "OFF", pirLastState ? "MOTION" : "CLEAR",
                  (unsigned long)persisted.pirTotalCount, (unsigned long)pirBootCount,
-                 last, pirTxEnabled() ? "ON" : "OFF");
+                 last, pirTxEnabled() ? "ON" : "OFF", alertDest);
     } else if (strcmp(command, "PIR COUNT") == 0) {
         snprintf(reply, sizeof(reply), "PIR Total: %lu\nSince Boot: %lu",
                  (unsigned long)persisted.pirTotalCount, (unsigned long)pirBootCount);
@@ -461,7 +566,11 @@ ProcessMessage CCAStationModule::handleReceived(const meshtastic_MeshPacket &mp)
         snprintf(reply, sizeof(reply), "PIR OFF\nMonitoring disabled\nSetting persists after reboot");
     } else if (strcmp(command, "PIR TX ON") == 0) {
         setPirTxEnabled(true);
-        snprintf(reply, sizeof(reply), "PIR TX ON\nEvery new LOW->HIGH detection will transmit immediately");
+        if (alertDestinationNode == 0)
+            snprintf(reply, sizeof(reply), "PIR TX ON\nPrivate destination NOT SET\nSend ALERTS HERE from receiver radio");
+        else
+            snprintf(reply, sizeof(reply), "PIR TX ON\nNew detections DM !%08lx immediately",
+                     (unsigned long)alertDestinationNode);
     } else if (strcmp(command, "PIR TX OFF") == 0) {
         setPirTxEnabled(false);
         snprintf(reply, sizeof(reply), "PIR TX OFF\nDetections still count locally; alerts are silent");
@@ -543,6 +652,7 @@ int32_t CCAStationModule::runOnce()
 
     if (!moduleInitialized) {
         loadPersistentState();
+        loadAlertDestination();
 
         pinMode(PIR_PIN, INPUT);
         pirLastState = digitalRead(PIR_PIN);
@@ -559,6 +669,10 @@ int32_t CCAStationModule::runOnce()
                  CCA_SCHEMA_VERSION, stateLoaded ? "restored" : "new");
         LOG_INFO("CCA PIR: %s TX=%s startup=%s", pirEnabled() ? "ON" : "OFF",
                  pirTxEnabled() ? "ON" : "OFF", pirArmed ? "ARMED" : "WAITING-FOR-LOW");
+        if (alertDestinationNode == 0)
+            LOG_INFO("CCA automatic alerts: PRIVATE destination NOT SET; broadcasts disabled");
+        else
+            LOG_INFO("CCA automatic alerts: PRIVATE DM destination !%08lx", (unsigned long)alertDestinationNode);
         return POLL_INTERVAL_MS;
     }
 
@@ -589,7 +703,7 @@ int32_t CCAStationModule::runOnce()
             if (pirTxEnabled()) {
                 char alert[80] = {};
                 snprintf(alert, sizeof(alert), "PIR|ALERT|COUNT=%lu", (unsigned long)persisted.pirTotalCount);
-                sendBroadcast(alert);
+                sendAutomaticAlert(alert);
             }
         }
 
@@ -618,7 +732,7 @@ int32_t CCAStationModule::runOnce()
             else
                 snprintf(alert, sizeof(alert), "POWER|RECOVERED|V=%.3f", mv / 1000.0f);
 
-            sendBroadcast(alert);
+            sendAutomaticAlert(alert);
             powerAlertState = newState;
         } else if (newState != PowerAlertState::UNKNOWN) {
             powerAlertState = newState;
@@ -632,7 +746,7 @@ int32_t CCAStationModule::runOnce()
         char boot[100] = {};
         snprintf(boot, sizeof(boot), "SYS|BOOT|COUNT=%lu|FW=%s-%s",
                  (unsigned long)persisted.bootCount, CCA_FW_NAME, CCA_FW_VERSION);
-        sendBroadcast(boot);
+        sendAutomaticAlert(boot);
         bootAlertSent = true;
 
         if (pendingInitialPowerAlert) {
@@ -642,7 +756,7 @@ int32_t CCAStationModule::runOnce()
                 snprintf(alert, sizeof(alert), "POWER|CRITICAL|V=%.3f", mv / 1000.0f);
             else
                 snprintf(alert, sizeof(alert), "POWER|LOW|V=%.3f", mv / 1000.0f);
-            sendBroadcast(alert);
+            sendAutomaticAlert(alert);
             pendingInitialPowerAlert = false;
         }
     }
