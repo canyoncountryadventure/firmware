@@ -22,6 +22,9 @@
 #if !MESHTASTIC_EXCLUDE_DETECTIONSENSOR
 #include "modules/DetectionSensorModule.h"
 #endif
+#if defined(CCA_MX_PIR) && defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+#include "modules/CCAStationModule.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_NEIGHBORINFO
 #include "modules/NeighborInfoModule.h"
 #endif
@@ -153,6 +156,9 @@ void setupModules()
     if (moduleConfig.has_detection_sensor && moduleConfig.detection_sensor.enabled) {
         detectionSensorModule = new DetectionSensorModule();
     }
+#endif
+#if defined(CCA_MX_PIR) && defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+    ccaStationModule = new CCAStationModule();
 #endif
 #if !MESHTASTIC_EXCLUDE_ATAK
     if (config.device.role == meshtastic_Config_DeviceConfig_Role_TAK ||
