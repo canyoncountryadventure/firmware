@@ -9,7 +9,7 @@
 #endif
 
 #ifndef HOBO_HTTP_GATEWAY_ENABLED
-#if defined(HELTEC_V4_TFT)
+#if defined(HELTEC_V4)
 #define HOBO_HTTP_GATEWAY_ENABLED 1
 #else
 #define HOBO_HTTP_GATEWAY_ENABLED 0
