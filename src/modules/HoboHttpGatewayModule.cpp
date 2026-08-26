@@ -94,6 +94,9 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
     setInterval(5000);
 
     LOG_INFO("HOBO HTTP gateway enabled: MX2001-only -> %s", HOBO_HTTP_GATEWAY_URL);
+    if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) {
+        LOG_ERROR("HOBO HTTP gateway: INGEST_KEY is empty; cloud uploads are disabled");
+    }
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     LOG_INFO("HOBO HTTP gateway: favorite-nodes-only filtering enabled");
 #endif
