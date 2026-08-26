@@ -12,6 +12,11 @@
 #include <cstdint>
 #include <cstring>
 
+// Include this after the framework/Arduino headers so the CCA PIR D6 wrappers
+// only affect this module's call sites. This keeps the rock packet's motion
+// state/count on the same RF-filtered signal used by CCAStationModule.
+#include "CCAStationModule.h"
+
 CCARockTelemetryModule *ccaRockTelemetryModule;
 
 namespace
@@ -114,10 +119,10 @@ bool CCARockTelemetryModule::sendRockPacket()
     // 16-byte CCA rock packet, schema 1:
     // 0..1  = 'R','K'
     // 2     = schema version
-    // 3     = flags (bit 0 = current motion)
+    // 3     = flags (bit 0 = current validated motion)
     // 4..5  = averaged rock ADC on the established 0..4095 CCA calibration scale
     // 6..7  = sensor output millivolts (3.3 V reference)
-    // 8..11 = motion rising-edge count since boot
+    // 8..11 = validated motion rising-edge count since boot
     // 12..13= node battery millivolts; 0 means unavailable/invalid
     // 14    = node battery percent; 0 when battery voltage is unavailable
     // 15    = reserved
@@ -161,13 +166,13 @@ int32_t CCARockTelemetryModule::runOnce()
         pinMode(MOTION_PIN, INPUT);
         lastMotionState = digitalRead(MOTION_PIN) != 0;
         initialized = true;
-        LOG_INFO("CCA ROCK 1.0.4: D0/A0 sandstone + D6 PIR; 60 s telemetry; edge-TX disabled; safe battery ADC");
+        LOG_INFO("CCA ROCK 1.0.5: D0/A0 sandstone + RF-filtered D6 PIR; 60 s telemetry; safe battery ADC");
     }
 
-    // Keep the PIR behavior that was stable before dc398892. We still sample D6
-    // every 100 ms and count LOW->HIGH edges, but we do NOT transmit a LoRa rock
-    // packet from the edge handler. The immediate edge-TX experiment could create
-    // a self-trigger loop if RF from our own SX1262 transmission perturbs the PIR.
+    // Sample the same RF-filtered D6 signal as CCAStationModule. A LOW->HIGH
+    // pulse that starts during this node's own LoRa TX (or the short settling
+    // window after it) is held LOW until the physical PIR output returns LOW,
+    // preventing normal mesh/HOBO/rock transmissions from inflating the count.
     const bool motion = digitalRead(MOTION_PIN) != 0;
     if (motion && !lastMotionState)
         ++motionCount;
