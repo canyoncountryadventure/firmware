@@ -18,15 +18,15 @@
 // milliseconds, we can reliably observe each local TX without changing the
 // Meshtastic radio core.
 //
-// If a NEW raw D6 rising edge begins while TX is active, or during the short
-// post-TX settling window, suppress that entire HIGH pulse until D6 physically
+// If a NEW raw D6 rising edge begins while TX is active, or during the 15-second
+// post-TX guard window, suppress that entire HIGH pulse until D6 physically
 // returns LOW. This is important: the SEN0171 can hold its output HIGH for many
 // seconds, so a simple debounce would merely count the same RF-induced pulse
-// after the debounce expired.
+// after the guard expired.
 //
 // A real PIR HIGH that began before TX remains valid; transmitting while a
 // legitimate motion pulse is already active does not erase that detection.
-constexpr uint32_t CCA_PIR_POST_TX_GUARD_MS = 1500;
+constexpr uint32_t CCA_PIR_POST_TX_GUARD_MS = 15000;
 
 inline void ccaPirPinMode(uint32_t pin, uint32_t mode)
 {
