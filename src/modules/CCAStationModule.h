@@ -19,7 +19,7 @@ class CCAStationModule : public SinglePortModule, private concurrency::OSThread
 
   private:
     bool sendText(uint32_t destination, uint8_t channel, const char *text, bool wantAck);
-    bool sendBroadcast(const char *text);
+    bool sendAutomaticAlert(const char *text);
 };
 
 extern CCAStationModule *ccaStationModule;
