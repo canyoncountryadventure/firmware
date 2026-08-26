@@ -15,6 +15,57 @@ jobs:
   build-cca-seeeds:
     uses: ./.github/workflows/build_firmware.yml
     with:
-      version: CCA-MX-PIR-ROCK-1.0.0
+      version: CCA-MX-PIR-ROCK-1.0.4
       platform: nrf52840
       pio_env: seeed_xiao_nrf52840_cca_mx_pir
+
+  settings-safe-ota:
+    name: Package settings-safe OTA
+    needs: build-cca-seeeds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download CCA firmware artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: firmware-nrf52840-seeed_xiao_nrf52840_cca_mx_pir-CCA-MX-PIR-ROCK-1.0.4
+          path: firmware
+
+      - name: Extract application-only OTA package
+        shell: bash
+        run: |
+          set -euo pipefail
+          OTA_FILE="$(find firmware -type f -name '*-ota.zip' -print -quit)"
+          if [[ -z "$OTA_FILE" ]]; then
+            echo "No nRF52 application OTA zip was produced"
+            exit 1
+          fi
+
+          mkdir -p safe-ota
+          cp "$OTA_FILE" safe-ota/CCA-CCS3-SETTINGS-SAFE-OTA-1.0.4.zip
+
+          python3 - <<'PY'
+          import json, zipfile
+          path = 'safe-ota/CCA-CCS3-SETTINGS-SAFE-OTA-1.0.4.zip'
+          with zipfile.ZipFile(path) as z:
+              names = set(z.namelist())
+              required = {'manifest.json'}
+              if not required.issubset(names):
+                  raise SystemExit('OTA package missing manifest.json')
+              manifest = json.loads(z.read('manifest.json'))
+              image = manifest.get('manifest', {})
+              if set(image.keys()) - {'application', 'dfu_version'}:
+                  raise SystemExit(f'Unexpected non-application DFU sections: {list(image.keys())}')
+              if 'application' not in image:
+                  raise SystemExit('OTA package is not application-only')
+              app = image['application']
+              if not app.get('bin_file') or not app.get('dat_file'):
+                  raise SystemExit('OTA application entry missing bin/dat')
+          print('Verified: application-only Nordic DFU package; no filesystem image present')
+          PY
+
+      - name: Upload normal-upgrade artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: CCA-CCS3-SETTINGS-SAFE-OTA-1.0.4
+          path: safe-ota/CCA-CCS3-SETTINGS-SAFE-OTA-1.0.4.zip
+          if-no-files-found: error
