@@ -10,7 +10,7 @@ if (-not (Test-Path $pio)) {
 
 Push-Location $repo
 try {
-    Write-Host 'Building and flashing CCA-MX-PIR 1.0.0...'
+    Write-Host 'Building and flashing CCA-MX-PIR 1.0.1...'
     & $pio run -e $environment -t upload
     if ($LASTEXITCODE -ne 0) {
         throw "CCA upload failed with exit code $LASTEXITCODE"
@@ -21,7 +21,7 @@ try {
         Select-Object -First 1
 
     Write-Host ''
-    Write-Host 'CCA-MX-PIR flash complete.'
+    Write-Host 'CCA-MX-PIR 1.0.1 flash complete.'
     if ($uf2) {
         Write-Host "Generated UF2: $($uf2.FullName)"
     }
