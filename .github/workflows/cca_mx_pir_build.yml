@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - CCA-MX-HOBO-PIR-SEEED-v1
+  pull_request:
+    branches:
+      - CCA-MX-HOBO-PIR-SEEED-v1
   workflow_dispatch:
 
 permissions: read-all
