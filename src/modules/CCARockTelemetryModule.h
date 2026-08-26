@@ -6,6 +6,7 @@
 
 #include "concurrency/OSThread.h"
 #include "mesh/SinglePortModule.h"
+#include <cstdint>
 
 class CCARockTelemetryModule : public SinglePortModule, private concurrency::OSThread
 {
@@ -19,6 +20,7 @@ class CCARockTelemetryModule : public SinglePortModule, private concurrency::OST
 
   private:
     bool sendRockPacket();
+    bool sendText(uint32_t destination, uint8_t channel, const char *text, bool wantAck);
 };
 
 extern CCARockTelemetryModule *ccaRockTelemetryModule;
