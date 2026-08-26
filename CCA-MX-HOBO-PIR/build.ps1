@@ -10,7 +10,7 @@ if (-not (Test-Path $pio)) {
 
 Push-Location $repo
 try {
-    Write-Host 'Building CCA-MX-PIR 1.0.0 for Seeed XIAO nRF52840 + Wio-SX1262...'
+    Write-Host 'Building CCA-MX-PIR 1.0.1 for Seeed XIAO nRF52840 + Wio-SX1262...'
     & $pio run -e $environment
     if ($LASTEXITCODE -ne 0) {
         throw "CCA build failed with exit code $LASTEXITCODE"
@@ -25,7 +25,7 @@ try {
     }
 
     Write-Host ''
-    Write-Host 'CCA-MX-PIR build complete.'
+    Write-Host 'CCA-MX-PIR 1.0.1 build complete.'
     Write-Host "Flash file: $($uf2.FullName)"
 }
 finally {
