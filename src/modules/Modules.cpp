@@ -24,6 +24,7 @@
 #endif
 #if defined(CCA_MX_PIR) && defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
 #include "modules/CCAStationModule.h"
+#include "modules/CCARockTelemetryModule.h"
 #endif
 #if !MESHTASTIC_EXCLUDE_NEIGHBORINFO
 #include "modules/NeighborInfoModule.h"
@@ -159,6 +160,7 @@ void setupModules()
 #endif
 #if defined(CCA_MX_PIR) && defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
     ccaStationModule = new CCAStationModule();
+    ccaRockTelemetryModule = new CCARockTelemetryModule();
 #endif
 #if !MESHTASTIC_EXCLUDE_ATAK
     if (config.device.role == meshtastic_Config_DeviceConfig_Role_TAK ||
