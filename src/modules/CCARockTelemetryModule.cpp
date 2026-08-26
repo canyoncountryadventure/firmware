@@ -26,7 +26,7 @@ CCARockTelemetryModule *ccaRockTelemetryModule;
 
 namespace
 {
-constexpr char ROCK_FW_VERSION[] = "1.0.6";
+constexpr char ROCK_FW_VERSION[] = "1.0.7";
 constexpr uint8_t ROCK_PIN = A0;
 constexpr uint8_t MOTION_PIN = D6;
 constexpr uint32_t ROCK_INTERVAL_MS = 60UL * 1000UL;
@@ -164,6 +164,21 @@ bool wetnessPercent(uint16_t adc, uint8_t &percent)
     return true;
 }
 
+const char *temporaryRockState(uint16_t adc)
+{
+    if (adc >= 2303)
+        return "DRY";
+    if (adc >= 2000)
+        return "DRYING";
+    if (adc >= 1713)
+        return "DAMP";
+    if (adc >= 1600)
+        return "WET";
+    if (adc >= 1451)
+        return "SOAKED";
+    return "WATER";
+}
+
 void writeLE16(uint8_t *p, uint16_t value)
 {
     p[0] = static_cast<uint8_t>(value & 0xff);
@@ -265,7 +280,7 @@ void ensureInitialized()
     lastMotionState = digitalRead(MOTION_PIN) != 0;
     initialized = true;
 
-    LOG_INFO("CCA ROCK %s: D0/A0 sandstone + RF-filtered D6 PIR; 60 s telemetry; persistent calibration; safe battery ADC",
+    LOG_INFO("CCA ROCK %s: D0/A0 sandstone + RF-filtered D6 PIR; 60 s telemetry; persistent calibration; temporary state bands; safe battery ADC",
              ROCK_FW_VERSION);
 }
 
@@ -349,6 +364,25 @@ ProcessMessage CCARockTelemetryModule::handleReceived(const meshtastic_MeshPacke
     if (command[0] == '\0')
         return ProcessMessage::CONTINUE;
 
+    if (strcmp(command, "HELP") == 0) {
+        sendText(mp.from, mp.channel,
+                 "HELP 1/5 GENERAL\nHELP | VERSION | STATUS | UPTIME | BOOT\nDEBUG ON | DEBUG OFF\nALERTS HERE | ALERTS STATUS | ALERTS CLEAR",
+                 true);
+        sendText(mp.from, mp.channel,
+                 "HELP 2/5 PIR\nPIR | PIR STATUS | PIR COUNT | PIR LAST | PIR RESET\nPIR ON | PIR OFF | PIR TX ON | PIR TX OFF",
+                 true);
+        sendText(mp.from, mp.channel,
+                 "HELP 3/5 POWER\nPOWER | POWER STATUS | POWER VOLTAGE | POWER MINMAX\nPOWER TREND | POWER HISTORY | POWER RESET | POWER UPTIME",
+                 true);
+        sendText(mp.from, mp.channel,
+                 "HELP 4/5 ROCK\nROCK | ROCK STATUS | ROCK ADC | ROCK STATE | ROCK NOW | ROCK BANDS\nROCK CAL | ROCK CAL DRY | ROCK CAL WET | ROCK CAL STATUS | ROCK CAL CLEAR | ROCK HELP",
+                 true);
+        sendText(mp.from, mp.channel,
+                 "HELP 5/5 LOGGER\nLOGGER | READ | LOCK | UNLOCK\nCommands are case-insensitive; leading / is optional.",
+                 true);
+        return ProcessMessage::CONTINUE;
+    }
+
     if (strcmp(command, "ROCK") != 0 && strncmp(command, "ROCK ", 5) != 0)
         return ProcessMessage::CONTINUE;
 
@@ -360,43 +394,47 @@ ProcessMessage CCARockTelemetryModule::handleReceived(const meshtastic_MeshPacke
         char wet[24] = {};
         formatWetness(wet, sizeof(wet), latestAdc);
         snprintf(reply, sizeof(reply),
-                 "ROCK %s\nADC: %u / 4095\nSensor: %u mV\nWetness: %s\nMotion: %s | Count: %lu\nBattery: %u mV / %u%%\nAuto TX: 60s",
-                 ROCK_FW_VERSION, latestAdc, latestSensorMv, wet,
+                 "ROCK %s\nState: %s\nADC: %u / 4095\nSensor: %u mV\nWetness: %s\nMotion: %s | Count: %lu\nBattery: %u mV / %u%%\nAuto TX: 60s",
+                 ROCK_FW_VERSION, temporaryRockState(latestAdc), latestAdc, latestSensorMv, wet,
                  latestMotion ? "YES" : "NO", static_cast<unsigned long>(motionCount),
                  latestBatteryMv, latestBatteryPct);
     } else if (strcmp(command, "ROCK ADC") == 0) {
         sampleRock();
-        snprintf(reply, sizeof(reply), "ROCK ADC\nADC: %u / 4095\nSensor: %u mV", latestAdc, latestSensorMv);
+        snprintf(reply, sizeof(reply), "ROCK ADC\nState: %s\nADC: %u / 4095\nSensor: %u mV",
+                 temporaryRockState(latestAdc), latestAdc, latestSensorMv);
     } else if (strcmp(command, "ROCK STATE") == 0) {
         sampleRock();
         char wet[24] = {};
         formatWetness(wet, sizeof(wet), latestAdc);
         snprintf(reply, sizeof(reply),
-                 "ROCK STATE\nADC: %u\nSensor: %u mV\nWetness: %s\nScale: 0=dry 100=wet",
-                 latestAdc, latestSensorMv, wet);
+                 "ROCK STATE: %s\nADC: %u\nSensor: %u mV\nCal wetness: %s",
+                 temporaryRockState(latestAdc), latestAdc, latestSensorMv, wet);
     } else if (strcmp(command, "ROCK NOW") == 0) {
         const bool sent = sendRockPacket();
         char wet[24] = {};
         formatWetness(wet, sizeof(wet), latestAdc);
         snprintf(reply, sizeof(reply),
-                 "ROCK TX NOW: %s\nADC: %u\nSensor: %u mV\nWetness: %s",
-                 sent ? "QUEUED" : "FAILED", latestAdc, latestSensorMv, wet);
+                 "ROCK TX NOW: %s\nState: %s\nADC: %u\nSensor: %u mV\nCal wetness: %s",
+                 sent ? "QUEUED" : "FAILED", temporaryRockState(latestAdc), latestAdc, latestSensorMv, wet);
+    } else if (strcmp(command, "ROCK BANDS") == 0) {
+        snprintf(reply, sizeof(reply),
+                 "TEMP ROCK BANDS\nDRY >=2303\nDRYING 2000-2302\nDAMP 1713-1999\nWET 1600-1712\nSOAKED 1451-1599\nWATER <=1450");
     } else if (strcmp(command, "ROCK CAL DRY") == 0) {
         sampleRock();
         rockCal.dryAdc = latestAdc;
         rockCal.flags |= ROCK_CAL_DRY_SET;
         const bool saved = saveRockCalibration();
         snprintf(reply, sizeof(reply),
-                 "ROCK CAL DRY\nADC: %u\nSensor: %u mV\nSaved: %s",
-                 latestAdc, latestSensorMv, saved ? "YES" : "NO");
+                 "ROCK CAL DRY\nState: %s\nADC: %u\nSensor: %u mV\nSaved: %s",
+                 temporaryRockState(latestAdc), latestAdc, latestSensorMv, saved ? "YES" : "NO");
     } else if (strcmp(command, "ROCK CAL WET") == 0) {
         sampleRock();
         rockCal.wetAdc = latestAdc;
         rockCal.flags |= ROCK_CAL_WET_SET;
         const bool saved = saveRockCalibration();
         snprintf(reply, sizeof(reply),
-                 "ROCK CAL WET\nADC: %u\nSensor: %u mV\nSaved: %s",
-                 latestAdc, latestSensorMv, saved ? "YES" : "NO");
+                 "ROCK CAL WET\nState: %s\nADC: %u\nSensor: %u mV\nSaved: %s",
+                 temporaryRockState(latestAdc), latestAdc, latestSensorMv, saved ? "YES" : "NO");
     } else if (strcmp(command, "ROCK CAL") == 0 || strcmp(command, "ROCK CAL STATUS") == 0) {
         sampleRock();
         char dry[18] = "NOT SET";
@@ -408,17 +446,17 @@ ProcessMessage CCARockTelemetryModule::handleReceived(const meshtastic_MeshPacke
             snprintf(wetEndpoint, sizeof(wetEndpoint), "%u", rockCal.wetAdc);
         formatWetness(wetness, sizeof(wetness), latestAdc);
         snprintf(reply, sizeof(reply),
-                 "ROCK CAL\nDry ADC: %s\nWet ADC: %s\nNow ADC: %u\nWetness: %s\nPersistent: YES",
-                 dry, wetEndpoint, latestAdc, wetness);
+                 "ROCK CAL\nState: %s\nDry ADC: %s\nWet ADC: %s\nNow ADC: %u\nWetness: %s\nPersistent: YES",
+                 temporaryRockState(latestAdc), dry, wetEndpoint, latestAdc, wetness);
     } else if (strcmp(command, "ROCK CAL CLEAR") == 0) {
         resetRockCalibration();
         const bool saved = saveRockCalibration();
         snprintf(reply, sizeof(reply), "ROCK CAL CLEARED\nDry/Wet: NOT SET\nSaved: %s", saved ? "YES" : "NO");
     } else if (strcmp(command, "ROCK HELP") == 0) {
         snprintf(reply, sizeof(reply),
-                 "ROCK COMMANDS\nROCK | ROCK STATUS | ROCK ADC\nROCK STATE | ROCK NOW\nROCK CAL DRY | ROCK CAL WET\nROCK CAL STATUS | ROCK CAL CLEAR");
+                 "ROCK COMMANDS\nROCK | ROCK STATUS | ROCK ADC | ROCK STATE | ROCK NOW | ROCK BANDS\nROCK CAL | ROCK CAL DRY | ROCK CAL WET | ROCK CAL STATUS | ROCK CAL CLEAR");
     } else {
-        snprintf(reply, sizeof(reply), "Unknown ROCK command\nSend ROCK HELP");
+        snprintf(reply, sizeof(reply), "Unknown ROCK command\nSend ROCK HELP or HELP");
     }
 
     sendText(mp.from, mp.channel, reply, true);
@@ -472,13 +510,15 @@ bool CCARockTelemetryModule::sendRockPacket()
     lastTelemetryMs = millis();
 
     if (wetPct <= 100) {
-        LOG_INFO("CCA ROCK: ADC=%u sensor=%u mV wetness=%u%% motion=%s count=%lu battery=%u mV/%u%%",
-                 latestAdc, latestSensorMv, wetPct, latestMotion ? "YES" : "NO",
-                 static_cast<unsigned long>(motionCount), latestBatteryMv, latestBatteryPct);
+        LOG_INFO("CCA ROCK: state=%s ADC=%u sensor=%u mV wetness=%u%% motion=%s count=%lu battery=%u mV/%u%%",
+                 temporaryRockState(latestAdc), latestAdc, latestSensorMv, wetPct,
+                 latestMotion ? "YES" : "NO", static_cast<unsigned long>(motionCount),
+                 latestBatteryMv, latestBatteryPct);
     } else {
-        LOG_INFO("CCA ROCK: ADC=%u sensor=%u mV wetness=UNCAL motion=%s count=%lu battery=%u mV/%u%%",
-                 latestAdc, latestSensorMv, latestMotion ? "YES" : "NO",
-                 static_cast<unsigned long>(motionCount), latestBatteryMv, latestBatteryPct);
+        LOG_INFO("CCA ROCK: state=%s ADC=%u sensor=%u mV wetness=UNCAL motion=%s count=%lu battery=%u mV/%u%%",
+                 temporaryRockState(latestAdc), latestAdc, latestSensorMv,
+                 latestMotion ? "YES" : "NO", static_cast<unsigned long>(motionCount),
+                 latestBatteryMv, latestBatteryPct);
     }
     return true;
 }
