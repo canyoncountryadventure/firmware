@@ -28,8 +28,6 @@
 #define HOBO_HTTP_GATEWAY_NAME "Heltec Hub"
 #endif
 
-// MX2001-only build: authorization is based on the custom 19-byte PRIVATE_APP
-// packet format ("MX" signature), not on Meshtastic NodeDB favorites.
 #ifndef HOBO_HTTP_GATEWAY_FAVORITES_ONLY
 #define HOBO_HTTP_GATEWAY_FAVORITES_ONLY 0
 #endif
@@ -53,7 +51,14 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     int32_t runOnce() override;
 
   private:
+    enum class JobType : uint8_t {
+        MX2001 = 0,
+        ROCK_TEST = 1,
+        ENVIRONMENT = 2,
+    };
+
     struct UploadJob {
+        JobType type;
         uint8_t retries;
         uint8_t channel;
         uint8_t hopStart;
@@ -65,12 +70,23 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t packetId;
         uint32_t from;
         uint32_t timestamp;
+
+        // MX2001
         uint16_t sequence;
         uint16_t temperatureRaw;
         float waterLevelFt;
         float temperatureF;
         float temperatureC;
         char loggerMac[18];
+
+        // CCA sandstone test
+        uint16_t rockAdc;
+        uint16_t rockSensorMv;
+        uint32_t motionCount;
+        uint16_t batteryMv;
+        uint8_t batteryPercent;
+        bool motionDetected;
+
         char stationName[40];
     };
 
@@ -79,8 +95,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t id;
     };
 
-    static constexpr uint8_t UPLOAD_QUEUE_SIZE = 16;
-    static constexpr uint8_t SEEN_PACKET_SLOTS = 32;
+    static constexpr uint8_t UPLOAD_QUEUE_SIZE = 24;
+    static constexpr uint8_t SEEN_PACKET_SLOTS = 48;
     static constexpr uint8_t MAX_RETRIES = 4;
 
     TypedQueue<UploadJob> uploadQueue;
@@ -89,6 +105,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 
     bool isDuplicate(const meshtastic_MeshPacket &mp);
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);
+    bool enqueueRockTest(const meshtastic_MeshPacket &mp);
+    bool enqueueEnvironment(const meshtastic_MeshPacket &mp);
     void fillCommon(UploadJob &job, const meshtastic_MeshPacket &mp);
     void fillStationName(char *dest, size_t destSize, uint32_t from);
     bool upload(const UploadJob &job);
