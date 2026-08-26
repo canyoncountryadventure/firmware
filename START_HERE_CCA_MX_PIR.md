@@ -9,6 +9,14 @@
 > **CCA firmware identity:** `CCA-MX-PIR 1.0.0` / schema `1`
 >
 > **Meshtastic base:** `2.7.26`
+>
+> **BUILD STATUS: VERIFIED — GitHub Actions compiled this exact nRF52840 target successfully on August 25, 2026 (Mountain Time).**
+
+## IF YOU ONLY REMEMBER THREE THINGS
+
+1. Open branch **`CCA-MX-HOBO-PIR-SEEED-v1`**.
+2. Read **this file: `START_HERE_CCA_MX_PIR.md`**.
+3. PIR signal is **D6**, not D0. D0/A0 is intentionally reserved for future soil moisture.
 
 This branch is based directly on the proven `hobo-mx2001-mx2201-mx2203` branch. The existing universal HOBO MX2001/MX2201/MX2203 BLE reader, logger lock, manual `READ`, and automatic record-aligned HOBO telemetry are intentionally preserved.
 
@@ -232,7 +240,27 @@ The Heltec will receive these as normal Meshtastic text packets. A later Heltec 
 
 ---
 
-## 10. Build — Windows PowerShell
+## 10. VERIFIED BUILD
+
+GitHub Actions successfully compiled the exact target below on **August 25, 2026 (Mountain Time)**:
+
+```text
+seeed_xiao_nrf52840_cca_mx_pir
+```
+
+The build compiled both the existing universal HOBO module and the new `CCAStationModule`, linked successfully for the XIAO nRF52840, and generated flashable UF2/DFU artifacts.
+
+Verified build artifact name:
+
+```text
+firmware-nrf52840-seeed_xiao_nrf52840_cca_mx_pir-CCA-MX-PIR-1.0.0
+```
+
+This means the combined firmware **fits the configured Seeed XIAO nRF52840 firmware region and builds successfully**. Bench testing is still required to validate real PIR wiring, mesh alerts, persistent counters, battery readings, and unchanged HOBO behavior on the physical node.
+
+---
+
+## 11. Build — Windows PowerShell
 
 First make absolutely sure Git is on this branch:
 
@@ -275,7 +303,7 @@ $pio = "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe"
 
 ---
 
-## 11. Flash
+## 12. Flash
 
 With the Seeed connected by USB:
 
@@ -294,7 +322,7 @@ Do **not** build or flash `seeed_xiao_nrf52840_kit` when you intend to test the 
 
 ---
 
-## 12. First bench test after flashing
+## 13. First bench test after flashing
 
 1. Move the SEN0171 signal wire from D0 to **D6**.
 2. Leave D0/A0 unused.
@@ -311,7 +339,7 @@ Do **not** build or flash `seeed_xiao_nrf52840_kit` when you intend to test the 
 
 ---
 
-## 13. Rollback / known-good reference
+## 14. Rollback / known-good reference
 
 If the CCA build needs to be abandoned during testing, the untouched known-good HOBO branch is:
 
@@ -323,7 +351,7 @@ That is the reference branch for the existing universal HOBO behavior.
 
 ---
 
-## 14. Source files added/changed for CCA v1
+## 15. Source files added/changed for CCA v1
 
 CCA-specific code:
 
