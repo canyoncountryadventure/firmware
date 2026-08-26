@@ -23,7 +23,6 @@ constexpr uint32_t POLL_INTERVAL_MS = 100UL;
 constexpr uint32_t FIRST_TELEMETRY_DELAY_MS = 2000UL;
 constexpr uint8_t ROCK_SAMPLE_COUNT = 20;
 constexpr uint8_t ROCK_SCHEMA_VERSION = 1;
-constexpr uint8_t ROCK_ADC_BITS = 12;
 constexpr uint16_t MIN_VALID_BATTERY_MV = 2500;
 constexpr uint16_t MAX_VALID_BATTERY_MV = 5000;
 
@@ -48,27 +47,18 @@ void writeLE32(uint8_t *p, uint32_t value)
 
 uint16_t readRockAverage()
 {
-    // analogReadResolution() is global on the nRF52 core. The XIAO battery
-    // subsystem is calibrated for BATTERY_SENSE_RESOLUTION_BITS (10 bits), so
-    // leaving the ADC at 12 bits makes battery voltage read about 4x too high.
-    // Use 12 bits only while sampling the rock probe, then restore the board's
-    // normal battery resolution before PowerStatus is queried.
-    analogReadResolution(ROCK_ADC_BITS);
-
-    uint32_t total = 0;
+    // XIAO battery sensing is calibrated for a 10-bit ADC. analogReadResolution()
+    // is global on nRF52, so switching the whole MCU to 12 bits can corrupt a
+    // concurrent battery sample. Keep the hardware at the board's normal 10-bit
+    // setting and scale the averaged rock reading to a 0..4095 equivalent so all
+    // existing CCA rock/soil calibration values remain comparable.
+    uint32_t total10 = 0;
     for (uint8_t i = 0; i < ROCK_SAMPLE_COUNT; ++i) {
-        total += static_cast<uint16_t>(analogRead(ROCK_PIN));
+        total10 += static_cast<uint16_t>(analogRead(ROCK_PIN));
         delay(3);
     }
-    const uint16_t average = static_cast<uint16_t>(total / ROCK_SAMPLE_COUNT);
-
-#ifdef BATTERY_SENSE_RESOLUTION_BITS
-    analogReadResolution(BATTERY_SENSE_RESOLUTION_BITS);
-#else
-    analogReadResolution(10);
-#endif
-
-    return average;
+    const uint16_t average10 = static_cast<uint16_t>(total10 / ROCK_SAMPLE_COUNT);
+    return static_cast<uint16_t>((static_cast<uint32_t>(average10) * 4095UL + 511UL) / 1023UL);
 }
 
 uint16_t batteryMv()
@@ -127,8 +117,8 @@ bool CCARockTelemetryModule::sendRockPacket()
     // 0..1  = 'R','K'
     // 2     = schema version
     // 3     = flags (bit 0 = current motion)
-    // 4..5  = averaged 12-bit rock ADC
-    // 6..7  = sensor output millivolts (3.3 V ADC reference)
+    // 4..5  = averaged rock ADC on the established 0..4095 CCA calibration scale
+    // 6..7  = sensor output millivolts (3.3 V reference)
     // 8..11 = motion rising-edge count since boot
     // 12..13= node battery millivolts; 0 means unavailable/invalid
     // 14    = node battery percent; 0 when battery voltage is unavailable
@@ -173,7 +163,7 @@ int32_t CCARockTelemetryModule::runOnce()
         pinMode(MOTION_PIN, INPUT);
         lastMotionState = digitalRead(MOTION_PIN) != 0;
         initialized = true;
-        LOG_INFO("CCA ROCK 1.0.1: D0/A0 sandstone probe + D6 motion; 60 s telemetry; ADC battery fix");
+        LOG_INFO("CCA ROCK 1.0.2: D0/A0 sandstone probe + D6 motion; 60 s telemetry; safe battery ADC");
     }
 
     const bool motion = digitalRead(MOTION_PIN) != 0;
