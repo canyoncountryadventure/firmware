@@ -1,116 +1,145 @@
-# Heltec Home MX2001 Gateway
+# CCA Heltec V4 Meshtastic-to-Cloud Gateway
 
-**Status:** Production / end-to-end validated 2026-08-22  
-**Branch:** `heltec-home-http-gateway`  
-**Hardware:** Heltec WiFi LoRa 32 V4 + TFT  
-**PlatformIO target:** `heltec-v4-tft`
+**Branch:** `heltec-home-http-gateway-rock`  
+**Hardware:** Heltec WiFi LoRa 32 V4 OLED  
+**PlatformIO target:** `heltec-v4`  
+**Cloud path:** Heltec -> Vercel ingest -> Neon PostgreSQL -> Vercel dashboard
 
-This branch turns a Heltec V4 into a direct Meshtastic-to-cloud gateway for HOBO MX2001 water-level monitoring.
+This branch extends the proven CCA Heltec home HTTP gateway so it can forward sandstone-moisture/PIR data, HOBO MX2001 custom records, and standard environmental temperature telemetry from Meshtastic field nodes.
 
 ## Data path
 
 ```text
-HOBO MX2001
-   -> BLE
-Field Meshtastic node
-   -> LoRa mesh
-Heltec Home Gateway
-   -> Wi-Fi / HTTPS
-Vercel ingest API
-   ->
-Neon PostgreSQL
+Seeed / field node sensors
+    -> Meshtastic LoRa
+    -> Heltec V4 OLED
+    -> Wi-Fi / HTTPS
+    -> Vercel /api/ingest
+    -> Neon PostgreSQL
+    -> Vercel dashboard
 ```
 
 No Raspberry Pi or always-on PC is required after deployment.
 
-## What this gateway uploads
+## Supported telemetry
 
-The finalized gateway is deliberately **MX2001-only**.
+The gateway currently accepts:
 
-It accepts only decoded Meshtastic packets that are:
+- `PRIVATE_APP` 16-byte `RK` packets for Navajo sandstone moisture + PIR;
+- `PRIVATE_APP` 19-byte `MX` packets for HOBO MX2001 records;
+- `TELEMETRY_APP` environmental metrics for temperature, including the MX2201 temperature path.
 
-- `PRIVATE_APP`;
-- exactly 19 bytes;
-- prefixed with ASCII `MX`.
+The sandstone dashboard uses `type: "rock_test"` and stores rock ADC, sensor voltage, motion state/count, battery fields, and LoRa metadata.
 
-Those packets carry:
+## Critical target note
 
-- water level / stage;
-- temperature;
-- raw temperature value;
-- logger BLE MAC;
-- measurement sequence;
-- BLE RSSI;
-- Meshtastic radio metadata including RSSI, SNR, hop start/limit, hops away, relay node, channel and packet ID.
-
-The gateway ignores normal Meshtastic environmental telemetry, position, NodeInfo, text messages, routing traffic and device telemetry. Node Favorites are not required; the custom MX2001 packet format identifies eligible data.
-
-## Validated result
-
-The direct path has been confirmed end-to-end:
+The physical gateway used here is the **OLED Heltec V4**, so build:
 
 ```text
-MX2001 -> field node -> LoRa -> Heltec -> HTTPS -> Vercel -> Neon
+-e heltec-v4
 ```
 
-A live automatic MX2001 record was received by the Heltec, queued by the HTTP gateway, returned `HTTP 201`, and appeared in Neon with stage, temperature, logger metadata and radio metadata intact.
+Do not use `heltec-v4-tft` for this unit.
 
-## Start here
+On 2026-08-26 a diagnostic session found that the custom gateway had accidentally been enabled only for `HELTEC_V4_TFT`, which meant a normal `heltec-v4` flash succeeded while silently compiling the HTTP gateway out. This was fixed in commit:
 
-- Heltec deployment guide: [`Meshtastic/HELTEC-HOME/README.md`](Meshtastic/HELTEC-HOME/README.md)
-- Detailed HTTP gateway notes: [`docs/heltec-home-http-gateway.md`](docs/heltec-home-http-gateway.md)
-- Field-node firmware lives on branch: `hobo-mx2001-mx2201-mx2203`
+```text
+054cf18c8ec3422946e0586a83326a915475609b
+Enable HTTP gateway on Heltec V4 OLED
+```
 
 ## Local secret
 
-The Vercel ingest key belongs only in:
+The production Vercel ingest key belongs only in the git-ignored local file:
 
 ```text
 src/modules/hobo_gateway_secrets.h
 ```
 
-That file is git-ignored. Never commit the real key.
+Minimal form:
+
+```cpp
+#pragma once
+#define HOBO_HTTP_GATEWAY_INGEST_KEY "YOUR_LOCAL_SECRET"
+```
+
+Never commit the real key. If this file is missing or the key is empty, the gateway will not attempt HTTP uploads.
 
 ## Build on Windows
 
-The validated Windows build uses a short PlatformIO core path and disables LTO because the ESP32-S3 Windows linker otherwise failed to launch its LTO helper.
-
 ```powershell
-cd C:\mt
-$env:PLATFORMIO_CORE_DIR="C:\p"
-$env:PLATFORMIO_BUILD_UNFLAGS="-std=c++11 -std=gnu++11 -flto"
-py -m platformio run -e heltec-v4-tft -j 1
+cd C:\Meshtastic-HOBO\firmware
+
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e heltec-v4
 ```
 
-## Flash
+## USB flash
 
-Put the Heltec into the ESP32-S3 ROM bootloader:
-
-1. Hold LEFT/PRG.
-2. Tap RIGHT/RST.
-3. Release LEFT/PRG.
-
-Then flash the non-factory application image at `0x10000`:
+Example using the Heltec on `COM20`:
 
 ```powershell
-py -m esptool --port COM20 write-flash 0x10000 .\.pio\build\heltec-v4-tft\firmware-heltec-v4-tft-<version>.bin
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run `
+  -e heltec-v4 `
+  -t upload `
+  --upload-port COM20
 ```
 
-Use the actual COM port if different.
+Do not erase the full flash unless there is a specific reason to wipe stored configuration.
 
-## Verification
+## Serial verification
 
-Expected serial lines after an automatic MX2001 record:
+```powershell
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" device monitor -p COM20 -b 115200
+```
+
+Expected startup:
 
 ```text
-HOBO HTTP gateway: queued MX2001 packet from ...
-HOBO HTTP gateway: cloud stored packet ... (HTTP 201)
+CCA HTTP gateway enabled: MX2001 + ROCK + environment -> https://meshtastic-ecru.vercel.app/api/ingest
 ```
 
-Normal environmental telemetry should not generate a gateway upload.
+Expected successful upload:
 
-## Future sensors
+```text
+CCA HTTP gateway: queued ROCK ADC=...
+CCA HTTP gateway: cloud stored packet ... (HTTP 201)
+```
 
-This branch is intentionally frozen around the proven MX2001 path. Future wired sensors such as soil moisture or trail counters can be added later using their own explicit custom packet signatures and ingest types without weakening the current MX2001 filter.
+## Wi-Fi OTA / recovery quick reference
 
-The rest of the repository remains the full Meshtastic source tree because the normal firmware source, variants, libraries and PlatformIO configuration are required to compile the gateway.
+Normal Meshtastic TCP API uses port `4403`. The ESP32 Unified OTA loader uses port `3232`.
+
+```powershell
+Test-NetConnection 192.168.1.147 -Port 4403
+Test-NetConnection 192.168.1.147 -Port 3232
+```
+
+During the 2026-08-26 recovery, Wi-Fi OTA failed with `WinError 10061`; afterward `4403=True` and `3232=False`. The 16 MB partition table confirmed:
+
+```text
+app0  ota_0  0x10000
+app1  ota_1  0x650000
+```
+
+The ESP32-S3 Unified OTA loader was then written only to `app1` at `0x650000`, preserving the normal application and configuration. Never assume that offset for another target; verify its partition table first.
+
+## Detailed diagnostics
+
+The complete diagnostic/recovery record is here:
+
+- [`docs/heltec-home-http-gateway.md`](docs/heltec-home-http-gateway.md)
+
+It includes:
+
+- the OLED-vs-TFT compile-gate failure;
+- the missing local ingest-key failure;
+- Vercel/Neon decision logic;
+- `4403`/`3232` OTA diagnostics;
+- the confirmed Heltec V4 partition map;
+- one-time Unified OTA loader repair at `0x650000`;
+- safe Vercel secret restoration without printing the key;
+- build, USB flash, serial-monitor, and expected `HTTP 201` verification commands.
+
+## Security note
+
+The current HTTP gateway uses `WiFiClientSecure::setInsecure()`: HTTPS is encrypted, but the Heltec does not validate the server certificate chain. API writes are still protected by the Vercel `X-Ingest-Key`. Certificate validation can be hardened later.
