@@ -24,4 +24,11 @@ class CCAStationModule : public SinglePortModule, private concurrency::OSThread
 
 extern CCAStationModule *ccaStationModule;
 
+// Arduino defines LOW as a preprocessor macro. The CCA implementation uses
+// LOW as the scoped name of a power-alert state, so remove the macro for this
+// translation unit after all framework types needed by this header are parsed.
+#ifdef LOW
+#undef LOW
+#endif
+
 #endif
