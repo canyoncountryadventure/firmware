@@ -161,22 +161,17 @@ int32_t CCARockTelemetryModule::runOnce()
         pinMode(MOTION_PIN, INPUT);
         lastMotionState = digitalRead(MOTION_PIN) != 0;
         initialized = true;
-        LOG_INFO("CCA ROCK 1.0.3: D0/A0 sandstone + D6 PIR; 60 s + PIR edge telemetry; safe battery ADC");
+        LOG_INFO("CCA ROCK 1.0.4: D0/A0 sandstone + D6 PIR; 60 s telemetry; edge-TX disabled; safe battery ADC");
     }
 
+    // Keep the PIR behavior that was stable before dc398892. We still sample D6
+    // every 100 ms and count LOW->HIGH edges, but we do NOT transmit a LoRa rock
+    // packet from the edge handler. The immediate edge-TX experiment could create
+    // a self-trigger loop if RF from our own SX1262 transmission perturbs the PIR.
     const bool motion = digitalRead(MOTION_PIN) != 0;
-    const bool motionChanged = motion != lastMotionState;
-    if (motionChanged) {
-        if (motion)
-            ++motionCount;
-        lastMotionState = motion;
-
-        // Send immediately on both LOW->HIGH and HIGH->LOW. This gives the cloud
-        // an edge timestamp (within the 100 ms poll interval) for Last Motion and
-        // Last Clear instead of relying on the next 60-second periodic sample.
-        if (sendRockPacket())
-            lastTelemetryMs = now;
-    }
+    if (motion && !lastMotionState)
+        ++motionCount;
+    lastMotionState = motion;
 
     if ((lastTelemetryMs == 0 && now >= FIRST_TELEMETRY_DELAY_MS) ||
         (lastTelemetryMs != 0 && now - lastTelemetryMs >= ROCK_INTERVAL_MS)) {
