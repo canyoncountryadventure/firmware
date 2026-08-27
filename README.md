@@ -1,36 +1,47 @@
 # CCA MX + HOBO + PIR + Rock — Seeed XIAO
 
-**Branch:** `CCA-MX-HOBO-PIR-ROCK-SEEED-v1`  
-**Hardware:** Seeed XIAO nRF52840 + Wio-SX1262 + capacitive rock probe on D0/A0 + SEN0171 PIR on D6 + optional HOBO MX2001/MX2201/MX2203  
-**Build target:** `seeed_xiao_nrf52840_cca_mx_pir`  
-**Meshtastic base:** `2.7.26`  
-**CCA release:** `CCA-MX-PIR-ROCK-1.0.7`
+> **USE THIS BRANCH:** `CCA-MX-HOBO-PIR-ROCK-SEEED-v1`
+>
+> **Release:** `CCA-MX-PIR-ROCK 1.0.7` · Meshtastic `2.7.26`
+>
+> **Hardware:** Seeed XIAO nRF52840 + Wio-SX1262 + capacitive rock/soil probe on D0/A0 + SEN0171 PIR on D6 + optional HOBO MX2001/MX2201/MX2203
+>
+> **Build target:** `seeed_xiao_nrf52840_cca_mx_pir`
+>
+> **PIR:** RF-filtered D6 with 15-second post-TX guard
+>
+> **Automatic CCA text alerts:** private DM only; no public LongFast fallback
 
-This branch is the current CCA field-node build for the Navajo sandstone wetness experiment. It combines Meshtastic, the HOBO BLE bridge, CCA DM/power/PIR controls, persistent rock calibration, and compact rock telemetry for the Heltec V4 -> Vercel -> Neon pipeline.
+This is the current combined CCA field-node branch for sandstone/soil wetness + PIR + HOBO monitoring.
 
-## Current release identity
+---
 
-Expected rock-module startup log:
+## 1. Current validated release
+
+Expected startup identity:
 
 ```text
+CCA-MX-PIR 1.0.7
 CCA ROCK 1.0.7: D0/A0 sandstone + RF-filtered D6 PIR; 60 s telemetry; persistent calibration; temporary state bands; safe battery ADC
 ```
 
-Current branch head before this documentation update was:
+GitHub Actions has successfully compiled the exact 1.0.7 rock branch.
 
-```text
-3afaa3f Align CCA station version with 1.0.7 release
-```
-
-Settings-safe OTA release artifact name:
+Settings-safe OTA release artifact:
 
 ```text
 CCA-CCS3-SETTINGS-SAFE-OTA-1.0.7
 ```
 
-Application-only/settings-safe OTA preserves the filesystem, including saved rock calibration in `/prefs/cca_rock_cal.bin`.
+Application-only/settings-safe OTA preserves the filesystem, including saved rock calibration in:
 
-## Wiring
+```text
+/prefs/cca_rock_cal.bin
+```
+
+---
+
+## 2. Wiring
 
 | Device | XIAO |
 |---|---|
@@ -42,11 +53,44 @@ Application-only/settings-safe OTA preserves the filesystem, including saved roc
 | SEN0171 VCC | **3V3** |
 | SEN0171 GND | **GND** |
 
-D6 is configured through the nRF52840's internal pulldown. No external pulldown is required by the current firmware, though hardware filtering can still be added if RF interference remains troublesome.
+Wio-SX1262 uses D1-D5 and D8-D10. D7 remains free.
 
-## Rock telemetry
+D6 is configured with the nRF52840 internal pulldown. An external pull-down is not required by the current firmware, although hardware filtering can still be added if field RF conditions warrant it.
 
-The node broadcasts a 16-byte `PRIVATE_APP` packet with magic `RK`, schema 1.
+---
+
+## 3. Fatal PIR bug and final fix
+
+Soil/rock bench testing exposed a self-trigger failure: the node's own LoRa TX could drive the SEN0171/D6 input HIGH. Because the PIR can hold HIGH for several seconds, a normal edge detector could count that RF-induced pulse as motion and transmit again, creating a feedback loop.
+
+Current firmware uses the shared RF-aware filter in `CCAStationModule.h`:
+
+```text
+CCA_PIR_POST_TX_GUARD_MS = 15000
+```
+
+Rules:
+
+- D6 uses `INPUT_PULLDOWN`;
+- a **new** raw HIGH beginning while local LoRa TX is active is rejected;
+- a new raw HIGH beginning within **15 seconds after observed local TX** is rejected;
+- once a HIGH is classified as RF-correlated, the **entire physical HIGH pulse** remains rejected until raw D6 returns LOW;
+- only a fresh LOW→HIGH after physical LOW can count as motion;
+- a legitimate PIR HIGH that began before a later TX remains valid.
+
+The rock module includes the same CCA PIR header, so its motion flag and motion counter use the **same filtered D6 signal** as the CCA PIR alert logic.
+
+### Important regression rule
+
+Rock telemetry does **not** transmit because of PIR edges. An earlier PIR-edge transmit experiment was removed because extra LoRa transmissions worsened the RF-feedback problem.
+
+The PIR should be treated as a coarse visit/presence/tamper sensor, not an exact people counter.
+
+---
+
+## 4. Rock telemetry packet
+
+Automatic rock telemetry is a 16-byte `PRIVATE_APP` packet with magic `RK`, schema 1:
 
 ```text
 0..1   'R','K'
@@ -60,47 +104,45 @@ The node broadcasts a 16-byte `PRIVATE_APP` packet with magic `RK`, schema 1.
 15     calibrated wetness 0..100; 255 = calibration unavailable
 ```
 
-Normal automatic rock telemetry is sent every **60 seconds**, with the first automatic packet about two seconds after boot.
+Normal automatic interval:
 
-`ROCK NOW` forces an immediate rock packet.
+```text
+60 seconds
+```
 
-### ADC handling
+First automatic packet is approximately two seconds after boot. `ROCK NOW` forces an immediate packet.
+
+---
+
+## 5. ADC and battery handling
 
 The XIAO battery subsystem expects the board's normal 10-bit ADC behavior. The rock module therefore:
 
 1. reads A0 at native 10-bit resolution;
 2. averages 20 samples;
-3. scales the result mathematically to the established 0..4095 CCA rock scale.
+3. mathematically scales the average to the established 0..4095 CCA rock scale.
 
-Do **not** reintroduce a global `analogReadResolution(12)` call. That previously made battery readings roughly four times too high.
-
-Sensor millivolts are derived from the 0..4095 rock value using the 3.3 V reference.
-
-## PIR RF filtering
-
-The SEN0171/D6 input can false-trigger from this node's own LoRa transmissions. Current firmware uses an RF-aware guard:
+Do **not** reintroduce a global:
 
 ```text
-CCA_PIR_POST_TX_GUARD_MS = 15000
+analogReadResolution(12)
 ```
 
-Behavior:
+That previously made battery voltage readings approximately four times too high.
 
-- D6 uses `INPUT_PULLDOWN`;
-- a NEW HIGH beginning while the node is transmitting is suppressed;
-- a NEW HIGH beginning within 15 seconds after an observed local TX is suppressed;
-- once a HIGH pulse is classified as RF-correlated, that whole HIGH remains suppressed until raw D6 returns LOW;
-- a legitimate PIR HIGH that began before TX remains valid.
+Rock telemetry accepts battery voltage only in the physically reasonable field-node range:
 
-Rock telemetry does **not** transmit on PIR edges. This is intentional: PIR-triggered rock transmissions were removed because additional LoRa TX made the RF-feedback problem worse.
+```text
+2500 mV to 5000 mV
+```
 
-The rock module polls the validated PIR signal every 100 ms and increments the motion counter on validated LOW -> HIGH transitions.
+Invalid values are reported as unavailable rather than treated as real battery measurements.
 
-Because the SEN0171 itself holds HIGH for many seconds and LoRa guard windows can overlap, use the PIR as a **coarse activity/visit sensor**, not an exact people counter.
+---
 
-## Persistent rock calibration
+## 6. Persistent rock calibration
 
-Calibration is stored in:
+Calibration file:
 
 ```text
 /prefs/cca_rock_cal.bin
@@ -112,28 +154,29 @@ Record magic:
 RKC1
 ```
 
-A valid calibrated wetness percentage requires both dry and wet endpoints and at least 20 ADC counts of separation. Either ADC direction is supported by the math.
-
-### Calibration commands
+Commands:
 
 ```text
+ROCK CAL
 ROCK CAL DRY
 ROCK CAL WET
 ROCK CAL STATUS
 ROCK CAL CLEAR
 ```
 
-`ROCK CAL DRY` saves the current installed-rock ADC as the dry endpoint.
+A valid calibrated wetness percentage requires both dry and wet endpoints and at least 20 ADC counts of separation. Either ADC direction is supported.
 
-`ROCK CAL WET` saves the current ADC as the wet endpoint. Do not use it merely because a certain amount of rain has fallen; use it only when the probe location represents the wet endpoint you actually want to define.
+`ROCK CAL DRY` stores the current installed-rock ADC as the dry endpoint.
 
-`ROCK CAL STATUS` shows saved endpoints, current ADC, current temporary state, and calibrated wetness if available.
+`ROCK CAL WET` stores the current ADC as the wet endpoint. Use it only when the probe location represents the wet endpoint you actually intend to define; do not equate a fixed rainfall amount with the wet endpoint automatically.
 
-`ROCK CAL CLEAR` erases the saved endpoints.
+---
 
-## Firmware temporary state bands
+## 7. Current rock-state interpretation
 
-The current **device-side** `ROCK STATE` and `ROCK BANDS` commands still use these legacy temporary bands:
+### Device-side temporary bands
+
+Firmware `ROCK STATE` / `ROCK BANDS` currently use:
 
 ```text
 DRY      >=2303
@@ -144,11 +187,11 @@ SOAKED   1451-1599
 WATER    <=1450
 ```
 
-These firmware labels are temporary and are separate from persistent dry/wet calibration.
+These are temporary firmware labels and are separate from persistent dry/wet calibration.
 
-### Current Vercel sandstone bands
+### Current sandstone dashboard bands
 
-The web dashboard was recalibrated during the 2026-08-26 Navajo sandstone test and now interprets raw ADC as:
+The dashboard interpretation derived during the Navajo sandstone test is:
 
 ```text
 DRY      >=2300
@@ -157,20 +200,16 @@ WET      1700-1849
 SOAKED   <=1699
 ```
 
-The web dashboard also adds direction labels:
+Trend direction:
 
 ```text
-falling ADC over the recent trend window -> WETTING
-rising ADC over the recent trend window  -> DRYING
+falling ADC -> WETTING
+rising ADC  -> DRYING
 ```
 
-Therefore the firmware text label and Vercel label can currently differ for the same ADC. **Raw ADC is the primary measurement; the Vercel bands above are the current sandstone interpretation.**
+Raw ADC remains the primary measurement. Firmware and dashboard labels can differ until a future firmware release intentionally synchronizes the bands.
 
-A future firmware release can synchronize `ROCK STATE`/`ROCK BANDS` with these field-derived bands if desired.
-
-## 2026-08-26 sensor references
-
-Earlier sensor checks established the expected direction:
+### Reference measurements
 
 | Condition | Approx. ADC |
 |---|---:|
@@ -182,20 +221,11 @@ Earlier sensor checks established the expected direction:
 
 Higher ADC = drier. Lower ADC = wetter.
 
-### Navajo sandstone sprinkler test
+---
 
-```text
-Sprinkler ON: 19:27 MDT
-0.5 inch:     19:36 MDT
-1.0 inch:     19:47 MDT
-Water OFF:    19:49 MDT
-```
+## 8. Complete DM command set
 
-The embedded probe dropped from roughly the low 2300s into the 2200s as the sandstone wetted, confirming a measurable response in the installed rock configuration.
-
-## Complete DM command set
-
-Commands are case-insensitive. A leading `/` is optional.
+Commands are case-insensitive. A leading `/` is optional. Send commands as direct messages to the field node.
 
 ### General
 
@@ -209,7 +239,7 @@ DEBUG ON
 DEBUG OFF
 ```
 
-### Alert destination
+### Private alert destination
 
 ```text
 ALERTS HERE
@@ -217,7 +247,7 @@ ALERTS STATUS
 ALERTS CLEAR
 ```
 
-`ALERTS HERE` saves the sender as the destination for automatic private CCA alerts.
+`ALERTS HERE` saves the sender as the persistent destination for automatic CCA PIR/power/boot text alerts. If no destination is configured, automatic CCA text alerts are suppressed; they do not fall back to public LongFast.
 
 ### PIR
 
@@ -246,7 +276,7 @@ POWER RESET
 POWER UPTIME
 ```
 
-### Rock
+### Rock / soil
 
 ```text
 ROCK
@@ -263,7 +293,7 @@ ROCK CAL CLEAR
 ROCK HELP
 ```
 
-### HOBO logger
+### HOBO
 
 ```text
 LOGGER
@@ -272,72 +302,40 @@ LOCK
 UNLOCK
 ```
 
-`LOCK` saves the currently identified **HOBO BLE MAC**. It does not restrict which Meshtastic nodes the Heltec gateway or cloud accepts.
+`LOCK` persists the identified HOBO BLE MAC. It does not restrict Meshtastic gateway/cloud node acceptance.
 
-### HELP response pages
+Bare `HELP` returns five pages covering General, PIR, Power, Rock, and Logger commands.
 
-Bare `HELP` returns five pages:
+---
 
-```text
-HELP 1/5 GENERAL
-HELP | VERSION | STATUS | UPTIME | BOOT
-DEBUG ON | DEBUG OFF
-ALERTS HERE | ALERTS STATUS | ALERTS CLEAR
-```
+## 9. Data path
+
+Authoritative system direction:
 
 ```text
-HELP 2/5 PIR
-PIR | PIR STATUS | PIR COUNT | PIR LAST | PIR RESET
-PIR ON | PIR OFF | PIR TX ON | PIR TX OFF
+Rock probe / PIR / HOBO
+        ↓
+CCA Seeed field node
+        ↓
+Meshtastic mesh
+        ↓
+Heltec V4 internet gateway
+        ↓
+Neon
+        ↓
+Vercel dashboard
 ```
 
-```text
-HELP 3/5 POWER
-POWER | POWER STATUS | POWER VOLTAGE | POWER MINMAX
-POWER TREND | POWER HISTORY | POWER RESET | POWER UPTIME
-```
+The field node can transmit rock telemetry every minute. Cloud-side retention/downsampling may store a lower cadence; that does not change the radio's sampling/transmit behavior.
 
-```text
-HELP 4/5 ROCK
-ROCK | ROCK STATUS | ROCK ADC | ROCK STATE | ROCK NOW | ROCK BANDS
-ROCK CAL | ROCK CAL DRY | ROCK CAL WET | ROCK CAL STATUS | ROCK CAL CLEAR | ROCK HELP
-```
+---
 
-```text
-HELP 5/5 LOGGER
-LOGGER | READ | LOCK | UNLOCK
-Commands are case-insensitive; leading / is optional.
-```
-
-## Cloud pipeline
-
-```text
-Seeed field node
-  -> Meshtastic mesh
-  -> Heltec V4 internet gateway
-  -> Vercel /api/ingest
-  -> Neon telemetry_readings
-  -> Vercel dashboard
-```
-
-The CCS3 radio can continue sending about every minute, but the production cloud currently retains only **one rock record and one MX2201/environment record per 5-minute bucket**. Existing higher-frequency records from before the change remain in Neon.
-
-Experiment-source filtering accepts `telemetry`, `rock`, `rock_test`, `sandstone`, and `motion` only from CCS3 (`node_num 1527161333`). `mx2001` is deliberately exempt so the established water-level pipeline is preserved.
-
-Production dashboard:
-
-```text
-https://meshtastic-ecru.vercel.app
-```
-
-## Build / flash
-
-From a local checkout of this repository:
+## 10. Build / flash
 
 ```powershell
 git fetch origin
 git switch CCA-MX-HOBO-PIR-ROCK-SEEED-v1
-git pull origin CCA-MX-HOBO-PIR-ROCK-SEEED-v1
+git pull --ff-only origin CCA-MX-HOBO-PIR-ROCK-SEEED-v1
 ```
 
 Build:
@@ -346,7 +344,7 @@ Build:
 py -m platformio run -e seeed_xiao_nrf52840_cca_mx_pir
 ```
 
-USB upload when the XIAO is available to PlatformIO:
+USB upload:
 
 ```powershell
 py -m platformio run -e seeed_xiao_nrf52840_cca_mx_pir -t upload
@@ -358,21 +356,29 @@ Serial monitor:
 py -m platformio device monitor -b 115200
 ```
 
-After flashing, useful verification DMs are:
+Useful post-flash DMs:
 
 ```text
 VERSION
 HELP
+ALERTS STATUS
+PIR STATUS
 ROCK STATE
 ROCK CAL STATUS
+LOGGER
 ```
 
-## Battery validation
+---
 
-Rock telemetry accepts battery voltage only in the physically reasonable field-node range:
+## 11. Required PIR regression test
 
-```text
-2500 mV to 5000 mV
-```
+After any future PIR-related change:
 
-Invalid historical values are treated as unavailable. The production dashboard also rejects impossible historical battery values rather than displaying them as real measurements.
+1. leave the unit motionless and verify no spontaneous counts;
+2. trigger one real motion event and verify exactly one valid count/alert;
+3. with nobody moving, repeatedly DM commands so the node transmits LoRa replies;
+4. continue observing through the 15-second guard and physical PIR hold;
+5. verify neither `PIR COUNT` nor the rock motion count increases from self-TX;
+6. after raw D6 returns LOW, verify real motion can be detected again.
+
+Do not call a future PIR build deployable until this self-TX test passes.
