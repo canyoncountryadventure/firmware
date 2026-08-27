@@ -2,36 +2,68 @@
 
 > **USE THIS BRANCH:** `CCA-MX-HOBO-PIR-SEEED-v1`
 >
-> **Hardware:** Seeed XIAO nRF52840 + Wio-SX1262 + DFRobot SEN0171 PIR + optional HOBO MX2001/MX2201/MX2203
+> **Firmware:** `CCA-MX-PIR 1.0.7` · Schema `1` · Meshtastic `2.7.26`
 >
-> **Firmware:** `CCA-MX-PIR 1.0.1` · Schema `1` · Meshtastic `2.7.26`
+> **Hardware:** Seeed XIAO nRF52840 + Wio-SX1262 + DFRobot SEN0171 PIR + optional HOBO MX2001/MX2201/MX2203
 >
 > **Build target:** `seeed_xiao_nrf52840_cca_mx_pir`
 >
-> **PIR SIGNAL = D6. DO NOT PUT THE PIR SIGNAL ON D0 WITH THIS BUILD.**
+> **PIR signal:** **D6**
 >
-> **D0/A0 is reserved for the future SEN0308 soil-moisture sensor. Soil is NOT in v1.**
+> **D0/A0:** reserved for the soil/rock build; soil moisture is **not** compiled into this branch.
 >
-> **PRIVACY FIX IN 1.0.1:** automatic PIR / power / boot alerts are PRIVATE DMs only. They never fall back to public LongFast broadcast.
+> **AUTOMATIC CCA ALERTS ARE PRIVATE DMs ONLY. THERE IS NO PUBLIC LONGFAST FALLBACK.**
 
-For the detailed guide, open **[`START_HERE_CCA_MX_PIR.md`](START_HERE_CCA_MX_PIR.md)**.
+For the detailed technical reference, see [`START_HERE_CCA_MX_PIR.md`](START_HERE_CCA_MX_PIR.md).
 
 ---
 
-## Current status
+## Production status
 
-- GitHub Actions compile for 1.0.0: **PASS**
-- Physical Seeed boot: **PASS**
-- Wio-SX1262 radio initialization: **PASS**
-- SEN0171 on D6: **PASS**
-- PIR LOW→HIGH detection/counting: **PASS**
-- Direct-message CCA commands: **PASS**
-- PKI-encrypted DMs: **PASS**
-- Existing universal HOBO module still initializes/scans/responds: **PASS**
-- Power-status commands: **PASS**
-- 1.0.1 private-alert change: **source updated; CI compile must pass before flashing**
+This branch contains the same RF-hardened CCA PIR core used by the combined soil/rock branch.
 
-**Actual Seeed/Wio-SX1262 TX power is 22 dBm**, even if the stored Meshtastic setting says 30 dBm.
+### PIR bug that was found during soil/rock testing
+
+The SEN0171 signal on D6 can be driven HIGH by RF from this node's own Wio-SX1262 LoRa transmission. The PIR can then remain HIGH for several seconds. With ordinary LOW→HIGH edge code, that creates a dangerous feedback path:
+
+```text
+LoRa TX
+  ↓
+RF induces false D6 HIGH
+  ↓
+firmware thinks motion occurred
+  ↓
+sends PIR alert
+  ↓
+more LoRa TX / more false PIR activity
+```
+
+A normal debounce is not enough because the RF-induced HIGH can outlast the debounce interval.
+
+### Final RF hardening in 1.0.7
+
+- D6 is configured with `INPUT_PULLDOWN` instead of plain `INPUT`.
+- The firmware watches the Meshtastic RadioLib TX state.
+- A new D6 HIGH that starts during local LoRa TX or within **15 seconds after local TX** is rejected.
+- Once an RF-correlated HIGH is rejected, that entire HIGH pulse stays rejected until D6 physically returns LOW.
+- Only a fresh LOW→HIGH transition after physical LOW can become a valid PIR event.
+- A legitimate PIR HIGH that began before a later LoRa TX remains valid.
+- The combined soil/rock branch uses this same filtered D6 signal for its rock packet motion field/count; raw D6 is not used there.
+
+This is the fix discovered and bench-validated during the soil-moisture/rock work. Do not remove or shorten the 15-second RF guard without new bench evidence.
+
+### Other validated behavior retained
+
+- D6 PIR initialization and real motion detection
+- private automatic PIR alerts
+- remote CCA DM commands
+- PKI-encrypted direct messages
+- universal HOBO MX2001/MX2201/MX2203 support
+- `LOGGER`, `READ`, `LOCK`, `UNLOCK`
+- power-status/history commands
+- persistent PIR total / boot count / alert destination
+
+**Radio note:** the Seeed XIAO + Wio-SX1262 build actually applies **22 dBm maximum TX power**, even if a stored Meshtastic setting displays 30 dBm.
 
 ---
 
@@ -43,13 +75,13 @@ For the detailed guide, open **[`START_HERE_CCA_MX_PIR.md`](START_HERE_CCA_MX_PI
 | GND | GND |
 | Digital signal | **D6** |
 
-If your PIR signal already has the 100 kΩ pull-down to GND from bench testing, keep it when moving the signal wire to D6.
+If the bench PIR already has a 100 kΩ external pull-down from signal to GND, it may remain installed. Firmware 1.0.7 also enables the nRF52840 internal pulldown on D6.
 
 ### Pin plan
 
-| XIAO pin | Use in CCA v1 |
+| XIAO pin | Role |
 |---|---|
-| **D0 / A0** | **Reserved for future SEN0308 soil sensor; unused now** |
+| **D0 / A0** | Reserved for soil/rock build; unused here |
 | D1 | Wio-SX1262 DIO1 |
 | D2 | Wio-SX1262 RESET |
 | D3 | Wio-SX1262 BUSY |
@@ -61,43 +93,71 @@ If your PIR signal already has the 100 kΩ pull-down to GND from bench testing, 
 | D9 | Wio-SX1262 MISO |
 | D10 | Wio-SX1262 MOSI |
 
-GNSS is compiled out of this dedicated CCA target so D6 cannot be taken by the normal Seeed GNSS UART mapping.
+GNSS is compiled out of this dedicated target so D6 is not taken by the normal Seeed GNSS UART mapping.
 
 ---
 
-# 2. VERY IMPORTANT — private automatic alerts
+# 2. PIR behavior
 
-In firmware **1.0.1**, PIR, low-battery, recovery, and boot alerts are never broadcast to LongFast.
+The SEN0171 is used as a **presence / tamper / security sensor**, not as a high-speed individual trail counter.
 
-The receiving radio must claim the node once by sending this as a **DM** to the CCA node:
+Normal logic:
+
+1. Firmware waits for D6 LOW before arming.
+2. A valid fresh LOW→HIGH edge increments the persistent PIR total and since-boot count.
+3. If `PIR TX ON` and a private alert destination is configured, an immediate private DM is queued.
+4. While the PIR remains HIGH, no duplicate event is counted.
+5. The PIR re-arms after D6 returns LOW.
+
+RF hardening sits in front of that logic. An RF-correlated HIGH is presented to the motion logic as LOW for the entire physical HIGH pulse.
+
+Automatic PIR message:
+
+```text
+PIR|ALERT|COUNT=17
+```
+
+---
+
+# 3. Private automatic alerts
+
+Automatic CCA alerts never broadcast to public LongFast.
+
+From the Meshtastic radio that should receive alerts, **DM the field node**:
 
 ```text
 ALERTS HERE
 ```
 
-The CCA node stores the sender's node number in flash and uses it as the private destination after reboot.
-
-Check it with:
+Check it:
 
 ```text
 ALERTS STATUS
 ```
 
-If no alert destination is set, automatic CCA alerts are **suppressed**, not broadcast publicly.
+Expected form:
 
-To deliberately remove the destination, send this from the currently assigned receiving radio:
+```text
+Alerts: PRIVATE DM ONLY
+Destination: !xxxxxxxx
+Public fallback: DISABLED
+```
+
+The destination is stored persistently.
+
+To clear it, send from the currently assigned receiver:
 
 ```text
 ALERTS CLEAR
 ```
 
-A different radio cannot overwrite an existing alert destination. Clear it from the current receiver first, then send `ALERTS HERE` from the new receiver.
+If no destination is configured, automatic CCA alerts are suppressed rather than broadcast.
 
-Automatic private DM examples:
+Automatic private CCA messages include:
 
 ```text
 PIR|ALERT|COUNT=17
-SYS|BOOT|COUNT=7|FW=CCA-MX-PIR-1.0.1
+SYS|BOOT|COUNT=7|FW=CCA-MX-PIR-1.0.7
 POWER|LOW|V=3.590
 POWER|CRITICAL|V=3.440
 POWER|RECOVERED|V=3.670
@@ -105,79 +165,76 @@ POWER|RECOVERED|V=3.670
 
 ---
 
-# 3. How to text the node
+# 4. Complete DM command reference
 
-Use **Direct Message (DM)** from another Meshtastic node/radio to this CCA node.
+Send these as a **Direct Message to the CCA node**. Public/broadcast channel messages are ignored by the CCA command handler. Commands are case-insensitive and a leading `/` is optional.
 
-- CCA commands are accepted only when addressed directly to this node.
-- Public/broadcast channel text is ignored by the CCA command handler.
-- Commands are **case-insensitive**.
-- A leading slash is optional.
+## Alert routing
 
-## Complete DM command cheat sheet
-
-### Alert routing / privacy
-
-| Text this | What it does |
+| Command | Function |
 |---|---|
-| `ALERTS HERE` | Saves the sending radio as the persistent private destination for automatic CCA alerts |
-| `ALERTS STATUS` | Shows the saved private alert destination and confirms public fallback is disabled |
-| `ALERTS CLEAR` | Clears the saved destination; only the currently assigned receiver may clear it |
+| `ALERTS HERE` | Save the sending radio as the persistent private alert destination |
+| `ALERTS STATUS` | Show the destination and confirm public fallback is disabled |
+| `ALERTS CLEAR` | Clear the destination; only the current destination may clear it |
 
-### Overall/system
+## System
 
-| Text this | What it does |
+| Command | Function |
 |---|---|
-| `STATUS` | Overall CCA status, battery, PIR state/count, and private alert destination |
+| `STATUS` | Overall CCA status, battery, PIR state/count, alert destination |
 | `VERSION` | Firmware identity, schema, Meshtastic base, hardware target |
 | `UPTIME` | Uptime + persistent boot count |
-| `BOOT` | Persistent boot count + CCA firmware identity |
-| `DEBUG ON` | Enables extra USB-serial CCA diagnostics until reboot |
-| `DEBUG OFF` | Turns extra CCA serial diagnostics off |
+| `BOOT` | Persistent boot count + firmware identity |
+| `DEBUG ON` | Extra CCA diagnostics on USB serial until reboot |
+| `DEBUG OFF` | Disable extra CCA serial diagnostics |
 
-### PIR / motion sensor
+`DEBUG` changes serial logging only. It does not change PIR sensitivity, LoRa power, HOBO timing, or mesh reporting.
 
-| Text this | What it does |
+## PIR
+
+| Command | Function |
 |---|---|
 | `PIR` | Full PIR status |
-| `PIR STATUS` | Same full PIR status, including private alert destination |
-| `PIR COUNT` | Persistent total detections + detections since this boot |
-| `PIR LAST` | Time since the last PIR detection during this boot |
-| `PIR RESET` | Clears persistent PIR total and current-boot PIR count |
-| `PIR ON` | Enables PIR monitoring; persists |
-| `PIR OFF` | Disables PIR monitoring; persists |
-| `PIR TX ON` | Enables automatic PIR DMs to the saved private alert destination; persists |
-| `PIR TX OFF` | PIR still counts locally but sends no PIR alerts; persists |
+| `PIR STATUS` | Same full PIR status |
+| `PIR COUNT` | Persistent total + since-boot detections |
+| `PIR LAST` | Time since last valid PIR event this boot |
+| `PIR RESET` | Clear persistent PIR total, since-boot count, and last-event reference |
+| `PIR ON` | Enable PIR monitoring; persists |
+| `PIR OFF` | Disable PIR monitoring; persists |
+| `PIR TX ON` | Enable private automatic PIR DMs; persists |
+| `PIR TX OFF` | Continue local counting but suppress PIR DMs; persists |
 
-### Power / solar diagnostic history
+## Power
 
-| Text this | What it does |
+| Command | Function |
 |---|---|
-| `POWER` | Battery voltage, %, charging indication, trend, min/max, sample count |
+| `POWER` | Voltage, %, charging indication, trend, min/max, sample count |
 | `POWER STATUS` | Same summary as `POWER` |
 | `POWER VOLTAGE` | Current voltage, battery %, charging indication |
-| `POWER MINMAX` | Minimum, maximum, and current voltage since boot / last reset |
-| `POWER TREND` | Current, ~1 h, ~6 h, ~24 h references and trend |
-| `POWER HISTORY` | Current, ~1 h, ~6 h, ~12 h, ~24 h plus min/max |
-| `POWER RESET` | Clears RAM-only power history/min/max; does not reboot or erase PIR counts |
+| `POWER MINMAX` | Min, max, current voltage since boot / reset |
+| `POWER TREND` | Now, ~1 h, ~6 h, ~24 h references and trend |
+| `POWER HISTORY` | Now, ~1 h, ~6 h, ~12 h, ~24 h plus min/max |
+| `POWER RESET` | Clear RAM-only power history/min/max; does not reboot or erase PIR counts |
 | `POWER UPTIME` | Uptime + persistent boot count |
 
-### HOBO — existing universal commands
+Power history samples approximately every 10 minutes and is RAM-only. Low threshold is 3.60 V, critical is 3.45 V, and recovery hysteresis is 3.65 V.
 
-| Text this | What it does |
+## HOBO
+
+| Command | Function |
 |---|---|
-| `LOGGER` | HOBO connection/model/MAC/BLE information, logging interval, lock state |
-| `READ` | Immediate fresh HOBO reading without disturbing automatic schedule |
-| `LOCK` | Saves the currently identified HOBO BLE MAC |
-| `UNLOCK` | Clears the saved logger assignment and resumes discovery |
+| `LOGGER` | Logger model/MAC/BLE/log interval/lock information |
+| `READ` | Immediate fresh HOBO reading without changing automatic schedule |
+| `LOCK` | Persist the currently identified HOBO BLE MAC |
+| `UNLOCK` | Clear logger assignment and resume supported-HOBO discovery |
 
-Supported HOBO families remain **MX2001, MX2201, and MX2203**.
+Supported logger families remain **MX2001, MX2201, and MX2203**.
 
 ---
 
-# 4. Windows — correct branch
+# 5. Windows — update local repo
 
-Local repo:
+Local repo used for this build:
 
 ```text
 C:\Meshtastic\HOBO\firmware
@@ -191,7 +248,7 @@ git pull --ff-only origin CCA-MX-HOBO-PIR-SEEED-v1
 git branch --show-current
 ```
 
-It must print:
+The last command must print:
 
 ```text
 CCA-MX-HOBO-PIR-SEEED-v1
@@ -199,7 +256,7 @@ CCA-MX-HOBO-PIR-SEEED-v1
 
 ---
 
-# 5. Build / flash / monitor
+# 6. Build, flash, monitor
 
 Build:
 
@@ -220,18 +277,19 @@ $pio = "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe"
 & $pio device monitor -b 115200
 ```
 
-Expected 1.0.1 startup includes:
+Expected identity:
 
 ```text
-CCA-MX-PIR 1.0.1: D6 PIR, schema 1
-CCA automatic alerts: PRIVATE destination ...
+CCA-MX-PIR 1.0.7
 ```
+
+Exit serial monitor with `Ctrl+C`.
 
 ---
 
-# 6. First setup after flashing 1.0.1
+# 7. Required bench check after flashing 1.0.7
 
-From the radio that should receive the field node's automatic alerts, DM the CCA node:
+From the intended receiving radio, DM:
 
 ```text
 VERSION
@@ -243,22 +301,51 @@ PIR STATUS
 POWER
 ```
 
-Then trigger the PIR. The automatic `PIR|ALERT|COUNT=...` message should appear in the **DM conversation with that receiver**, not in LongFast.
+Then test both cases:
 
-Reboot and send `ALERTS STATUS` again to verify the destination survived.
+### Real motion
+
+Let the PIR return LOW, move in front of it once, and verify exactly one valid PIR count/private alert.
+
+### Self-TX rejection
+
+Send several commands that force the node to reply over LoRa while nobody is moving. Continue watching `PIR COUNT` for at least the full PIR hold/guard period. The count must **not** increase from the node's own transmissions.
+
+After reboot, verify:
+
+```text
+VERSION
+ALERTS STATUS
+PIR COUNT
+BOOT
+```
+
+The alert destination, PIR total, and boot counter should persist. Power-history RAM intentionally starts over.
 
 ---
 
-# 7. Rollback / known-good HOBO reference
+# 8. Related branches
 
-Untouched known-good universal HOBO branch:
+### Combined soil/rock production branch
+
+```text
+CCA-MX-HOBO-PIR-ROCK-SEEED-v1
+```
+
+That branch adds SEN0308 sandstone/soil telemetry on D0/A0 and uses the same RF-filtered D6 PIR core.
+
+### Known-good HOBO reference
 
 ```text
 hobo-mx2001-mx2201-mx2203
 ```
 
-```powershell
-git fetch origin
-git switch hobo-mx2001-mx2201-mx2203
-git pull --ff-only origin hobo-mx2001-mx2201-mx2203
+Keep this branch as the clean HOBO-only rollback/reference.
+
+### Legacy trail experiment
+
+```text
+trail-sen0171
 ```
+
+This is historical test firmware. Do **not** treat its old `person walked by...` behavior as production PIR logic.
