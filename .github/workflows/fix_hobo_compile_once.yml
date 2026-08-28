@@ -1,0 +1,39 @@
+name: Fix HOBO Compile Compatibility Once
+
+on:
+  push:
+    branches:
+      - cca-heltec-sensor-gateway
+    paths:
+      - .github/workflows/fix_hobo_compile_once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: cca-heltec-sensor-gateway
+      - name: Apply compiler fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/modules/HoboBleSensorModule.cpp')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('enum class State : uint8_t', 'enum class HoboState : uint8_t')
+          s = s.replace('State state = State::IDLE;', 'HoboState state = HoboState::IDLE;')
+          s = s.replace('State::', 'HoboState::')
+          s = s.replace('CandidateInfo inspectAdvertisement(const NimBLEAdvertisedDevice *device)',
+                        'CandidateInfo inspectAdvertisement(NimBLEAdvertisedDevice *device)')
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit fixes
+        run: |
+          git config user.name "canyoncountryadventure"
+          git config user.email "canyoncountryadventure@gmail.com"
+          git add src/modules/HoboBleSensorModule.cpp
+          git commit -m "Fix Heltec HOBO NimBLE compile compatibility"
+          git push origin HEAD:cca-heltec-sensor-gateway
