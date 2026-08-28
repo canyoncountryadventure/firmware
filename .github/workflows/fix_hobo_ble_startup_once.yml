@@ -23,32 +23,10 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-
           path = Path('src/modules/HoboBleSensorModule.cpp')
           text = path.read_text()
-          old = '''    if (!initialized) {
-        if (!nimbleBluetooth || !nimbleBluetooth->isActive())
-            return 1000;
-        initializeClient();
-        return 250;
-    }
-'''
-          new = '''    if (!initialized) {
-#ifdef NIMBLE_TWO
-        const bool nimbleReady = NimBLEDevice::isInitialized();
-#else
-        const bool nimbleReady = NimBLEDevice::getInitialized();
-#endif
-        if (!nimbleReady) {
-            LOG_INFO("CCA HOBO: NimBLE not initialized by Meshtastic; initializing BLE central");
-            NimBLEDevice::init("");
-        } else if (!nimbleBluetooth || !nimbleBluetooth->isActive()) {
-            LOG_INFO("CCA HOBO: Meshtastic phone BLE inactive; continuing with BLE central");
-        }
-        initializeClient();
-        return 250;
-    }
-'''
+          old = "    if (!initialized) {\n        if (!nimbleBluetooth || !nimbleBluetooth->isActive())\n            return 1000;\n        initializeClient();\n        return 250;\n    }\n"
+          new = "    if (!initialized) {\n#ifdef NIMBLE_TWO\n        const bool nimbleReady = NimBLEDevice::isInitialized();\n#else\n        const bool nimbleReady = NimBLEDevice::getInitialized();\n#endif\n        if (!nimbleReady) {\n            LOG_INFO(\"CCA HOBO: NimBLE not initialized by Meshtastic; initializing BLE central\");\n            NimBLEDevice::init(\"\");\n        } else if (!nimbleBluetooth || !nimbleBluetooth->isActive()) {\n            LOG_INFO(\"CCA HOBO: Meshtastic phone BLE inactive; continuing with BLE central\");\n        }\n        initializeClient();\n        return 250;\n    }\n"
           if old not in text:
               raise SystemExit('Expected startup block not found; refusing blind patch')
           path.write_text(text.replace(old, new, 1))
