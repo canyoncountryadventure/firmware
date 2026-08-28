@@ -1138,8 +1138,17 @@ int32_t HoboBleSensorModule::runOnce()
         return 500;
 
     if (!initialized) {
-        if (!nimbleBluetooth || !nimbleBluetooth->isActive())
-            return 1000;
+#ifdef NIMBLE_TWO
+        const bool nimbleReady = NimBLEDevice::isInitialized();
+#else
+        const bool nimbleReady = NimBLEDevice::getInitialized();
+#endif
+        if (!nimbleReady) {
+            LOG_INFO("CCA HOBO: NimBLE not initialized by Meshtastic; initializing BLE central");
+            NimBLEDevice::init("");
+        } else if (!nimbleBluetooth || !nimbleBluetooth->isActive()) {
+            LOG_INFO("CCA HOBO: Meshtastic phone BLE inactive; continuing with BLE central");
+        }
         initializeClient();
         return 250;
     }
