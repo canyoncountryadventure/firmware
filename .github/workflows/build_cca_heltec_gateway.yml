@@ -23,3 +23,5 @@ jobs:
       version: cca-${{ github.run_number }}
       pio_env: heltec-v4
       platform: esp32s3
+
+# Canonical Heltec V4 OLED build. Triggered after normalized direct-HOBO source.
