@@ -55,6 +55,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         MX2001 = 0,
         ROCK_TEST = 1,
         ENVIRONMENT = 2,
+        DEVICE = 3,
     };
 
     struct UploadJob {
@@ -71,7 +72,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t from;
         uint32_t timestamp;
 
-        // MX2001
+        // MX2001 / environmental temperature
         uint16_t sequence;
         uint16_t temperatureRaw;
         float waterLevelFt;
@@ -86,6 +87,18 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint16_t batteryMv;
         uint8_t batteryPercent;
         bool motionDetected;
+
+        // Native Meshtastic device telemetry
+        bool hasDeviceBatteryLevel;
+        bool hasDeviceVoltage;
+        bool hasChannelUtilization;
+        bool hasAirUtilTx;
+        bool hasUptimeSeconds;
+        uint32_t deviceBatteryLevel;
+        float deviceVoltage;
+        float channelUtilization;
+        float airUtilTx;
+        uint32_t uptimeSeconds;
 
         char stationName[40];
     };
@@ -107,6 +120,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);
     bool enqueueRockTest(const meshtastic_MeshPacket &mp);
     bool enqueueEnvironment(const meshtastic_MeshPacket &mp);
+    bool enqueueDevice(const meshtastic_MeshPacket &mp);
     void fillCommon(UploadJob &job, const meshtastic_MeshPacket &mp);
     void fillStationName(char *dest, size_t destSize, uint32_t from);
     bool upload(const UploadJob &job);
