@@ -1005,17 +1005,6 @@ void setup()
 
         // Initialize Wifi
 #if HAS_WIFI
-#if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH
-    // CCA Heltec gateway: HOBO direct BLE and the Meshtastic phone service
-    // share one NimBLE stack. Bring that stack up before WiFi so ESP32-S3
-    // coexistence starts in the supported order instead of enabling BT late.
-    if (!nimbleBluetooth)
-        nimbleBluetooth = new NimbleBluetooth();
-    if (!nimbleBluetooth->isActive()) {
-        LOG_INFO("CCA gateway: starting shared NimBLE before WiFi");
-        nimbleBluetooth->setup();
-    }
-#endif
     initWifi();
 #endif
 

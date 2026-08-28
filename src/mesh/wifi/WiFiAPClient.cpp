@@ -370,10 +370,19 @@ bool initWifi()
             // before the handler is registered, causing onNetworkConnected() to never run.
             WiFi.onEvent(WiFiEvent);
             WiFi.setAutoReconnect(true);
+#if defined(HELTEC_V4)
+            // CCA Heltec sensor gateway runs WiFi and BLE concurrently.
+            // Espressif coexistence requires WiFi modem sleep; WIFI_PS_NONE
+            // aborts when the Bluetooth controller is enabled.
+            WiFi.setSleep(true);
+            esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+            LOG_INFO("CCA gateway: WiFi MIN_MODEM enabled for WiFi/BLE coexistence");
+#else
             WiFi.setSleep(false);
 
             // This is needed to improve performance.
             esp_wifi_set_ps(WIFI_PS_NONE); // Disable radio power saving
+#endif
 
             WiFi.onEvent(
                 [](WiFiEvent_t event, WiFiEventInfo_t info) {
