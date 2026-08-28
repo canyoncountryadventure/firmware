@@ -45,6 +45,14 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
   public:
     HoboHttpGatewayModule();
 
+    // Local sensor modules use the same proven HTTP queue as mesh-received data.
+    // This avoids a second HTTPS implementation and prevents self-packet double ingestion.
+    bool queueLocalEnvironment(float temperatureC, const char *loggerModel, const char *loggerMac,
+                               int8_t bleRssi, uint16_t sequence);
+    bool queueLocalMX2001(float waterLevelFt, float temperatureF, float temperatureC,
+                          uint16_t temperatureRaw, const char *loggerMac, int8_t bleRssi,
+                          uint16_t sequence);
+
   protected:
     bool wantPacket(const meshtastic_MeshPacket *p) override;
     ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
@@ -53,7 +61,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
   private:
     enum class JobType : uint8_t {
         MX2001 = 0,
-        ROCK_TEST = 1,
+        MOISTURE_PIR = 1,
         ENVIRONMENT = 2,
         DEVICE = 3,
     };
@@ -72,17 +80,19 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t from;
         uint32_t timestamp;
 
-        // MX2001 / environmental temperature
+        // HOBO / environmental temperature
         uint16_t sequence;
         uint16_t temperatureRaw;
         float waterLevelFt;
         float temperatureF;
         float temperatureC;
         char loggerMac[18];
+        char loggerModel[12];
+        bool localBleSensor;
 
-        // CCA sandstone test
-        uint16_t rockAdc;
-        uint16_t rockSensorMv;
+        // Legacy RK wire packet: sandstone moisture + PIR
+        uint16_t moistureAdc;
+        uint16_t moistureSensorMv;
         uint32_t motionCount;
         uint16_t batteryMv;
         uint8_t batteryPercent;
@@ -115,16 +125,20 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     TypedQueue<UploadJob> uploadQueue;
     SeenPacket seenPackets[SEEN_PACKET_SLOTS] = {};
     uint8_t seenPacketIndex = 0;
+    uint32_t localPacketCounter = 0;
 
     bool isDuplicate(const meshtastic_MeshPacket &mp);
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);
-    bool enqueueRockTest(const meshtastic_MeshPacket &mp);
+    bool enqueueMoisturePir(const meshtastic_MeshPacket &mp);
     bool enqueueEnvironment(const meshtastic_MeshPacket &mp);
     bool enqueueDevice(const meshtastic_MeshPacket &mp);
     void fillCommon(UploadJob &job, const meshtastic_MeshPacket &mp);
+    void fillLocalCommon(UploadJob &job, uint16_t sequence);
     void fillStationName(char *dest, size_t destSize, uint32_t from);
     bool upload(const UploadJob &job);
 };
+
+extern HoboHttpGatewayModule *hoboHttpGatewayModule;
 
 #endif // HOBO_HTTP_GATEWAY_ENABLED
 #endif // ARCH_ESP32 && HAS_WIFI
