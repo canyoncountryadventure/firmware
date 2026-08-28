@@ -2,6 +2,16 @@ name: Build CCA Heltec Sensor Gateway
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - cca-heltec-sensor-gateway
+    paths:
+      - 'src/**'
+      - 'variants/**'
+      - 'arch/**'
+      - 'platformio.ini'
+      - '.github/workflows/build_cca_heltec_gateway.yml'
+      - '.github/workflows/build_firmware.yml'
 
 permissions: read-all
 
