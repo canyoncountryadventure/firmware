@@ -2,6 +2,11 @@ name: Build CCA Heltec Sensor Gateway
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - hobo-mx2001-mx2201-mx2203
+    paths:
+      - '.github/workflows/build_cca_heltec_gateway.yml'
 
 permissions: read-all
 
