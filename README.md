@@ -1,6 +1,15 @@
-# Meshtastic HOBO Firmware
+# Meshtastic HOBO Field-Node Firmware
 
 Custom Meshtastic firmware for remotely reading Onset HOBO loggers over Bluetooth and transmitting their measurements over the Meshtastic mesh.
+
+## Repository map
+
+This branch is the **HOBO field-node production line**, not the Heltec gateway firmware.
+
+- HOBO field nodes: `hobo-mx2001-mx2201-mx2203`
+- Heltec V4 sensor gateway: `cca-heltec-sensor-gateway`
+
+New Heltec gateway work belongs only on `cca-heltec-sensor-gateway`.
 
 ## Production status
 
