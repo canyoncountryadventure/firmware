@@ -28,7 +28,7 @@ jobs:
           submodules: recursive
 
       - name: Configure CCA HTTP gateway credential
-        if: inputs.pio_env == 'heltec-v4-tft'
+        if: inputs.pio_env == 'heltec-v4' || inputs.pio_env == 'heltec-v4-tft'
         env:
           HOBO_HTTP_GATEWAY_INGEST_KEY: ${{ secrets.HOBO_HTTP_GATEWAY_INGEST_KEY }}
         run: |
