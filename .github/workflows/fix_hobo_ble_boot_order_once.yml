@@ -24,30 +24,26 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           path = Path('src/main.cpp')
           text = path.read_text()
-          old = '''        // Initialize Wifi
-#if HAS_WIFI
-    initWifi();
-#endif
-'''
-          new = '''        // Initialize Wifi
-#if HAS_WIFI
-#if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH
-    // CCA Heltec gateway: HOBO direct BLE and the Meshtastic phone service
-    // share one NimBLE stack. Bring that stack up before WiFi so ESP32-S3
-    // coexistence starts in the supported order instead of enabling BT late.
-    if (!nimbleBluetooth)
-        nimbleBluetooth = new NimbleBluetooth();
-    if (!nimbleBluetooth->isActive()) {
-        LOG_INFO("CCA gateway: starting shared NimBLE before WiFi");
-        nimbleBluetooth->setup();
-    }
-#endif
-    initWifi();
-#endif
-'''
+          old = "        // Initialize Wifi\n#if HAS_WIFI\n    initWifi();\n#endif\n"
+          new = (
+              "        // Initialize Wifi\n"
+              "#if HAS_WIFI\n"
+              "#if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH\n"
+              "    // CCA Heltec gateway: HOBO direct BLE and the Meshtastic phone service\n"
+              "    // share one NimBLE stack. Bring that stack up before WiFi so ESP32-S3\n"
+              "    // coexistence starts in the supported order instead of enabling BT late.\n"
+              "    if (!nimbleBluetooth)\n"
+              "        nimbleBluetooth = new NimbleBluetooth();\n"
+              "    if (!nimbleBluetooth->isActive()) {\n"
+              "        LOG_INFO(\"CCA gateway: starting shared NimBLE before WiFi\");\n"
+              "        nimbleBluetooth->setup();\n"
+              "    }\n"
+              "#endif\n"
+              "    initWifi();\n"
+              "#endif\n"
+          )
           if old not in text:
               raise SystemExit('Expected initWifi block not found; refusing blind patch')
           path.write_text(text.replace(old, new, 1))
