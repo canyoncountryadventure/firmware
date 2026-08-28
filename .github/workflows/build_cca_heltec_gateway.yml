@@ -1,0 +1,75 @@
+name: Build CCA Heltec Sensor Gateway
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build-heltec-v4:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout canonical Heltec gateway branch
+        uses: actions/checkout@v7
+        with:
+          ref: cca-heltec-sensor-gateway
+          submodules: recursive
+
+      - name: Configure cloud ingest credential
+        env:
+          HOBO_HTTP_GATEWAY_INGEST_KEY: ${{ secrets.HOBO_HTTP_GATEWAY_INGEST_KEY }}
+        run: |
+          if [ -z "$HOBO_HTTP_GATEWAY_INGEST_KEY" ]; then
+            echo "::error::Repository secret HOBO_HTTP_GATEWAY_INGEST_KEY is not configured"
+            exit 1
+          fi
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          key = os.environ["HOBO_HTTP_GATEWAY_INGEST_KEY"]
+          escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+          Path("src/modules/hobo_gateway_secrets.h").write_text(
+              '#pragma once\n#define HOBO_HTTP_GATEWAY_INGEST_KEY "' + escaped + '"\n',
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build Heltec V4 OLED
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: esp32s3
+          pio_env: heltec-v4
+          pio_target: build
+
+      - name: Download Unified OTA loader
+        working-directory: release
+        run: |
+          curl -L -o mt-esp32s3-ota.bin https://github.com/meshtastic/esp32-unified-ota/releases/latest/download/mt-esp32s3-ota.bin
+
+      - name: Add OTA loader to manifest
+        working-directory: release
+        run: |
+          OTA_FILE="mt-esp32s3-ota.bin"
+          OTA_MD5=$(md5sum "$OTA_FILE" | cut -d' ' -f1)
+          OTA_SIZE=$(stat -c%s "$OTA_FILE")
+          for manifest in firmware-*.mt.json; do
+            if [[ -f "$manifest" ]]; then
+              jq --arg name "$OTA_FILE" --arg md5 "$OTA_MD5" --argjson bytes "$OTA_SIZE" --arg part "app1" \
+                'if .files | map(select(.name == $name)) | length == 0 then .files += [{"name": $name, "md5": $md5, "bytes": $bytes, "part_name": $part}] else . end' \
+                "$manifest" > "${manifest}.tmp" && mv "${manifest}.tmp" "$manifest"
+            fi
+          done
+
+      - name: Upload Heltec OTA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cca-heltec-sensor-gateway-${{ github.run_number }}
+          overwrite: true
+          retention-days: 30
+          path: |
+            release/*.mt.json
+            release/*.bin
+            release/*.elf
+            release/device-*.sh
+            release/device-*.bat
