@@ -1,0 +1,41 @@
+name: Patch HOBO active scan once
+
+on:
+  push:
+    branches:
+      - cca-heltec-sensor-gateway
+    paths:
+      - '.github/workflows/patch_hobo_active_scan_once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cca-heltec-sensor-gateway
+      - name: Enable active HOBO BLE scan
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/modules/HoboBleSensorModule.cpp')
+          s = p.read_text()
+          old = 'scan->setActiveScan(false);'
+          new = 'scan->setActiveScan(true);'
+          if old not in s:
+              raise SystemExit('Expected passive scan line not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - name: Commit source fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/modules/HoboBleSensorModule.cpp
+          git commit -m 'Enable active BLE scanning for direct HOBO discovery'
+          git push origin HEAD:cca-heltec-sensor-gateway
