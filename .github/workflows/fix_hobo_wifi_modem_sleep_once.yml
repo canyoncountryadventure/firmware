@@ -1,0 +1,93 @@
+name: Fix Heltec WiFi modem sleep once
+
+on:
+  push:
+    branches:
+      - cca-heltec-sensor-gateway
+    paths:
+      - '.github/workflows/fix_hobo_wifi_modem_sleep_once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cca-heltec-sensor-gateway
+          fetch-depth: 0
+
+      - name: Patch WiFi BLE coexistence power mode
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          main = Path('src/main.cpp')
+          text = main.read_text()
+          old = (
+              "        // Initialize Wifi\n"
+              "#if HAS_WIFI\n"
+              "#if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH\n"
+              "    // CCA Heltec gateway: HOBO direct BLE and the Meshtastic phone service\n"
+              "    // share one NimBLE stack. Bring that stack up before WiFi so ESP32-S3\n"
+              "    // coexistence starts in the supported order instead of enabling BT late.\n"
+              "    if (!nimbleBluetooth)\n"
+              "        nimbleBluetooth = new NimbleBluetooth();\n"
+              "    if (!nimbleBluetooth->isActive()) {\n"
+              "        LOG_INFO(\"CCA gateway: starting shared NimBLE before WiFi\");\n"
+              "        nimbleBluetooth->setup();\n"
+              "    }\n"
+              "#endif\n"
+              "    initWifi();\n"
+              "#endif\n"
+          )
+          new = (
+              "        // Initialize Wifi\n"
+              "#if HAS_WIFI\n"
+              "    initWifi();\n"
+              "#endif\n"
+          )
+          if old not in text:
+              raise SystemExit('Expected pre-WiFi NimBLE block not found; refusing blind patch')
+          main.write_text(text.replace(old, new, 1))
+
+          wifi = Path('src/mesh/wifi/WiFiAPClient.cpp')
+          text = wifi.read_text()
+          old = (
+              "            WiFi.onEvent(WiFiEvent);\n"
+              "            WiFi.setAutoReconnect(true);\n"
+              "            WiFi.setSleep(false);\n\n"
+              "            // This is needed to improve performance.\n"
+              "            esp_wifi_set_ps(WIFI_PS_NONE); // Disable radio power saving\n"
+          )
+          new = (
+              "            WiFi.onEvent(WiFiEvent);\n"
+              "            WiFi.setAutoReconnect(true);\n"
+              "#if defined(HELTEC_V4)\n"
+              "            // CCA Heltec sensor gateway runs WiFi and BLE concurrently.\n"
+              "            // Espressif coexistence requires WiFi modem sleep; WIFI_PS_NONE\n"
+              "            // aborts when the Bluetooth controller is enabled.\n"
+              "            WiFi.setSleep(true);\n"
+              "            esp_wifi_set_ps(WIFI_PS_MIN_MODEM);\n"
+              "            LOG_INFO(\"CCA gateway: WiFi MIN_MODEM enabled for WiFi/BLE coexistence\");\n"
+              "#else\n"
+              "            WiFi.setSleep(false);\n\n"
+              "            // This is needed to improve performance.\n"
+              "            esp_wifi_set_ps(WIFI_PS_NONE); // Disable radio power saving\n"
+              "#endif\n"
+          )
+          if old not in text:
+              raise SystemExit('Expected WiFi power-save block not found; refusing blind patch')
+          wifi.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit coexistence power-mode fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.cpp src/mesh/wifi/WiFiAPClient.cpp
+          git commit -m "Enable WiFi modem sleep for Heltec BLE coexistence"
+          git push origin HEAD:cca-heltec-sensor-gateway
