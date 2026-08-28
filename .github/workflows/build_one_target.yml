@@ -80,6 +80,7 @@ jobs:
     if: ${{ inputs.target != '' && inputs.arch != 'native' }}
     needs: [version]
     uses: ./.github/workflows/build_firmware.yml
+    secrets: inherit
     with:
       version: ${{ needs.version.outputs.long }}
       pio_env: ${{ inputs.target }}
