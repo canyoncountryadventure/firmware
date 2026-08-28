@@ -665,7 +665,7 @@ void startScan()
 #else
     scan->setAdvertisedDeviceCallbacks(&scanCallbacks, false);
 #endif
-    scan->setActiveScan(false);
+    scan->setActiveScan(true);
     scan->setInterval(160);
     scan->setWindow(80);
 #ifdef NIMBLE_TWO
