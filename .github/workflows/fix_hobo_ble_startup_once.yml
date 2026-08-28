@@ -1,0 +1,62 @@
+name: Fix HOBO BLE startup once
+
+on:
+  push:
+    branches:
+      - cca-heltec-sensor-gateway
+    paths:
+      - '.github/workflows/fix_hobo_ble_startup_once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cca-heltec-sensor-gateway
+          fetch-depth: 0
+
+      - name: Patch HOBO BLE startup dependency
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/modules/HoboBleSensorModule.cpp')
+          text = path.read_text()
+          old = '''    if (!initialized) {
+        if (!nimbleBluetooth || !nimbleBluetooth->isActive())
+            return 1000;
+        initializeClient();
+        return 250;
+    }
+'''
+          new = '''    if (!initialized) {
+#ifdef NIMBLE_TWO
+        const bool nimbleReady = NimBLEDevice::isInitialized();
+#else
+        const bool nimbleReady = NimBLEDevice::getInitialized();
+#endif
+        if (!nimbleReady) {
+            LOG_INFO("CCA HOBO: NimBLE not initialized by Meshtastic; initializing BLE central");
+            NimBLEDevice::init("");
+        } else if (!nimbleBluetooth || !nimbleBluetooth->isActive()) {
+            LOG_INFO("CCA HOBO: Meshtastic phone BLE inactive; continuing with BLE central");
+        }
+        initializeClient();
+        return 250;
+    }
+'''
+          if old not in text:
+              raise SystemExit('Expected startup block not found; refusing blind patch')
+          path.write_text(text.replace(old, new, 1))
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/modules/HoboBleSensorModule.cpp
+          git commit -m "Fix HOBO BLE startup when phone BLE is inactive"
+          git push origin HEAD:cca-heltec-sensor-gateway
