@@ -24,4 +24,4 @@ jobs:
       pio_env: heltec-v4
       platform: esp32s3
 
-# Canonical Heltec V4 OLED build. Shared NimBLE starts before WiFi for direct HOBO BLE.
+# Canonical Heltec V4 OLED build. WiFi uses MIN_MODEM before shared NimBLE starts for direct HOBO BLE.
