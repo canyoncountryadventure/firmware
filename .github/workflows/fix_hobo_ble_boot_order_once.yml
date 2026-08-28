@@ -1,0 +1,62 @@
+name: Fix Heltec BLE boot order once
+
+on:
+  push:
+    branches:
+      - cca-heltec-sensor-gateway
+    paths:
+      - '.github/workflows/fix_hobo_ble_boot_order_once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cca-heltec-sensor-gateway
+          fetch-depth: 0
+
+      - name: Start shared NimBLE before WiFi on Heltec gateway
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/main.cpp')
+          text = path.read_text()
+          old = '''        // Initialize Wifi
+#if HAS_WIFI
+    initWifi();
+#endif
+'''
+          new = '''        // Initialize Wifi
+#if HAS_WIFI
+#if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH
+    // CCA Heltec gateway: HOBO direct BLE and the Meshtastic phone service
+    // share one NimBLE stack. Bring that stack up before WiFi so ESP32-S3
+    // coexistence starts in the supported order instead of enabling BT late.
+    if (!nimbleBluetooth)
+        nimbleBluetooth = new NimbleBluetooth();
+    if (!nimbleBluetooth->isActive()) {
+        LOG_INFO("CCA gateway: starting shared NimBLE before WiFi");
+        nimbleBluetooth->setup();
+    }
+#endif
+    initWifi();
+#endif
+'''
+          if old not in text:
+              raise SystemExit('Expected initWifi block not found; refusing blind patch')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit BLE boot-order fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.cpp
+          git commit -m "Start Heltec shared NimBLE before WiFi"
+          git push origin HEAD:cca-heltec-sensor-gateway
