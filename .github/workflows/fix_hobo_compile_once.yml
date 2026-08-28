@@ -37,3 +37,5 @@ jobs:
           git add src/modules/HoboBleSensorModule.cpp
           git commit -m "Fix Heltec HOBO NimBLE compile compatibility"
           git push origin HEAD:cca-heltec-sensor-gateway
+
+# One-shot workflow; remove after successful patch.
