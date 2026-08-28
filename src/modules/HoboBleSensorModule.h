@@ -7,6 +7,7 @@
 #include "concurrency/OSThread.h"
 #include "mesh/SinglePortModule.h"
 
+// Direct HOBO BLE reader for the canonical Heltec sensor gateway.
 class HoboBleSensorModule : public SinglePortModule, private concurrency::OSThread
 {
   public:
