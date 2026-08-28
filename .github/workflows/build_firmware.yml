@@ -27,6 +27,27 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Configure CCA HTTP gateway credential
+        if: inputs.pio_env == 'heltec-v4-tft'
+        env:
+          HOBO_HTTP_GATEWAY_INGEST_KEY: ${{ secrets.HOBO_HTTP_GATEWAY_INGEST_KEY }}
+        run: |
+          if [ -z "$HOBO_HTTP_GATEWAY_INGEST_KEY" ]; then
+            echo "::error::Repository secret HOBO_HTTP_GATEWAY_INGEST_KEY is not configured"
+            exit 1
+          fi
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          key = os.environ["HOBO_HTTP_GATEWAY_INGEST_KEY"]
+          escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+          Path("src/modules/hobo_gateway_secrets.h").write_text(
+              '#pragma once\n#define HOBO_HTTP_GATEWAY_INGEST_KEY "' + escaped + '"\n',
+              encoding="utf-8",
+          )
+          PY
+
       - name: Build ${{ inputs.platform }}
         id: build
         uses: meshtastic/gh-action-firmware@main
