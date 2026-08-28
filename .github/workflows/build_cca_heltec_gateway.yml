@@ -1,0 +1,15 @@
+name: Build CCA Heltec Sensor Gateway
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build-heltec-v4:
+    uses: ./.github/workflows/build_firmware.yml
+    secrets: inherit
+    with:
+      version: cca-${{ github.run_number }}
+      pio_env: heltec-v4
+      platform: esp32s3
