@@ -123,7 +123,7 @@ def upload(body):
         headers={
             "Content-Type": "application/json",
             "X-Ingest-Key": INGEST_KEY,
-            "User-Agent": "hobo-meshtastic-cloud-gateway/1.0",
+            "User-Agent": "hobo-meshtastic-cloud-gateway/1.1",
         },
     )
 
@@ -131,7 +131,10 @@ def upload(body):
         with urllib.request.urlopen(request, timeout=10) as response:
             result = json.loads(response.read().decode("utf-8"))
             reading = result.get("reading") or {}
-            print(f"Cloud: STORED row={reading.get('id', 'unknown')}")
+            if result.get("stored"):
+                print(f"Cloud: STORED row={reading.get('id', 'unknown')}")
+            else:
+                print(f"Cloud: NOT STORED ({result.get('reason', 'no reason')})")
             return True
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -175,11 +178,13 @@ def handle_mx2001(packet, interface, decoded):
     return True
 
 
-def handle_environment(packet, interface, decoded):
+def telemetry_dict(decoded):
     telemetry = decoded.get("telemetry") or {}
-    if not isinstance(telemetry, dict):
-        return False
+    return telemetry if isinstance(telemetry, dict) else {}
 
+
+def handle_environment(packet, interface, decoded):
+    telemetry = telemetry_dict(decoded)
     env = telemetry.get("environmentMetrics") or telemetry.get("environment_metrics") or {}
     if not isinstance(env, dict):
         return False
@@ -220,6 +225,57 @@ def handle_environment(packet, interface, decoded):
     return True
 
 
+def handle_device(packet, interface, decoded):
+    telemetry = telemetry_dict(decoded)
+    device = telemetry.get("deviceMetrics") or telemetry.get("device_metrics") or {}
+    if not isinstance(device, dict):
+        return False
+
+    battery_level = device.get("batteryLevel")
+    if battery_level is None:
+        battery_level = device.get("battery_level")
+    voltage = device.get("voltage")
+
+    if battery_level is None and voltage is None:
+        return False
+
+    node_num = packet.get("from")
+    sid = source_id(packet)
+    station = source_name(interface, packet)
+    observed = telemetry.get("time") or packet.get("rxTime") or int(time.time())
+
+    payload = {
+        "battery_level": battery_level,
+        "voltage": voltage,
+        "channel_utilization": device.get("channelUtilization", device.get("channel_utilization")),
+        "air_util_tx": device.get("airUtilTx", device.get("air_util_tx")),
+        "uptime_seconds": device.get("uptimeSeconds", device.get("uptime_seconds")),
+    }
+    payload = {k: v for k, v in payload.items() if v is not None}
+
+    print()
+    print("=" * 64)
+    print("DEVICE / BATTERY TELEMETRY")
+    print(f"Source:      {sid}  {station}")
+    print(f"Battery:     {battery_level if battery_level is not None else '—'} %")
+    print(f"Voltage:     {voltage if voltage is not None else '—'} V")
+    print(f"LoRa RSSI:   {packet.get('rxRssi')} dBm")
+    print(f"LoRa SNR:    {packet.get('rxSnr')} dB")
+    print(f"Hops:        {hop_count(packet)}")
+
+    body = {
+        "type": "device",
+        "timestamp": int(observed),
+        "from": node_num,
+        "station_name": station,
+        "payload": payload,
+        "radio": radio_metadata(packet),
+    }
+    upload(body)
+    print("=" * 64)
+    return True
+
+
 def on_receive(packet, interface):
     packet_id = packet.get("id")
     if remember_packet(packet_id):
@@ -233,14 +289,16 @@ def on_receive(packet, interface):
         return
 
     if portnum in ("TELEMETRY_APP", 67):
-        handle_environment(packet, interface, decoded)
+        if handle_environment(packet, interface, decoded):
+            return
+        handle_device(packet, interface, decoded)
 
 
 def main():
     global CLOUD_URL, INGEST_KEY, GATEWAY_NAME
 
     parser = argparse.ArgumentParser(
-        description="Receive HOBO telemetry from a Meshtastic gateway radio and upload to Vercel/Neon"
+        description="Receive HOBO and device telemetry from a Meshtastic gateway and upload to Vercel/Neon"
     )
     parser.add_argument("--port", required=True, help="Gateway radio serial port, e.g. COM11")
     parser.add_argument("--cloud-url", default=DEFAULT_CLOUD_URL)
@@ -263,7 +321,7 @@ def main():
     print(f"Serial radio: {args.port}")
     print(f"Cloud:        {CLOUD_URL}")
     print(f"Gateway:      {GATEWAY_NAME}")
-    print("Accepts:      MX2001 PRIVATE_APP + MX2201/MX2203 TELEMETRY_APP")
+    print("Accepts:      MX2001 PRIVATE_APP + MX2201/MX2203 environmental + device/battery TELEMETRY_APP")
     print("Press Ctrl+C to stop")
     print("=" * 64)
 
