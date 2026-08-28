@@ -87,7 +87,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
     uploadQueue.setReader(this);
     setInterval(5000);
 
-    LOG_INFO("CCA HTTP gateway enabled: MX2001 + ROCK + environment -> %s", HOBO_HTTP_GATEWAY_URL);
+    LOG_INFO("CCA HTTP gateway enabled: MX2001 + ROCK + environment + device -> %s", HOBO_HTTP_GATEWAY_URL);
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     LOG_INFO("CCA HTTP gateway: favorite-nodes-only filtering enabled");
 #endif
@@ -251,6 +251,9 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
     if (decoded.which_variant != meshtastic_Telemetry_environment_metrics_tag)
         return false;
 
+    if (!decoded.variant.environment_metrics.has_temperature)
+        return false;
+
     UploadJob job = {};
     job.type = JobType::ENVIRONMENT;
     fillCommon(job, mp);
@@ -267,6 +270,48 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
     return true;
 }
 
+bool HoboHttpGatewayModule::enqueueDevice(const meshtastic_MeshPacket &mp)
+{
+    meshtastic_Telemetry decoded = meshtastic_Telemetry_init_zero;
+    if (!pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size,
+                              &meshtastic_Telemetry_msg, &decoded)) {
+        return false;
+    }
+
+    if (decoded.which_variant != meshtastic_Telemetry_device_metrics_tag)
+        return false;
+
+    const auto &device = decoded.variant.device_metrics;
+    if (!device.has_battery_level && !device.has_voltage)
+        return false;
+
+    UploadJob job = {};
+    job.type = JobType::DEVICE;
+    fillCommon(job, mp);
+
+    job.hasDeviceBatteryLevel = device.has_battery_level;
+    job.hasDeviceVoltage = device.has_voltage;
+    job.hasChannelUtilization = device.has_channel_utilization;
+    job.hasAirUtilTx = device.has_air_util_tx;
+    job.hasUptimeSeconds = device.has_uptime_seconds;
+    job.deviceBatteryLevel = device.battery_level;
+    job.deviceVoltage = device.voltage;
+    job.channelUtilization = device.channel_utilization;
+    job.airUtilTx = device.air_util_tx;
+    job.uptimeSeconds = device.uptime_seconds;
+
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("CCA HTTP gateway: upload queue full, dropped device packet 0x%08lx",
+                 static_cast<unsigned long>(mp.id));
+        return false;
+    }
+
+    LOG_INFO("CCA HTTP gateway: queued device battery=%lu%% voltage=%.3f V from 0x%08lx",
+             static_cast<unsigned long>(job.deviceBatteryLevel), job.deviceVoltage,
+             static_cast<unsigned long>(job.from));
+    return true;
+}
+
 ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket &mp)
 {
     if (isDuplicate(mp))
@@ -276,7 +321,8 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
         if (!enqueueRockTest(mp))
             enqueueMX2001(mp);
     } else if (mp.decoded.portnum == meshtastic_PortNum_TELEMETRY_APP) {
-        enqueueEnvironment(mp);
+        if (!enqueueEnvironment(mp))
+            enqueueDevice(mp);
     }
 
     return ProcessMessage::CONTINUE;
@@ -293,13 +339,15 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     }
 
     String body;
-    body.reserve(900);
+    body.reserve(1000);
     body += "{";
 
     if (job.type == JobType::MX2001)
         body += "\"type\":\"mx2001\"";
     else if (job.type == JobType::ROCK_TEST)
         body += "\"type\":\"rock_test\"";
+    else if (job.type == JobType::DEVICE)
+        body += "\"type\":\"device\"";
     else
         body += "\"type\":\"telemetry\"";
 
@@ -341,6 +389,36 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
         body += String(job.batteryMv / 1000.0f, 3);
         body += ",\"battery_percent\":";
         body += String(job.batteryPercent);
+    } else if (job.type == JobType::DEVICE) {
+        bool first = true;
+        if (job.hasDeviceBatteryLevel) {
+            body += "\"battery_level\":";
+            body += String(job.deviceBatteryLevel);
+            first = false;
+        }
+        if (job.hasDeviceVoltage) {
+            if (!first) body += ',';
+            body += "\"voltage\":";
+            body += String(job.deviceVoltage, 3);
+            first = false;
+        }
+        if (job.hasChannelUtilization) {
+            if (!first) body += ',';
+            body += "\"channel_utilization\":";
+            body += String(job.channelUtilization, 3);
+            first = false;
+        }
+        if (job.hasAirUtilTx) {
+            if (!first) body += ',';
+            body += "\"air_util_tx\":";
+            body += String(job.airUtilTx, 3);
+            first = false;
+        }
+        if (job.hasUptimeSeconds) {
+            if (!first) body += ',';
+            body += "\"uptime_seconds\":";
+            body += String(job.uptimeSeconds);
+        }
     } else {
         body += "\"temperature\":";
         body += String(job.temperatureC, 3);
@@ -377,11 +455,11 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
 
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
-    http.addHeader("User-Agent", "cca-heltec-http-gateway/1.1");
+    http.addHeader("User-Agent", "cca-heltec-http-gateway/1.2");
 
     const int status = http.POST(body);
     if (status >= 200 && status < 300) {
-        LOG_INFO("CCA HTTP gateway: cloud stored packet 0x%08lx (HTTP %d)",
+        LOG_INFO("CCA HTTP gateway: cloud accepted packet 0x%08lx (HTTP %d)",
                  static_cast<unsigned long>(job.packetId), status);
         http.end();
         return true;
