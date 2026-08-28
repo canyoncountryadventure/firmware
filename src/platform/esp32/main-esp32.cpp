@@ -36,7 +36,15 @@ void setBluetoothEnable(bool enable)
 #if defined(USE_WS5500) || defined(USE_CH390D)
     if ((config.bluetooth.enabled == true) && (config.network.wifi_enabled == false))
 #elif HAS_WIFI
+#if defined(HELTEC_V4)
+    // CCA Heltec sensor gateway needs one shared NimBLE stack for both
+    // the Meshtastic phone service and direct HOBO BLE central/client work.
+    // ESP32-S3 hardware supports WiFi/BLE coexistence; start BLE before WiFi
+    // instead of suppressing BLE whenever WiFi is configured.
+    if (config.bluetooth.enabled == true)
+#else
     if (!isWifiAvailable() && config.bluetooth.enabled == true)
+#endif
 #else
     if (config.bluetooth.enabled == true)
 #endif
