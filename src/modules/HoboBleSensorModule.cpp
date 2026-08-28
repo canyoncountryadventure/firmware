@@ -100,7 +100,7 @@ NimBLERemoteCharacteristic *hoboCharacteristic = nullptr;
 LoggerType loggerType = LoggerType::UNKNOWN;
 MetaProfile activeMetaProfile = MetaProfile::NONE;
 ReadPurpose readPurpose = ReadPurpose::PROBE;
-HoboState state = HoboHoboState::IDLE;
+HoboState state = HoboHoboHoboState::IDLE;
 uint32_t stateDueMs = 0;
 uint8_t probeAttempt = 0;
 bool candidateLikelyMX2001 = false;
@@ -635,7 +635,7 @@ void resetConnectionState()
     loggerType = LoggerType::UNKNOWN;
     activeMetaProfile = MetaProfile::NONE;
     readPurpose = ReadPurpose::PROBE;
-    state = HoboState::IDLE;
+    state = HoboHoboState::IDLE;
     resetMeasurementCapture();
     statusReady = false;
     currentWritePointer = 0;
@@ -776,7 +776,7 @@ bool finishServiceDiscovery()
     haveStatusBaseline = false;
     statusTrackingAvailable = true;
     consecutiveStatusTimeouts = 0;
-    state = HoboState::SEND_INIT;
+    state = HoboHoboState::SEND_INIT;
     stateDueMs = millis() + SERVICE_SETTLE_MS;
     LOG_INFO("CCA HOBO: command channel ready %s", loggerMac);
     return true;
@@ -1202,19 +1202,19 @@ int32_t HoboBleSensorModule::runOnce()
         return 250;
     }
 
-    if (readRequestPending && state == HoboState::READY) {
+    if (readRequestPending && state == HoboHoboState::READY) {
         readRequestPending = false;
         readRequestInProgress = true;
         readPurpose = ReadPurpose::ON_DEMAND;
-        state = HoboState::SEND_READ;
+        state = HoboHoboState::SEND_READ;
         stateDueMs = now;
     }
 
     switch (state) {
-    case HoboState::SEND_INIT:
+    case HoboHoboState::SEND_INIT:
         if (reached(now, stateDueMs)) {
             if (sendCommand(CMD_INIT, sizeof(CMD_INIT), "INIT")) {
-                state = HoboState::WAIT_INIT;
+                state = HoboHoboState::WAIT_INIT;
                 stateDueMs = now + COMMAND_DELAY_MS;
             } else {
                 stateDueMs = now + 1000;
@@ -1222,50 +1222,50 @@ int32_t HoboBleSensorModule::runOnce()
         }
         break;
 
-    case HoboState::WAIT_INIT:
+    case HoboHoboState::WAIT_INIT:
         if (reached(now, stateDueMs)) {
             readPurpose = ReadPurpose::PROBE;
-            state = HoboState::SEND_READ;
+            state = HoboHoboState::SEND_READ;
         }
         break;
 
-    case HoboState::SEND_META0: {
+    case HoboHoboState::SEND_META0: {
         size_t length = 0;
         const uint8_t *command = meta0Command(length);
         if (sendCommand(command, length, "META0")) {
-            state = HoboState::WAIT_META0;
+            state = HoboHoboState::WAIT_META0;
             stateDueMs = now + COMMAND_DELAY_MS;
         }
         break;
     }
 
-    case HoboState::WAIT_META0:
+    case HoboHoboState::WAIT_META0:
         if (reached(now, stateDueMs))
-            state = HoboState::SEND_META8;
+            state = HoboHoboState::SEND_META8;
         break;
 
-    case HoboState::SEND_META8: {
+    case HoboHoboState::SEND_META8: {
         size_t length = 0;
         const uint8_t *command = meta8Command(length);
         if (sendCommand(command, length, "META8")) {
-            state = HoboState::WAIT_META8;
+            state = HoboHoboState::WAIT_META8;
             stateDueMs = now + COMMAND_DELAY_MS;
         }
         break;
     }
 
-    case HoboState::WAIT_META8:
+    case HoboHoboState::WAIT_META8:
         if (reached(now, stateDueMs)) {
             readPurpose = ReadPurpose::PROBE;
-            state = HoboState::SEND_READ;
+            state = HoboHoboState::SEND_READ;
         }
         break;
 
-    case HoboState::SEND_READ:
+    case HoboHoboState::SEND_READ:
         resetMeasurementCapture();
         directReadActive = true;
         if (sendCommand(CMD_NEWREAD64, sizeof(CMD_NEWREAD64), "NEWREAD64")) {
-            state = HoboState::WAIT_READ;
+            state = HoboHoboState::WAIT_READ;
             stateDueMs = now + READ_TIMEOUT_MS;
         } else {
             directReadActive = false;
@@ -1274,12 +1274,12 @@ int32_t HoboBleSensorModule::runOnce()
                 readRequestInProgress = false;
                 readRequester = 0;
             }
-            state = HoboState::READY;
+            state = HoboHoboState::READY;
             nextStatusCheckMs = now + 1000;
         }
         break;
 
-    case HoboState::WAIT_READ:
+    case HoboHoboState::WAIT_READ:
         if (measurementReady) {
             measurementReady = false;
             if (readPurpose == ReadPurpose::ON_DEMAND && readRequestInProgress) {
@@ -1297,7 +1297,7 @@ int32_t HoboBleSensorModule::runOnce()
                 readRequestInProgress = false;
                 readRequester = 0;
                 readPurpose = ReadPurpose::AUTOMATIC;
-                state = HoboState::READY;
+                state = HoboHoboState::READY;
                 break;
             }
 
@@ -1307,7 +1307,7 @@ int32_t HoboBleSensorModule::runOnce()
                 consecutiveStatusTimeouts = 0;
                 statusTrackingAvailable = true;
                 intervalPhaseLocked = false;
-                state = HoboState::SEND_STATUS;
+                state = HoboHoboState::SEND_STATUS;
                 stateDueMs = now + 200;
                 break;
             }
@@ -1315,7 +1315,7 @@ int32_t HoboBleSensorModule::runOnce()
             if (readPurpose == ReadPurpose::AUTOMATIC) {
                 if (!haveStatusBaseline || pendingWritePointer == lastWritePointer) {
                     nextStatusCheckMs = now + POINTER_FINE_POLL_MS;
-                    state = HoboState::READY;
+                    state = HoboHoboState::READY;
                     break;
                 }
                 if (publishAutomatic()) {
@@ -1335,7 +1335,7 @@ int32_t HoboBleSensorModule::runOnce()
                     nextStatusCheckMs = now + 1000;
                 }
                 pendingPointerDetectedMs = 0;
-                state = HoboState::READY;
+                state = HoboHoboState::READY;
                 break;
             }
         }
@@ -1343,7 +1343,7 @@ int32_t HoboBleSensorModule::runOnce()
         if (reached(now, stateDueMs)) {
             directReadActive = false;
             if (readPurpose == ReadPurpose::PROBE && loggerType == LoggerType::UNKNOWN && prepareFallbackProbe()) {
-                state = HoboState::SEND_META0;
+                state = HoboHoboState::SEND_META0;
                 stateDueMs = now + 200;
                 break;
             }
@@ -1352,7 +1352,7 @@ int32_t HoboBleSensorModule::runOnce()
                 readRequestInProgress = false;
                 readRequester = 0;
                 readPurpose = ReadPurpose::AUTOMATIC;
-                state = HoboState::READY;
+                state = HoboHoboState::READY;
                 break;
             }
             if (readPurpose == ReadPurpose::PROBE && loggerType == LoggerType::UNKNOWN) {
@@ -1364,14 +1364,14 @@ int32_t HoboBleSensorModule::runOnce()
             }
             readPurpose = ReadPurpose::AUTOMATIC;
             nextStatusCheckMs = now + 1000;
-            state = HoboState::READY;
+            state = HoboHoboState::READY;
         }
         break;
 
-    case HoboState::SEND_STATUS:
+    case HoboHoboState::SEND_STATUS:
         statusReady = false;
         if (sendCommand(CMD_STATUS, sizeof(CMD_STATUS), "STATUS")) {
-            state = HoboState::WAIT_STATUS;
+            state = HoboHoboState::WAIT_STATUS;
             stateDueMs = now + STATUS_TIMEOUT_MS;
         } else {
             ++consecutiveStatusTimeouts;
@@ -1382,11 +1382,11 @@ int32_t HoboBleSensorModule::runOnce()
             } else {
                 nextStatusCheckMs = now + 1000;
             }
-            state = HoboState::READY;
+            state = HoboHoboState::READY;
         }
         break;
 
-    case HoboState::WAIT_STATUS:
+    case HoboHoboState::WAIT_STATUS:
         if (statusReady) {
             statusReady = false;
             consecutiveStatusTimeouts = 0;
@@ -1398,18 +1398,18 @@ int32_t HoboBleSensorModule::runOnce()
                 LOG_INFO("CCA HOBO: STATUS baseline pointer=0x%08lX interval=%u sec",
                          static_cast<unsigned long>(lastWritePointer), loggerIntervalSeconds);
                 nextStatusCheckMs = now + POINTER_INITIAL_SYNC_POLL_MS;
-                state = HoboState::READY;
+                state = HoboHoboState::READY;
                 break;
             }
             if (currentWritePointer != lastWritePointer) {
                 pendingWritePointer = currentWritePointer;
                 pendingPointerDetectedMs = now;
                 readPurpose = ReadPurpose::AUTOMATIC;
-                state = HoboState::SEND_READ;
+                state = HoboHoboState::SEND_READ;
                 stateDueMs = now;
             } else {
                 nextStatusCheckMs = now + (intervalPhaseLocked ? POINTER_FINE_POLL_MS : POINTER_INITIAL_SYNC_POLL_MS);
-                state = HoboState::READY;
+                state = HoboHoboState::READY;
             }
             break;
         }
@@ -1419,22 +1419,22 @@ int32_t HoboBleSensorModule::runOnce()
                 statusTrackingAvailable = false;
                 nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
                 LOG_WARN("CCA HOBO: pointer tracking unavailable; automatic TX PAUSED");
-                state = HoboState::READY;
+                state = HoboHoboState::READY;
             } else {
-                state = HoboState::SEND_STATUS;
+                state = HoboHoboState::SEND_STATUS;
                 stateDueMs = now + 1000;
             }
         }
         break;
 
-    case HoboState::READY:
+    case HoboHoboState::READY:
         if (!readRequestPending && (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs))) {
-            state = HoboState::SEND_STATUS;
+            state = HoboHoboState::SEND_STATUS;
             stateDueMs = now;
         }
         break;
 
-    case HoboState::IDLE:
+    case HoboHoboState::IDLE:
     default:
         break;
     }
