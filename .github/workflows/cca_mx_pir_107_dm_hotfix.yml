@@ -1,0 +1,99 @@
+name: CCA MX PIR 1.0.7 DM Hotfix
+
+on:
+  push:
+    branches:
+      - CCA-MX-HOBO-PIR-SEEED-v1
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build-hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Apply strict 1.0.7 DM hotfix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly 1 match, found {count}")
+              return text.replace(old, new, 1)
+
+          cca_path = Path('src/modules/CCAStationModule.cpp')
+          cca = cca_path.read_text()
+          cca = replace_once(
+              cca,
+              ': SinglePortModule("CCAStation", meshtastic_PortNum_PRIVATE_APP),',
+              ': SinglePortModule("CCAStation", meshtastic_PortNum_TEXT_MESSAGE_APP),',
+              'CCA text port registration')
+          cca = replace_once(
+              cca,
+              '#include "NodeDB.h"\n',
+              '#include "NodeDB.h"\n#include "NodeInfoModule.h"\n',
+              'CCA NodeInfo include')
+          old_cca_send = '''    service->sendToMesh(packet, RX_SRC_LOCAL, true);\n    return true;\n}\n\nbool CCAStationModule::sendAutomaticAlert'''
+          new_cca_send = '''    // Use the same normal local text-DM path as Meshtastic's built-in ReplyBot.\n    // Router::sendLocal() handles current PKI/channel selection and packet ownership.\n    service->sendToMesh(packet);\n    return true;\n}\n\nbool CCAStationModule::sendAutomaticAlert'''
+          cca = replace_once(cca, old_cca_send, new_cca_send, 'CCA text send path')
+          old_init = '''        moduleInitialized = true;\n        LOG_INFO("CCA-MX-PIR %s: D6 PIR, schema %u, persistent=%s", CCA_FW_VERSION,'''
+          new_init = '''        moduleInitialized = true;\n\n        // A stock/recovery flash or controller swap can leave peers with stale or missing\n        // public keys.  Ask the mesh for fresh NodeInfo once at boot so private DMs can\n        // immediately use Meshtastic 2.7.26 PKI from any current controller radio.\n        if (nodeInfoModule != nullptr) {\n            LOG_INFO("CCA DM: requesting fresh NodeInfo/PKI peer keys");\n            nodeInfoModule->sendOurNodeInfo(NODENUM_BROADCAST, true, 0, true);\n        }\n\n        LOG_INFO("CCA-MX-PIR %s: D6 PIR, schema %u, persistent=%s", CCA_FW_VERSION,'''
+          cca = replace_once(cca, old_init, new_init, 'CCA boot NodeInfo sync')
+          cca_path.write_text(cca)
+
+          hobo_path = Path('src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp')
+          hobo = hobo_path.read_text()
+          hobo = replace_once(
+              hobo,
+              '''    : SinglePortModule(\n          "HOBOMX2001MX2201MX2203",\n          meshtastic_PortNum_PRIVATE_APP),''',
+              '''    : SinglePortModule(\n          "HOBOMX2001MX2201MX2203",\n          meshtastic_PortNum_TEXT_MESSAGE_APP),''',
+              'HOBO text port registration')
+          old_hobo_send = '''    service->sendToMesh(packet, RX_SRC_LOCAL, true);\n    return true;\n}\n\nint32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()'''
+          new_hobo_send = '''    // Use Meshtastic's normal local text-DM send path.\n    service->sendToMesh(packet);\n    return true;\n}\n\nint32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()'''
+          hobo = replace_once(hobo, old_hobo_send, new_hobo_send, 'HOBO text reply path')
+          hobo_path.write_text(hobo)
+
+          # Guard the field-critical code from accidental changes in this workflow.
+          assert 'constexpr char CCA_FW_VERSION[] = "1.0.7";' in cca
+          assert 'constexpr uint32_t POLL_INTERVAL_MS = 100;' in cca
+          assert 'constexpr uint8_t PIR_PIN = D6;' in cca
+          assert 'CCA_MX_PIR' in Path('variants/nrf52840/seeed_xiao_nrf52840_kit/platformio.ini').read_text()
+          print('CCA 1.0.7 DM hotfix patch assertions passed')
+          PY
+
+      - name: Build Seeed XIAO CCA 1.0.7 hotfix
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: nrf52840
+          pio_env: seeed_xiao_nrf52840_cca_mx_pir
+          pio_target: build
+
+      - name: Verify BLE OTA and UF2 artifacts
+        shell: bash
+        run: |
+          echo "Release files:"
+          ls -lah release
+          OTA=$(find release -maxdepth 1 -type f -name '*-ota.zip' | head -n 1)
+          UF2=$(find release -maxdepth 1 -type f -name '*.uf2' | head -n 1)
+          test -n "$OTA" || { echo 'BLE OTA zip missing'; exit 1; }
+          test -n "$UF2" || { echo 'UF2 missing'; exit 1; }
+          echo "BLE OTA: $OTA"
+          echo "UF2:     $UF2"
+          unzip -t "$OTA"
+
+      - name: Upload field hotfix
+        uses: actions/upload-artifact@v7
+        with:
+          name: CCA-MX-PIR-1.0.7-DM-HOTFIX
+          if-no-files-found: error
+          path: |
+            release/*-ota.zip
+            release/*.uf2
+            release/*.mt.json
