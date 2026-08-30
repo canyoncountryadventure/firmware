@@ -1,63 +1,93 @@
 # CCA Heltec Sensor Gateway
 
-**Canonical Heltec branch:** `cca-heltec-sensor-gateway`  
-**Gateway hardware:** Heltec WiFi LoRa 32 V4 OLED  
+**Canonical branch:** `cca-heltec-sensor-gateway`  
+**Hardware:** Heltec WiFi LoRa 32 V4 OLED  
 **PlatformIO target:** `heltec-v4`  
 **Cloud path:** Heltec -> Vercel ingest -> Neon PostgreSQL -> dashboard
 
-This branch is the single source of truth for the CCA Heltec gateway. It is intentionally sensor-agnostic: existing sensor inputs stay supported as new sensor types are added.
+This branch is the single production gateway branch for the CCA Meshtastic sensor network. The Heltec remains a normal Meshtastic radio/server while also reading the Home HOBO, receiving remote telemetry, polling Fishlake, and uploading accepted readings over Wi-Fi.
 
-## What is preserved
+## Station modes — important
 
-The gateway currently preserves the working paths for:
+The three HOBO stations do **not** use the same acquisition mode:
 
-- sandstone/moisture + PIR packets from field nodes;
-- HOBO MX2001 water-level + temperature packets;
-- standard Meshtastic environmental temperature telemetry, including MX2201 temperature;
-- Meshtastic device telemetry, including battery percentage/voltage used by the Hidden Valley monitoring path;
-- mesh packet metadata needed by the Vercel/Neon ingest path;
-- Wi-Fi HTTPS upload from the Heltec to `/api/ingest`;
-- Wi-Fi OTA support on the Heltec V4.
+| Station | Mode | What causes a reading |
+|---|---|---|
+| **Hidden Valley** | **Automatic** | Remote RAK/HOBO node reads its logger and broadcasts standard environmental telemetry on its own schedule. |
+| **Home** | **Automatic** | Heltec directly reads its local HOBO over BLE. Home readings are held locally for the cloud batch path. |
+| **Fishlake Hightop** | **Heltec-triggered** | Heltec sends a Meshtastic DM `READ` to the Fishlake node; Fishlake replies with a fresh HOBO reading. |
 
-Existing wire/database schemas are kept backward-compatible so the current dashboard and Neon ingestion do not break while names and modules are cleaned up.
+**Fishlake is trigger/poll driven by the Heltec. Hidden Valley and Home are automatic.**
 
-## Required next Heltec feature
+The Fishlake poller currently targets node `!5e021e35` and sends a `READ` every 60 minutes. The reply is parsed by the Heltec and uploaded as `Fishlake Hightop` telemetry. Fishlake therefore does not need to free-run its own HOBO telemetry broadcasts.
 
-The next Heltec firmware integration must add direct HOBO BLE support without removing any gateway behavior above:
+## Home + Hidden Valley cloud batching
 
-1. scan for supported HOBO loggers;
-2. identify the logger and expose its identity/status;
-3. allow the selected logger to be locked by BLE MAC and persist that assignment across reboot;
-4. automatically read confirmed new HOBO records according to the logger's own logging interval;
-5. transmit the resulting reading over Meshtastic and upload it to Neon through the existing gateway path;
-6. preserve direct-message commands including `READ` and `LOGGER`;
-7. preserve the proven lock/unlock behavior from the universal HOBO field-node firmware.
+Home local temperature is intentionally held instead of immediately waking the cloud backend. A Hidden Valley environmental temperature packet is the batch trigger:
 
-The proven HOBO behavior currently lives on the `hobo-mx2001-mx2201-mx2203` production branch and is the reference implementation for that port.
+```text
+Home HOBO BLE read
+      |
+      v
+held on Heltec
+      |
+      |  Hidden Valley automatic TELEMETRY_APP arrives
+      v
+one HTTPS array POST
+[ Hidden Valley reading, held Home reading(s) ]
+      |
+      v
+Vercel -> Neon
+```
+
+If no Home reading is pending, Hidden Valley still uploads normally. If the cloud request fails, held Home readings are restored for retry. Original Home observation timestamps are preserved.
+
+Fishlake uses its own Heltec-triggered `READ`/reply/upload path and is not used as the Home batch trigger.
+
+## Gateway responsibilities
+
+The current branch preserves:
+
+- normal Meshtastic LoRa radio/relay/client operation;
+- Meshtastic TCP/API and web services;
+- Wi-Fi connectivity and HTTPS upload;
+- direct local HOBO BLE reading for Home;
+- Hidden Valley standard environmental telemetry ingestion;
+- Hidden Valley device/battery telemetry;
+- Fishlake remote `READ` polling and reply parsing;
+- existing sandstone/moisture/PIR packet compatibility for older field nodes;
+- HOBO MX2001/MX2201/MX2203 support where implemented by the sensor adapters;
+- Wi-Fi Unified OTA on Heltec V4.
 
 ## Architecture
 
 ```text
-REMOTE FIELD SENSORS
-  PIR / moisture / HOBO / battery / future sensors
-              |
-              v
-        Meshtastic LoRa
-              |
-              v
-CCA HELTEC SENSOR GATEWAY
-  - accepts current packet formats
-  - uploads to Vercel / Neon
-  - future: direct local HOBO BLE scan/lock/read
-              |
-       +------+------+
-       |             |
-       v             v
- Meshtastic       HTTPS
-   mesh         Vercel / Neon
+HIDDEN VALLEY (automatic) -------- TELEMETRY_APP ----+
+                                                     |
+HOME HOBO (automatic BLE) ----> HELTEC HOME <--------+
+                                  |
+                                  +---- DM READ ----> FISHLAKE (triggered)
+                                  |<--- HOBO reply ---+
+                                  |
+                                  +---- Meshtastic radio/server
+                                  |
+                                  +---- Wi-Fi HTTPS ----> Vercel ----> Neon
 ```
 
-The Heltec is the aggregation point. New sensor types should be added as independent parsers/adapters rather than by creating a new gateway branch for every sensor.
+## Fishlake trigger path
+
+`FishlakePollerModule` is the owner of Fishlake acquisition on this branch.
+
+Current behavior:
+
+1. Heltec sends `READ` to Fishlake node `!5e021e35`.
+2. Fishlake performs a fresh local HOBO read and returns a text reply.
+3. Heltec accepts replies only from the configured Fishlake node.
+4. Heltec parses the returned temperature/model information.
+5. Heltec uploads the normalized reading as station `Fishlake Hightop`.
+6. The scheduled trigger repeats every 60 minutes; failed sends are retried sooner.
+
+This is intentionally different from Hidden Valley's automatic broadcast model.
 
 ## GitHub build
 
@@ -67,13 +97,13 @@ Use the dedicated workflow:
 Actions -> Build CCA Heltec Sensor Gateway -> Run workflow
 ```
 
-That workflow always builds the correct OLED target:
+It builds:
 
 ```text
 heltec-v4 / esp32s3
 ```
 
-The reusable build workflow injects `HOBO_HTTP_GATEWAY_INGEST_KEY` for both `heltec-v4` and `heltec-v4-tft`; the OLED build therefore receives the cloud credential during GitHub Actions builds.
+The workflow injects `HOBO_HTTP_GATEWAY_INGEST_KEY` into the gateway build.
 
 ## Wi-Fi OTA
 
@@ -89,16 +119,16 @@ ESP32 Unified OTA loader:
 3232
 ```
 
-The Heltec V4 uses the Meshtastic Unified OTA flow. Do not erase flash for routine updates; preserve NVS/configuration and the working OTA loader.
+Use the regular `firmware-heltec-v4-*.bin` for routine OTA updates. Do not use the factory image for normal updates and do not erase NVS/configuration.
 
 ## Repository rules
 
-1. `cca-heltec-sensor-gateway` is the only current Heltec gateway development branch.
-2. Do not create location-specific gateway branches such as Hidden Valley or sensor-specific gateway branches.
-3. Location, logger identity, and sensor assignments belong in configuration/data, not branch names.
-4. Keep existing sensor parsers working when adding a new one.
-5. Do not rename or remove a wire/database schema until the ingest API and Neon migration are ready.
-6. GitHub Actions is the normal build path; Wi-Fi OTA is the normal Heltec flash path.
-7. Old experiment branches are historical references only and must not be treated as current production branches.
+1. `cca-heltec-sensor-gateway` is the single current Heltec gateway branch.
+2. Hidden Valley and Home remain **automatic** acquisition paths.
+3. Fishlake remains **Heltec-triggered/polled** unless the deployment design is intentionally changed.
+4. Do not create location-specific Heltec firmware branches.
+5. Keep existing packet/database formats backward-compatible unless the server side is migrated at the same time.
+6. Keep ordinary Meshtastic radio/server behavior working while sensor features are added.
+7. GitHub Actions is the normal build path; Wi-Fi OTA is the normal Heltec update path.
 
-See [`docs/CCA_HELTEC_SENSOR_GATEWAY.md`](docs/CCA_HELTEC_SENSOR_GATEWAY.md) for the operational specification and [`docs/BRANCH_MAP.md`](docs/BRANCH_MAP.md) for branch status.
+See [`docs/CCA_HELTEC_SENSOR_GATEWAY.md`](docs/CCA_HELTEC_SENSOR_GATEWAY.md) for the operational specification.
