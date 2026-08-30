@@ -1,0 +1,27 @@
+name: Build RAK4631 HOBO Mesh
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - hobo-mx2001-mx2201-mx2203-rak4631
+    paths:
+      - 'src/**'
+      - 'variants/**'
+      - 'arch/**'
+      - 'platformio.ini'
+      - '.github/workflows/build_rak4631_hobo_mesh.yml'
+      - '.github/workflows/build_firmware.yml'
+
+permissions: read-all
+
+jobs:
+  build-rak4631:
+    uses: ./.github/workflows/build_firmware.yml
+    with:
+      version: cca-rak-hobo-${{ github.run_number }}
+      pio_env: rak4631
+      platform: nrf52
+
+# RAK4631 deployment build: normal Meshtastic mesh + HOBO BLE only.
+# No custom PIR/trail-counter integration. Automatic HOBO telemetry is enabled.
