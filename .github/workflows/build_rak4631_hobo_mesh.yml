@@ -11,17 +11,39 @@ on:
       - 'arch/**'
       - 'platformio.ini'
       - '.github/workflows/build_rak4631_hobo_mesh.yml'
-      - '.github/workflows/build_firmware.yml'
 
 permissions: read-all
 
 jobs:
   build-rak4631:
-    uses: ./.github/workflows/build_firmware.yml
-    with:
-      version: cca-rak-hobo-${{ github.run_number }}
-      pio_env: rak4631
-      platform: nrf52
+    name: build-rak4631-nrf52
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Build RAK4631
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: nrf52
+          pio_env: rak4631
+          pio_target: build
+          meshtastic_branch: master
+
+      - name: Store RAK4631 firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-nrf52-rak4631-cca-hobo-${{ github.run_number }}
+          overwrite: true
+          path: |
+            release/*.mt.json
+            release/*.uf2
+            release/*.hex
+            release/*.elf
+            release/*.zip
+            release/device-*.sh
+            release/device-*.bat
 
 # RAK4631 deployment build: normal Meshtastic mesh + HOBO BLE only.
 # No custom PIR/trail-counter integration. Automatic HOBO telemetry is enabled.
