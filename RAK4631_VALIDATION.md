@@ -1,32 +1,23 @@
-# RAK4631 Universal HOBO Validation
+# RAK4631 HOBO Mesh Validation
 
 **Branch:** `hobo-mx2001-mx2201-mx2203-rak4631`
 
-**Status:** RAK4631 hardware-validation branch. The Seeed universal branch remains untouched and hardware-proven.
+This branch is the RAK4631 / RAK19003 HOBO mesh build. It keeps normal Meshtastic operation, reads one nearby HOBO over BLE, and automatically broadcasts successful HOBO readings as standard environmental telemetry. Custom PIR/trail-counter code is not included.
 
-This branch ports the same universal HOBO protocol implementation to the RAK4631 / RAK19003 target.
+Supported logger paths:
 
-Supported logger protocol paths to validate:
-
-- HOBO MX2001 — water level + temperature
+- HOBO MX2001 — water level/stage + temperature
 - HOBO MX2201 — temperature
 - HOBO MX2203 — temperature
-- direct Meshtastic message `READ`
-
-The nRF52 Bluetooth layer already reserves one peripheral link for the Meshtastic phone and one central link for the HOBO logger on `RAK_4631`.
+- direct Meshtastic `READ`
+- automatic startup telemetry broadcast
+- automatic 60-minute live read + telemetry broadcast
 
 ## Build
 
 ```powershell
 cd C:\Meshtastic\HOBO\firmware
 git fetch origin
-git switch -c hobo-mx2001-mx2201-mx2203-rak4631 --track origin/hobo-mx2001-mx2201-mx2203-rak4631
-& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e rak4631
-```
-
-If the local branch already exists:
-
-```powershell
 git switch hobo-mx2001-mx2201-mx2203-rak4631
 git pull --ff-only origin hobo-mx2001-mx2201-mx2203-rak4631
 & "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e rak4631
@@ -36,24 +27,26 @@ Do not flash unless the build finishes with `SUCCESS`.
 
 ## Flash
 
-The RAK4631 normally uses UF2 drag-and-drop in bootloader mode. After a successful build, locate the newest generated UF2 under:
+The RAK4631 normally uses UF2 drag-and-drop in bootloader mode. After a successful build, locate the generated UF2 under:
 
 ```text
 .pio\build\rak4631\
 ```
 
-Double-reset the RAK4631 to expose its bootloader drive, then copy the generated UF2 to that drive.
+Double-reset the RAK4631 to expose its bootloader drive, then copy the UF2 to that drive.
 
-## Hardware test
+## Hardware validation
 
 Test one logger at a time first:
 
-1. MX2203 exposed; other HOBOs covered/off.
-2. MX2201 exposed; other HOBOs covered/off.
-3. MX2001 exposed; other HOBOs covered/off.
-4. After each BLE connection is established, send a direct Meshtastic `READ` message to the RAK node.
+1. Expose the intended HOBO; keep other nearby HOBOs out of range/off if possible.
+2. Boot the RAK4631 and confirm it remains a normal Meshtastic node.
+3. Confirm the HOBO BLE connection succeeds.
+4. Confirm the startup live reading is broadcast on `TELEMETRY_APP`.
+5. Send a direct Meshtastic `READ` message and confirm the direct text reply.
+6. Confirm the next scheduled automatic read produces another environmental telemetry packet.
 
-Expected replies:
+Expected direct replies include:
 
 ```text
 MX2203
@@ -71,6 +64,18 @@ Level: 1.04 ft
 Temp: 78.9 F
 ```
 
-After all three pass individually, expose all three simultaneously to verify candidate selection/reconnection behavior.
+Expected serial/log messages include:
 
-Once the RAK passes this physical validation, fold the RAK target into the canonical `hobo-mx2001-mx2201-mx2203` production branch and archive this validation branch.
+```text
+RAK HOBO mesh: automatic reads enabled ...; PIR disabled
+RAK HOBO mesh: automatic live read triggered
+RAK HOBO mesh: auto broadcast model=... temp=... C
+```
+
+For MX2001, confirm the standard environmental telemetry packet also contains `distance` in millimetres.
+
+## CCA deployment policy
+
+- Hidden Valley: automatic remote HOBO telemetry.
+- Home: automatic direct HOBO reading on the Heltec Home gateway.
+- Fishlake: Heltec-triggered/polled `READ`, not free-running remote automatic transmission.
