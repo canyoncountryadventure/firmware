@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Heltec V4 OLED is the permanent aggregation gateway for the CCA Meshtastic sensor network. It must accept data from multiple field-node sensor types, preserve existing packet support, forward data over Wi-Fi to the Vercel/Neon backend, and continue to participate normally in the Meshtastic mesh.
+The Heltec V4 OLED is the permanent aggregation gateway for the CCA Meshtastic sensor network. It must participate normally in the mesh, read the local Home HOBO, accept automatic remote telemetry, trigger Fishlake reads, and forward accepted data over Wi-Fi to Vercel/Neon.
 
 ## Canonical branch and target
 
@@ -13,65 +13,80 @@ The Heltec V4 OLED is the permanent aggregation gateway for the CCA Meshtastic s
 
 Do not use `heltec-v4-tft` for the current physical gateway.
 
+## Station acquisition policy
+
+This policy is intentional and should be preserved during future firmware changes.
+
+### Hidden Valley — automatic
+
+Hidden Valley's remote RAK/HOBO node acquires its own HOBO data and transmits standard Meshtastic environmental telemetry automatically. Heltec listens for those packets; it does not need to send Hidden Valley a `READ` command for normal operation.
+
+Hidden Valley environmental temperature also acts as the cloud batch trigger for held Home temperature readings.
+
+### Home — automatic
+
+Heltec directly reads the selected Home HOBO over BLE. Home acquisition is automatic and does not depend on a remote Meshtastic request.
+
+Pending Home environmental readings are held locally. When Hidden Valley environmental telemetry arrives, the gateway submits Hidden Valley plus pending Home readings in one HTTPS array request when possible. Original Home observation times are retained.
+
+### Fishlake Hightop — Heltec-triggered
+
+Fishlake is **not** treated as a free-running automatic remote telemetry source. The Heltec owns the trigger schedule through `FishlakePollerModule`.
+
+Current path:
+
+1. Heltec sends Meshtastic DM `READ` to Fishlake node `!5e021e35`.
+2. Fishlake performs a fresh local HOBO read.
+3. Fishlake returns the reading as a direct text reply.
+4. Heltec accepts/parses the Fishlake reply.
+5. Heltec normalizes and uploads it as station `Fishlake Hightop`.
+6. The normal trigger interval is 60 minutes.
+
+**Summary: Fishlake is Heltec-triggered; Hidden Valley and Home are automatic.**
+
 ## Existing gateway inputs that must remain supported
-
-### Sandstone moisture + PIR
-
-A field node can send the existing 16-byte private application packet containing:
-
-- current motion state;
-- cumulative motion count;
-- moisture/sensor ADC;
-- sensor voltage;
-- battery voltage;
-- battery percentage.
-
-The current wire/database format remains backward-compatible until the server-side schema is intentionally migrated.
-
-### HOBO MX2001
-
-The existing private application record includes:
-
-- water level/stage;
-- temperature;
-- raw temperature value;
-- logger BLE MAC;
-- sequence;
-- BLE RSSI;
-- Meshtastic/LoRa metadata.
 
 ### Environmental telemetry
 
-Standard Meshtastic environmental telemetry is accepted and forwarded. This currently carries HOBO MX2201 temperature and can carry other environmental sensors later.
+Standard Meshtastic environmental telemetry is accepted and forwarded. This is the preferred automatic remote HOBO transport and is used by Hidden Valley.
 
 ### Device telemetry
 
-Standard Meshtastic device telemetry is accepted and forwarded, including:
+Standard Meshtastic device telemetry is accepted and forwarded, including battery level/voltage and other node-health fields. This preserves Hidden Valley battery monitoring.
 
-- battery level;
-- voltage;
-- channel utilization;
-- transmit airtime utilization;
-- uptime.
+### Direct local HOBO BLE
 
-This preserves the Hidden Valley battery-monitoring path and makes the gateway useful for future remote-node health monitoring.
+The Heltec direct HOBO path supports the local Home station without replacing normal mesh behavior. Logger discovery/selection, live reads, and existing lock/state behavior must remain compatible with the current implementation.
 
-## Direct HOBO BLE feature to add to the Heltec
+### Fishlake text reply
 
-The direct HOBO reader on the Heltec must be ported from the proven universal HOBO implementation without replacing or disabling the mesh gateway.
+The Fishlake poller accepts the configured Fishlake node's `READ` reply, extracts the returned HOBO temperature/model information, and uploads a normalized Fishlake record.
 
-Required behavior:
+### Legacy field sensor packets
 
-1. BLE discovery scans for supported HOBO MX2001, MX2201, and MX2203 loggers.
-2. The current candidate logger can be inspected remotely.
-3. `LOCK` stores the selected logger BLE MAC in persistent storage.
-4. A locked Heltec reconnects only to that logger after reboot.
-5. `UNLOCK` clears the assignment and returns to discovery.
-6. `LOGGER` reports logger model, MAC, BLE RSSI, logger logging interval, and lock state.
-7. `READ` performs an immediate fresh reading without corrupting or advancing the automatic schedule.
-8. Automatic reads follow confirmed logger records/write-pointer advancement rather than an unrelated free-running timer.
-9. Each successful automatic reading is sent over Meshtastic and also enters the existing Heltec HTTP/Neon upload path.
-10. BLE activity must not disable ordinary Meshtastic receive/relay/gateway behavior.
+Existing sandstone moisture/PIR and custom MX2001 packet parsing should remain backward-compatible where already supported. These compatibility paths do not change the three-station acquisition policy above.
+
+## Cloud batching policy
+
+Home should not independently wake the cloud backend for each local HOBO read. Pending Home environmental jobs remain held until a Hidden Valley environmental packet arrives.
+
+```text
+Hidden Valley automatic telemetry ----+
+                                      |
+Home automatic BLE -> held queue -----+--> one HTTPS array POST -> Vercel -> Neon
+```
+
+Rules:
+
+- Hidden Valley is never blocked waiting for Home.
+- If Home has no pending reading, Hidden Valley uploads by itself.
+- If a batched cloud POST fails, held Home readings are returned to the hold queue for retry.
+- Home keeps the timestamp from the original BLE observation.
+- Fishlake is a separate Heltec-triggered request/reply path and is not the Home batch trigger.
+
+## Meshtastic coexistence requirement
+
+All sensor behavior is additive. The Heltec must continue to operate as a normal Meshtastic node while the sensor gateway is active, including LoRa receive/transmit/relay behavior and the configured TCP/API, Wi-Fi/web, MQTT, and OTA services that are enabled in the deployment.
 
 ## Extension rule for future sensors
 
@@ -92,19 +107,21 @@ normalized gateway job
 Mesh TX   HTTP/Neon
 ```
 
-Do not create one firmware branch per sensor or per deployment location.
+Do not create one firmware branch per sensor or deployment location.
 
 ## GitHub build path
 
 Use:
 
-`Actions -> Build CCA Heltec Sensor Gateway -> Run workflow`
+```text
+Actions -> Build CCA Heltec Sensor Gateway -> Run workflow
+```
 
-The dedicated workflow builds only `heltec-v4` on `esp32s3` and uses the repository secret `HOBO_HTTP_GATEWAY_INGEST_KEY` during the build.
+The dedicated workflow builds `heltec-v4` on `esp32s3` and injects the HTTP ingest credential during the build.
 
 ## Wi-Fi OTA path
 
-Normal updates should be performed over Wi-Fi using the Meshtastic Unified OTA path. Preserve NVS/configuration and the OTA loader; do not perform a factory erase for routine firmware changes.
+Normal updates should use Meshtastic Unified OTA. Preserve NVS/configuration and the OTA loader; do not factory-erase the Heltec for routine firmware changes.
 
 Ports:
 
@@ -113,15 +130,16 @@ Ports:
 
 ## Non-regression checklist
 
-Every future Heltec build should be checked against this list:
+Every future Heltec build should verify:
 
-- Meshtastic node boots and joins the mesh.
-- Receives sandstone moisture/PIR packets.
-- Receives HOBO MX2001 packets.
-- Receives standard environmental telemetry.
-- Receives standard device/battery telemetry.
-- Uploads accepted packets to Vercel/Neon.
+- Meshtastic node boots and participates normally in the mesh.
+- Home direct HOBO BLE reading remains automatic.
+- Hidden Valley environmental telemetry is received automatically.
+- Hidden Valley device/battery telemetry remains accepted.
+- Hidden Valley arrival flushes pending Home temperature in the intended batch path.
+- Fishlake `READ` is initiated by `FishlakePollerModule` and replies from `!5e021e35` are parsed.
+- Fishlake remains trigger/poll driven rather than being silently changed to free-running automatic acquisition.
+- Accepted readings upload to Vercel/Neon.
+- Existing compatibility parsers remain functional where required.
 - Cloud ingest credential is present in GitHub-built OLED artifact.
 - Wi-Fi OTA still works.
-- Direct HOBO scan/lock/read/automatic telemetry works once that feature is merged.
-- `READ`, `LOGGER`, `LOCK`, and `UNLOCK` remain functional once direct HOBO support is merged.
