@@ -81,6 +81,9 @@
 #if defined(ARCH_ESP32) && HAS_WIFI
 #include "modules/HoboHttpGatewayModule.h"
 #endif
+#if defined(ARCH_ESP32) && HAS_WIFI && defined(HELTEC_V4)
+#include "modules/FishlakePollerModule.h"
+#endif
 #if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH
 #include "modules/HoboBleSensorModule.h"
 #endif
@@ -260,6 +263,9 @@ void setupModules()
 #endif
 #if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
     hoboHttpGatewayModule = new HoboHttpGatewayModule();
+#endif
+#if defined(ARCH_ESP32) && HAS_WIFI && defined(HELTEC_V4)
+    fishlakePollerModule = new FishlakePollerModule();
 #endif
 #if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH
     new HoboBleSensorModule();
