@@ -6,6 +6,8 @@
 
 #include "HOBOMX2001MX2201MX2203Telemetry.h"
 
+// RAK deployment policy layer: normal Meshtastic mesh + HOBO BLE automatic
+// telemetry. No custom PIR/trail-counter behavior belongs in this module.
 class RAKHoboAutoTelemetryModule : public HOBOMX2001MX2201MX2203TelemetryModule
 {
   public:
