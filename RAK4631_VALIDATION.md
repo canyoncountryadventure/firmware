@@ -11,7 +11,10 @@ Supported logger paths:
 - HOBO MX2203 — temperature
 - direct Meshtastic `READ`
 - automatic startup telemetry broadcast
-- automatic 60-minute live read + telemetry broadcast
+- automatic interval discovery from the HOBO `STATUS` response
+- automatic live read + telemetry broadcast at the HOBO-derived recording cadence
+
+For logger intervals of 60 seconds or longer, the mesh cadence follows the configured HOBO recording interval exactly. Very short bench intervals are limited to one LoRa telemetry transmission per 60 seconds.
 
 ## Build
 
@@ -43,8 +46,10 @@ Test one logger at a time first:
 2. Boot the RAK4631 and confirm it remains a normal Meshtastic node.
 3. Confirm the HOBO BLE connection succeeds.
 4. Confirm the startup live reading is broadcast on `TELEMETRY_APP`.
-5. Send a direct Meshtastic `READ` message and confirm the direct text reply.
-6. Confirm the next scheduled automatic read produces another environmental telemetry packet.
+5. Confirm the RAK logs a HOBO `recording interval=... s` value from `STATUS`.
+6. Confirm the derived automatic telemetry cadence matches the HOBO logging interval.
+7. Send a direct Meshtastic `READ` message and confirm the direct text reply.
+8. Confirm the next scheduled automatic read produces another environmental telemetry packet at the expected HOBO-derived cadence.
 
 Expected direct replies include:
 
@@ -67,15 +72,27 @@ Temp: 78.9 F
 Expected serial/log messages include:
 
 ```text
-RAK HOBO mesh: automatic reads enabled ...; PIR disabled
-RAK HOBO mesh: automatic live read triggered
+RAK HOBO mesh: automatic reads follow HOBO recording interval; PIR disabled
+RAK HOBO mesh: determining HOBO recording interval
+RAK HOBO mesh: logger status pointer=... recording interval=... s
+RAK HOBO mesh: automatic telemetry cadence=... ms from HOBO interval=... s
+RAK HOBO mesh: automatic live read triggered at HOBO-derived cadence
 RAK HOBO mesh: auto broadcast model=... temp=... C
 ```
 
 For MX2001, confirm the standard environmental telemetry packet also contains `distance` in millimetres.
 
+## Interval-change validation
+
+To verify the firmware adapts without reflashing:
+
+1. Let the RAK connect and report the current HOBO interval.
+2. Change the HOBO logging interval in HOBOconnect.
+3. Allow the next automatic cycle/status query to occur.
+4. Confirm the RAK logs the new `recording interval=... s` and reschedules its telemetry cadence from that value.
+
 ## CCA deployment policy
 
-- Hidden Valley: automatic remote HOBO telemetry.
+- Hidden Valley: automatic remote HOBO telemetry following the HOBO recording interval.
 - Home: automatic direct HOBO reading on the Heltec Home gateway.
 - Fishlake: Heltec-triggered/polled `READ`, not free-running remote automatic transmission.
