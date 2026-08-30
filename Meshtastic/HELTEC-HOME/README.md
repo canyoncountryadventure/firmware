@@ -1,125 +1,110 @@
-# Heltec Home MX2001 Gateway
+# Heltec Home Sensor Gateway
 
-**Status:** Production / end-to-end validated 2026-08-22  
-**Branch:** `heltec-home-http-gateway`  
-**Hardware:** Heltec WiFi LoRa 32 V4 + TFT  
-**PlatformIO target:** `heltec-v4-tft`
+**Branch:** `cca-heltec-sensor-gateway`  
+**Hardware:** Heltec WiFi LoRa 32 V4 OLED  
+**PlatformIO target:** `heltec-v4`
 
-This is the home internet gateway for MX2001 monitoring traffic.
+Heltec Home is the internet-connected aggregation point for the CCA Meshtastic sensor network. It remains a normal Meshtastic radio/server while running the local HOBO and remote sensor gateway functions.
 
-## Role
+## HOBO station acquisition modes
 
-```text
-Field MX2001 node -> LoRa mesh -> Heltec Home -> Wi-Fi HTTPS -> Vercel -> Neon
-```
-
-The Heltec remains a normal Meshtastic radio while also watching decoded mesh traffic for the custom MX2001 packet format.
-
-## Accepted packet format
-
-Only `PRIVATE_APP` packets that are exactly 19 bytes and begin with ASCII `MX` are uploaded.
-
-The current packet contains:
-
-| Field | Purpose |
+| Station | Acquisition mode |
 |---|---|
-| `MX` prefix | identifies the custom MX2001 format |
-| sequence | field-node measurement sequence |
-| stage | water level in tenths of a foot |
-| temperature | temperature in tenths of a degree F |
-| raw temperature | logger raw value |
-| logger MAC | physical HOBO BLE identifier |
-| BLE RSSI | field radio to HOBO signal strength |
+| **Home** | **Automatic local BLE reading on the Heltec** |
+| **Hidden Valley** | **Automatic remote Meshtastic telemetry** |
+| **Fishlake Hightop** | **Heltec-triggered remote `READ`** |
 
-Meshtastic receive metadata is added by the Heltec before upload.
+The key rule is:
 
-## Deliberately ignored
+> Fishlake is triggered by Heltec to read. Hidden Valley and Home are automatic.
 
-The gateway does not upload:
+## Home
 
-- `TELEMETRY_APP` environmental temperature from other Meshtastic nodes;
-- device/battery telemetry;
-- positions;
-- NodeInfo;
-- text messages;
-- routing/ACK traffic;
-- arbitrary `PRIVATE_APP` packets that do not match the MX2001 format.
+The Heltec directly connects to its selected Home HOBO over BLE. Automatic local measurements enter the Home gateway path without requiring a Meshtastic DM from another node.
 
-Favorites are not used as an authorization mechanism. A future MX2001 field node running the same packet format can feed the gateway without first being added to the Heltec NodeDB.
+Home temperature readings are held locally until a Hidden Valley environmental packet arrives, allowing Home and Hidden Valley to share one HTTPS batch request when possible.
 
-## Local configuration
+## Hidden Valley
 
-Create this file locally and never commit it:
+Hidden Valley is expected to transmit standard Meshtastic environmental telemetry automatically from its remote RAK/HOBO node. The Heltec receives those packets normally.
+
+A Hidden Valley environmental temperature packet is also the cloud flush trigger for any pending Home temperature readings.
+
+## Fishlake Hightop
+
+Fishlake is deliberately different. `FishlakePollerModule` on the Heltec sends the remote node a direct Meshtastic text command:
 
 ```text
-src/modules/hobo_gateway_secrets.h
+READ
 ```
 
-It supplies the Vercel ingest key and gateway name. The path is listed in `.gitignore`.
-
-## Sync
-
-```powershell
-cd C:\mt
-git fetch origin
-git switch heltec-home-http-gateway
-git pull --ff-only origin heltec-home-http-gateway
-```
-
-## Build
-
-```powershell
-$env:PLATFORMIO_CORE_DIR="C:\p"
-$env:PLATFORMIO_BUILD_UNFLAGS="-std=c++11 -std=gnu++11 -flto"
-py -m platformio run -e heltec-v4-tft -j 1
-```
-
-The non-factory update image is generated under:
+Current Fishlake node:
 
 ```text
-.pio\build\heltec-v4-tft\firmware-heltec-v4-tft-*.bin
+!5e021e35
 ```
 
-## Flash
+The remote node performs a fresh HOBO read and sends a text reply. The Heltec parses that reply and uploads the result as station `Fishlake Hightop`.
 
-Enter bootloader mode:
-
-1. Hold LEFT/PRG.
-2. Tap RIGHT/RST.
-3. Release LEFT/PRG.
-
-Flash at `0x10000`:
-
-```powershell
-py -m esptool --port COM20 write-flash 0x10000 .\.pio\build\heltec-v4-tft\firmware-heltec-v4-tft-<version>.bin
-```
-
-Use the actual COM port if different. Use the normal `.bin`, not `.factory.bin`, for an application update that preserves existing Meshtastic configuration.
-
-## Live verification
-
-```powershell
-py -m meshtastic --port COM20 --seriallog stdout --listen 2>&1 |
-Select-String -Pattern "HOBO HTTP|PRIVATE_APP"
-```
-
-Expected sequence:
+Current trigger interval:
 
 ```text
-HOBO HTTP gateway: queued MX2001 packet from ...
-HOBO HTTP gateway: cloud stored packet ... (HTTP 201)
+60 minutes
 ```
+
+Fishlake therefore does not need to automatically broadcast HOBO temperature on its own schedule.
 
 ## Cloud behavior
 
-The Heltec POSTs the decoded MX2001 data and radio metadata to the Vercel ingest endpoint. The API writes the reading to Neon PostgreSQL.
+Home + Hidden Valley:
 
-The HOBO remains the authoritative logger. If home internet is unavailable, the gateway retries a small number of times, but the original measurements remain stored on the HOBO itself.
+```text
+Home automatic BLE reading
+        |
+        v
+held locally on Heltec
+        |
+        | Hidden Valley automatic telemetry arrives
+        v
+single HTTPS batch
+[Hidden Valley, Home pending reading(s)]
+        |
+        v
+Vercel -> Neon
+```
 
-## Security note
+Fishlake:
 
-The current firmware uses encrypted HTTPS with certificate verification disabled via `setInsecure()`. The ingest API still requires the application-layer secret key. Certificate validation can be hardened later without changing the packet architecture.
+```text
+Heltec --READ--> Fishlake
+Heltec <--reply-- Fishlake
+  |
+  +--> HTTPS --> Vercel --> Neon
+```
 
-## Future sensor expansion
+## Normal Meshtastic operation
 
-Do not broaden the MX2001 filter just to support a new sensor. Add each future sensor family with an explicit packet signature/type so unrelated public Meshtastic traffic remains excluded from the monitoring database.
+Sensor gateway features must not replace the primary radio functions. The Heltec continues to provide normal Meshtastic LoRa operation plus its TCP/API, web, Wi-Fi, and OTA services.
+
+## Build
+
+Use the GitHub Actions workflow:
+
+```text
+Build CCA Heltec Sensor Gateway
+```
+
+Target:
+
+```text
+heltec-v4 / esp32s3
+```
+
+## Wi-Fi OTA
+
+Routine updates use Meshtastic Unified Wi-Fi OTA with the regular Heltec V4 application `.bin`. Preserve NVS/configuration and the existing OTA loader.
+
+Ports:
+
+- Meshtastic TCP API: `4403`
+- Unified OTA loader: `3232`
