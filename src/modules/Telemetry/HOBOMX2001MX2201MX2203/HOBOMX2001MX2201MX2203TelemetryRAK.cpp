@@ -9,6 +9,7 @@
 #include "HOBOMX2001MX2201MX2203TelemetryRAK.h"
 #include "MeshService.h"
 #include "NodeDB.h"
+#include "gps/RTC.h"
 #include "main.h"
 #include "mesh/generated/meshtastic/telemetry.pb.h"
 #include "pb_encode.h"
