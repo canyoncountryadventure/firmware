@@ -15,11 +15,13 @@ On the RAK branch, `HOBOMX2001MX2201MX2203TelemetryRAK.cpp` wraps the universal 
 1. Discover and connect to one supported HOBO over BLE.
 2. Perform the normal startup live read.
 3. Publish the startup reading as standard Meshtastic `TELEMETRY_APP` environmental telemetry.
-4. Perform another live `NEWREAD64` read every 60 minutes by default.
-5. Publish each successful automatic reading to the mesh.
-6. Retry a failed automatic read after 60 seconds.
+4. Query the HOBO `STATUS` response and read its configured recording interval.
+5. Schedule automatic `NEWREAD64` reads from that HOBO-derived interval instead of a fixed timer.
+6. Publish each successful automatic reading to the mesh.
+7. Re-query the logger interval after automatic measurements so a changed HOBO logging interval can be picked up without reflashing.
+8. Retry a failed automatic read after 60 seconds.
 
-The automatic interval can be overridden at build time with `CCA_HOBO_AUTO_READ_INTERVAL_MS`.
+This matches the earlier interval-aware HOBO behavior: logger recording intervals of **60 seconds or longer are followed exactly**. Short bench intervals are limited to a **60-second minimum mesh transmit cadence** to avoid flooding LoRa.
 
 Temperature is transmitted in Celsius. For MX2001, stage is transmitted in the environmental telemetry `distance` field in millimetres.
 
@@ -37,7 +39,7 @@ The bridge performs one fresh BLE `NEWREAD64` read and replies directly to the r
 
 ## CCA station modes
 
-- **Hidden Valley:** automatic remote HOBO telemetry.
+- **Hidden Valley:** automatic remote HOBO telemetry using the logger's own recording interval.
 - **Home:** automatic local HOBO reads on the Heltec gateway.
 - **Fishlake:** Heltec-triggered/polled `READ`; Fishlake is not intended to free-run automatic transmissions.
 
@@ -66,6 +68,14 @@ NEWREAD64:
 ```text
 01 01 08 04 04 00 00 00 00 00 00
 ```
+
+STATUS / recording interval request used by the RAK wrapper:
+
+```text
+01 01 08 04 05 00 00 00 00 00 00
+```
+
+The recognized status response begins `01 02 04 05`; bytes 8-11 contain the logger write pointer and bytes 12-13 contain the big-endian recording interval in seconds.
 
 ## Live response identification
 
@@ -105,4 +115,5 @@ A positively identified MX2203 advertisement does not receive MX2001/MX2201 meta
 - MX2001 + MX2201 behavior is based on the hardware-proven combined reader.
 - MX2203 response parsing is based on the hardware-proven MX2203 reader.
 - MX2203 temperature conversion comes from HOBOconnect `OnsetSDK.dll`, not a fitted field equation.
+- RAK recording-interval discovery reuses the status packet layout from the earlier interval-aware HOBO build.
 - The RAK wrapper changes scheduling and mesh publication only; it does not replace the shared logger decoder.
