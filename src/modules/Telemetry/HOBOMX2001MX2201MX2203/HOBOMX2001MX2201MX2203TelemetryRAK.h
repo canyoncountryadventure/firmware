@@ -18,9 +18,16 @@ class RAKHoboAutoTelemetryModule : public HOBOMX2001MX2201MX2203TelemetryModule
 
   private:
     bool sendEnvironmentTelemetry();
+    bool requestLoggerInterval();
+    uint32_t getAutomaticIntervalMs() const;
 
     uint32_t nextAutomaticReadMs = 0;
+    uint32_t nextIntervalQueryMs = 0;
+    uint32_t statusDeadlineMs = 0;
     bool automaticReadInProgress = false;
+    bool intervalQueryInProgress = false;
+    bool intervalQueryNeeded = true;
+    bool statusCallbackInstalled = false;
 };
 
 #endif
