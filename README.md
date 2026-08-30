@@ -17,7 +17,7 @@ Supported loggers:
 
 ## Automatic operation
 
-Automatic mesh transmission is enabled on this branch.
+Automatic mesh transmission is enabled on this branch and follows the HOBO logger's own recording interval.
 
 ```text
 RAK4631 boots
@@ -29,11 +29,16 @@ RAK4631 boots
              ├─ startup live read
              │      └─ broadcast TELEMETRY_APP
              │
-             └─ automatic live read every 60 minutes
+             ├─ query HOBO STATUS
+             │      └─ read logger recording interval
+             │
+             └─ automatic live reads at the HOBO-derived cadence
                     └─ broadcast TELEMETRY_APP
 ```
 
-The automatic interval defaults to **60 minutes**. A failed automatic read retries after **60 seconds**. The interval can be changed at build time with `CCA_HOBO_AUTO_READ_INTERVAL_MS`.
+The RAK does **not** use a fixed one-hour timer. It queries the HOBO `STATUS` response, reads the logger recording interval, and uses that value to schedule automatic live reads and mesh telemetry. The interval is queried again after automatic measurements so a logging-interval change made in HOBOconnect can be picked up without reflashing the RAK.
+
+As in the earlier interval-aware HOBO build, logger intervals of **60 seconds or longer are followed exactly**. Very short bench logging intervals are limited to a **60-second minimum LoRa transmit cadence** to avoid flooding the mesh. A failed automatic read retries after **60 seconds**. If the interval query itself fails, the node retries the status query rather than permanently assuming a fixed deployment interval.
 
 The outgoing packet is standard Meshtastic `TELEMETRY_APP` environmental telemetry, so another Meshtastic node such as the Heltec Home gateway can receive it without a custom text parser. Temperature is sent in Celsius. MX2001 stage is sent in the environmental `distance` field in millimetres.
 
@@ -53,7 +58,7 @@ This branch does not add the custom PIR/trail-counter firmware used by the trail
 
 1. Meshtastic mesh operation.
 2. HOBO MX2001/MX2201/MX2203 BLE reading.
-3. Automatic standard telemetry transmission.
+3. Automatic standard telemetry transmission at the HOBO-derived recording cadence.
 4. Direct `READ` support for diagnostics or a trigger-driven deployment.
 
 ## Manual READ
@@ -90,7 +95,7 @@ Temp: 72.38 F / 22.43 C
 src/modules/Telemetry/HOBOMX2001MX2201MX2203/
 ├── HOBOMX2001MX2201MX2203Telemetry.cpp       shared HOBO protocol/decoder
 ├── HOBOMX2001MX2201MX2203Telemetry.h
-├── HOBOMX2001MX2201MX2203TelemetryRAK.cpp    RAK auto-read + mesh broadcast policy
+├── HOBOMX2001MX2201MX2203TelemetryRAK.cpp    RAK interval detection + mesh broadcast policy
 ├── HOBOMX2001MX2201MX2203TelemetryRAK.h
 ├── ONSETSDK.md
 └── README.md
@@ -125,13 +130,20 @@ Double-reset the RAK4631 to expose the bootloader drive, then copy the generated
 At startup:
 
 ```text
-RAK HOBO mesh: automatic reads enabled ...; PIR disabled
+RAK HOBO mesh: automatic reads follow HOBO recording interval; PIR disabled
+```
+
+After interval discovery:
+
+```text
+RAK HOBO mesh: logger status pointer=... recording interval=... s
+RAK HOBO mesh: automatic telemetry cadence=... ms from HOBO interval=... s
 ```
 
 When the timer fires:
 
 ```text
-RAK HOBO mesh: automatic live read triggered
+RAK HOBO mesh: automatic live read triggered at HOBO-derived cadence
 ```
 
 After a successful mesh transmission:
