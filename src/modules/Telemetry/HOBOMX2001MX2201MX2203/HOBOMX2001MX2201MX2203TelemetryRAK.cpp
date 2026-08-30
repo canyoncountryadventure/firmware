@@ -27,20 +27,117 @@
 #include "HOBOMX2001MX2201MX2203Telemetry.cpp"
 #undef SEEED_XIAO_NRF52840_KIT
 
-#ifndef CCA_HOBO_AUTO_READ_INTERVAL_MS
-#define CCA_HOBO_AUTO_READ_INTERVAL_MS (60UL * 60UL * 1000UL)
-#endif
-
 #ifndef CCA_HOBO_AUTO_RETRY_MS
 #define CCA_HOBO_AUTO_RETRY_MS (60UL * 1000UL)
 #endif
+
+#ifndef CCA_HOBO_INTERVAL_QUERY_RETRY_MS
+#define CCA_HOBO_INTERVAL_QUERY_RETRY_MS (10UL * 1000UL)
+#endif
+
+#ifndef CCA_HOBO_AUTO_FALLBACK_INTERVAL_MS
+#define CCA_HOBO_AUTO_FALLBACK_INTERVAL_MS (60UL * 1000UL)
+#endif
+
+namespace
+{
+
+// Same Onset status request used by the earlier interval-aware MX2201 build.
+// The response carries the current write pointer and logger recording interval.
+static const uint8_t CMD_RAK_STATUS[] = {
+    0x01, 0x01, 0x08, 0x04, 0x05,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static constexpr uint32_t RAK_STATUS_TIMEOUT_MS = 3000;
+static constexpr uint32_t MIN_MESH_INTERVAL_SECONDS = 60;
+
+bool rakStatusCaptureActive = false;
+bool rakStatusReady = false;
+uint32_t rakLoggerWritePointer = 0;
+uint16_t rakLoggerIntervalSeconds = 0;
+
+void rakNotifyCallback(
+    BLEClientCharacteristic *characteristic,
+    uint8_t *data,
+    uint16_t len)
+{
+    // Status response layout, hardware-proven in the earlier HOBO build:
+    // 01 02 04 05 .... [write pointer BE32] [logging interval BE16] ...
+    // bytes 8..11 = write pointer; bytes 12..13 = logging interval seconds.
+    if (rakStatusCaptureActive && data != nullptr && len >= 14 &&
+        data[0] == 0x01 && data[1] == 0x02 &&
+        data[2] == 0x04 && data[3] == 0x05) {
+
+        rakLoggerWritePointer = readBE32(&data[8]);
+        rakLoggerIntervalSeconds = static_cast<uint16_t>(
+            (static_cast<uint16_t>(data[12]) << 8) |
+            static_cast<uint16_t>(data[13]));
+
+        rakStatusCaptureActive = false;
+        rakStatusReady = true;
+
+        LOG_INFO(
+            "RAK HOBO mesh: logger status pointer=%lu recording interval=%u s",
+            static_cast<unsigned long>(rakLoggerWritePointer),
+            static_cast<unsigned int>(rakLoggerIntervalSeconds));
+        return;
+    }
+
+    // Preserve all normal universal-reader notification handling.
+    notifyCallback(characteristic, data, len);
+}
+
+} // namespace
 
 RAKHoboAutoTelemetryModule::RAKHoboAutoTelemetryModule()
     : HOBOMX2001MX2201MX2203TelemetryModule()
 {
     LOG_INFO(
-        "RAK HOBO mesh: automatic reads enabled interval=%lu ms; PIR disabled",
-        static_cast<unsigned long>(CCA_HOBO_AUTO_READ_INTERVAL_MS));
+        "RAK HOBO mesh: automatic reads follow HOBO recording interval; PIR disabled");
+}
+
+uint32_t RAKHoboAutoTelemetryModule::getAutomaticIntervalMs() const
+{
+    uint32_t intervalSeconds = rakLoggerIntervalSeconds;
+
+    if (intervalSeconds == 0)
+        return CCA_HOBO_AUTO_FALLBACK_INTERVAL_MS;
+
+    // Match the earlier interval-aware HOBO build: field logging intervals of
+    // 60 seconds or longer are followed exactly, while very short bench
+    // intervals are prevented from flooding LoRa faster than once per minute.
+    if (intervalSeconds < MIN_MESH_INTERVAL_SECONDS)
+        intervalSeconds = MIN_MESH_INTERVAL_SECONDS;
+
+    uint64_t intervalMs = static_cast<uint64_t>(intervalSeconds) * 1000ULL;
+    if (intervalMs > 0xFFFFFFFFULL)
+        intervalMs = 0xFFFFFFFFULL;
+
+    return static_cast<uint32_t>(intervalMs);
+}
+
+bool RAKHoboAutoTelemetryModule::requestLoggerInterval()
+{
+    if (!connected || universalState != UniversalState::READY)
+        return false;
+
+    rakStatusReady = false;
+    rakStatusCaptureActive = true;
+
+    if (!sendCommand(
+            CMD_RAK_STATUS,
+            sizeof(CMD_RAK_STATUS),
+            "STATUS/logging interval")) {
+        rakStatusCaptureActive = false;
+        return false;
+    }
+
+    intervalQueryInProgress = true;
+    statusDeadlineMs = millis() + RAK_STATUS_TIMEOUT_MS;
+
+    LOG_INFO("RAK HOBO mesh: determining HOBO recording interval");
+    return true;
 }
 
 bool RAKHoboAutoTelemetryModule::sendEnvironmentTelemetry()
@@ -118,10 +215,55 @@ int32_t RAKHoboAutoTelemetryModule::runOnce()
 
     const uint32_t now = millis();
 
+    // initializeClient() installs the shared callback. Replace it once with a
+    // wrapper that recognizes STATUS replies, then delegates every other BLE
+    // notification back to the universal reader unchanged.
+    if (initialized && !statusCallbackInstalled) {
+        hoboCharacteristic.setNotifyCallback(rakNotifyCallback);
+        statusCallbackInstalled = true;
+    }
+
     if (!connected) {
         nextAutomaticReadMs = 0;
+        nextIntervalQueryMs = 0;
+        statusDeadlineMs = 0;
         automaticReadInProgress = false;
+        intervalQueryInProgress = false;
+        intervalQueryNeeded = true;
+        rakStatusCaptureActive = false;
+        rakStatusReady = false;
+        rakLoggerWritePointer = 0;
+        rakLoggerIntervalSeconds = 0;
         return baseDelay;
+    }
+
+    if (intervalQueryInProgress) {
+        if (rakStatusReady) {
+            intervalQueryInProgress = false;
+            intervalQueryNeeded = false;
+            rakStatusReady = false;
+
+            if (rakLoggerIntervalSeconds == 0) {
+                LOG_WARN(
+                    "RAK HOBO mesh: logger reported zero recording interval; using temporary fallback and retrying status");
+                intervalQueryNeeded = true;
+                nextIntervalQueryMs = now + CCA_HOBO_INTERVAL_QUERY_RETRY_MS;
+            } else {
+                const uint32_t intervalMs = getAutomaticIntervalMs();
+                nextAutomaticReadMs = now + intervalMs;
+                LOG_INFO(
+                    "RAK HOBO mesh: automatic telemetry cadence=%lu ms from HOBO interval=%u s",
+                    static_cast<unsigned long>(intervalMs),
+                    static_cast<unsigned int>(rakLoggerIntervalSeconds));
+            }
+        } else if (reached(now, statusDeadlineMs)) {
+            intervalQueryInProgress = false;
+            intervalQueryNeeded = true;
+            rakStatusCaptureActive = false;
+            nextIntervalQueryMs = now + CCA_HOBO_INTERVAL_QUERY_RETRY_MS;
+            LOG_WARN(
+                "RAK HOBO mesh: logging-interval query timed out; will retry");
+        }
     }
 
     // A transition from WAIT_READ to READY means a live read attempt ended.
@@ -135,22 +277,40 @@ int32_t RAKHoboAutoTelemetryModule::runOnce()
 
         if (automaticReadInProgress || completedInitialRead) {
             const bool sent = sendEnvironmentTelemetry();
-            nextAutomaticReadMs = now +
-                (sent ? CCA_HOBO_AUTO_READ_INTERVAL_MS : CCA_HOBO_AUTO_RETRY_MS);
             automaticReadInProgress = false;
+
+            if (sent)
+                nextAutomaticReadMs = now + getAutomaticIntervalMs();
+            else
+                nextAutomaticReadMs = now + CCA_HOBO_AUTO_RETRY_MS;
+
+            // Re-read STATUS after every automatic measurement so a logger
+            // interval changed in HOBOconnect is picked up without reflashing.
+            intervalQueryNeeded = true;
+            nextIntervalQueryMs = now;
         }
     }
 
     if (universalState == UniversalState::READY &&
         !readRequestPending && !readRequestInProgress) {
-        if (nextAutomaticReadMs == 0)
-            nextAutomaticReadMs = now + CCA_HOBO_AUTO_READ_INTERVAL_MS;
 
-        if (reached(now, nextAutomaticReadMs)) {
+        if (intervalQueryNeeded && !intervalQueryInProgress &&
+            reached(now, nextIntervalQueryMs)) {
+            if (requestLoggerInterval())
+                return 10;
+
+            nextIntervalQueryMs = now + CCA_HOBO_INTERVAL_QUERY_RETRY_MS;
+        }
+
+        if (nextAutomaticReadMs == 0)
+            nextAutomaticReadMs = now + getAutomaticIntervalMs();
+
+        if (!intervalQueryInProgress && reached(now, nextAutomaticReadMs)) {
             automaticReadInProgress = true;
             universalState = UniversalState::SEND_READ;
             stateDueMs = now;
-            LOG_INFO("RAK HOBO mesh: automatic live read triggered");
+            LOG_INFO(
+                "RAK HOBO mesh: automatic live read triggered at HOBO-derived cadence");
             return 10;
         }
     }
