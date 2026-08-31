@@ -6,6 +6,7 @@
 
 #include "concurrency/OSThread.h"
 #include "mesh/MeshModule.h"
+#include "mesh/Router.h"
 #include "mesh/TypedQueue.h"
 
 #include <cstdint>
@@ -45,6 +46,17 @@ class FishlakePollerModule : public MeshModule, private concurrency::OSThread
 
     TypedQueue<Reading> uploadQueue;
     uint32_t nextPollMs = 0;
+
+    // MeshModule itself does not expose SinglePortModule::allocDataPacket().
+    // Fishlake sends a normal text-message DM, so allocate a generic outbound
+    // packet from the router and initialize its port here.
+    meshtastic_MeshPacket *allocDataPacket()
+    {
+        meshtastic_MeshPacket *packet = router->allocForSending();
+        if (packet != nullptr)
+            packet->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+        return packet;
+    }
 
     bool sendReadCommand();
     bool parseReply(const meshtastic_MeshPacket &mp, Reading &reading);
