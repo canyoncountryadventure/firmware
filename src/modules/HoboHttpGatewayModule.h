@@ -47,7 +47,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 
     // Local sensor modules use the same proven HTTP gateway as mesh-received data.
     // Local environmental temperature is deliberately held until the next Hidden Valley
-    // environmental packet so both stations can be posted in one HTTPS batch / Neon wake window.
+    // environmental packet so permanent timed readings can share one HTTPS / Neon wake window.
     bool queueLocalEnvironment(float temperatureC, const char *loggerModel, const char *loggerMac,
                                int8_t bleRssi, uint16_t sequence);
     bool queueLocalMX2001(float waterLevelFt, float temperatureF, float temperatureC,
@@ -124,8 +124,44 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     static constexpr uint8_t SEEN_PACKET_SLOTS = 48;
     static constexpr uint8_t MAX_RETRIES = 4;
     static constexpr uint32_t HIDDEN_VALLEY_NODE_NUM = 1436900584UL; // !55a55ce8
+    static constexpr uint32_t FISHLAKE_NODE_NUM = 1577197109UL;      // !5e021e35
+    static constexpr uint32_t SWELL_NODE_NUM = 1949224949UL;         // !742ecff5
 
-    TypedQueue<UploadJob> uploadQueue;
+    // Preserve staggered LoRa transmissions, but coalesce their cloud work.
+    // Swell/Fishlake environmental telemetry and device telemetry from every
+    // remote permanent station are held beside Home until Hidden Valley's next
+    // environmental packet triggers the existing multi-reading HTTPS batch.
+    class SynchronizedUploadQueue : public TypedQueue<UploadJob>
+    {
+      public:
+        explicit SynchronizedUploadQueue(int maxElements) : TypedQueue<UploadJob>(maxElements) {}
+
+        void setReader(concurrency::OSThread *reader)
+        {
+            owner = static_cast<HoboHttpGatewayModule *>(reader);
+            TypedQueue<UploadJob>::setReader(reader);
+        }
+
+        bool enqueue(UploadJob job, TickType_t maxWait)
+        {
+            const bool remoteTimedEnvironment =
+                job.type == JobType::ENVIRONMENT &&
+                (job.from == FISHLAKE_NODE_NUM || job.from == SWELL_NODE_NUM);
+            const bool permanentRemoteDevice =
+                job.type == JobType::DEVICE &&
+                (job.from == HIDDEN_VALLEY_NODE_NUM || job.from == FISHLAKE_NODE_NUM || job.from == SWELL_NODE_NUM);
+
+            if (owner != nullptr && (remoteTimedEnvironment || permanentRemoteDevice))
+                return owner->pendingLocalEnvironmentQueue.enqueue(job, maxWait);
+
+            return TypedQueue<UploadJob>::enqueue(job, maxWait);
+        }
+
+      private:
+        HoboHttpGatewayModule *owner = nullptr;
+    };
+
+    SynchronizedUploadQueue uploadQueue;
     TypedQueue<UploadJob> pendingLocalEnvironmentQueue;
     SeenPacket seenPackets[SEEN_PACKET_SLOTS] = {};
     uint8_t seenPacketIndex = 0;
