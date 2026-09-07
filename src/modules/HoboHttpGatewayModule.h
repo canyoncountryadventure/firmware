@@ -129,9 +129,9 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     static constexpr uint32_t SWELL_NODE_NUM = 1949224949UL;         // !742ecff5
 
     // Preserve staggered LoRa transmissions, but coalesce their cloud work.
-    // Swell/Fishlake environmental telemetry and device telemetry from every
-    // remote permanent station are held beside Home until Hidden Valley's next
-    // environmental packet triggers the existing multi-reading HTTPS batch.
+    // Only the three configured remote permanent stations are eligible for
+    // environmental/device cloud upload. Public mesh telemetry from every
+    // other node is consumed without creating an HTTPS/Vercel/Neon request.
     class SynchronizedUploadQueue : public TypedQueue<UploadJob>
     {
       public:
@@ -145,12 +145,24 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 
         bool enqueue(UploadJob job, TickType_t maxWait)
         {
+            const bool environmentOrDevice =
+                job.type == JobType::ENVIRONMENT || job.type == JobType::DEVICE;
+            const bool permanentRemote =
+                job.from == HIDDEN_VALLEY_NODE_NUM ||
+                job.from == FISHLAKE_NODE_NUM ||
+                job.from == SWELL_NODE_NUM;
+
+            // Drop unrelated public Meshtastic telemetry before it reaches HTTP.
+            // Return true because the mesh packet was intentionally handled; there
+            // is no cloud retry to perform for a node outside the permanent network.
+            if (environmentOrDevice && !permanentRemote)
+                return true;
+
             const bool remoteTimedEnvironment =
                 job.type == JobType::ENVIRONMENT &&
                 (job.from == FISHLAKE_NODE_NUM || job.from == SWELL_NODE_NUM);
             const bool permanentRemoteDevice =
-                job.type == JobType::DEVICE &&
-                (job.from == HIDDEN_VALLEY_NODE_NUM || job.from == FISHLAKE_NODE_NUM || job.from == SWELL_NODE_NUM);
+                job.type == JobType::DEVICE && permanentRemote;
 
             if (owner != nullptr && (remoteTimedEnvironment || permanentRemoteDevice))
                 return owner->pendingLocalEnvironmentQueue.enqueue(job, maxWait);
