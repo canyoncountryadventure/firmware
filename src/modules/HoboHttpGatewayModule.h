@@ -39,6 +39,7 @@
 #include "mesh/TypedQueue.h"
 
 #include <cstdint>
+#include <cstdio>
 
 class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 {
