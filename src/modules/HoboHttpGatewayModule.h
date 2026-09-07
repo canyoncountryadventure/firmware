@@ -167,6 +167,35 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint8_t seenPacketIndex = 0;
     uint32_t localPacketCounter = 0;
 
+  public:
+    // Fishlake's timed DM READ result enters the same held queue as Home/Swell
+    // instead of opening its own HTTPS connection. Original observation/radio
+    // timestamps are preserved and the next Hidden Valley environment packet
+    // flushes all held readings in one Vercel ingest request.
+    bool queueTimedRemoteEnvironment(uint32_t from, uint32_t timestamp, uint32_t packetId,
+                                     float temperatureC, int16_t rssi, float snr,
+                                     uint8_t hopStart, uint8_t hopLimit, uint8_t relayNode, uint8_t channel,
+                                     const char *stationName)
+    {
+        UploadJob job = {};
+        job.type = JobType::ENVIRONMENT;
+        job.retries = 0;
+        job.from = from;
+        job.timestamp = timestamp;
+        job.packetId = packetId;
+        job.temperatureC = temperatureC;
+        job.rssi = rssi;
+        job.snr = snr;
+        job.hopStart = hopStart;
+        job.hopLimit = hopLimit;
+        job.relayNode = relayNode;
+        job.channel = channel;
+        job.localBleSensor = false;
+        snprintf(job.stationName, sizeof(job.stationName), "%s", stationName ? stationName : "Remote station");
+        return pendingLocalEnvironmentQueue.enqueue(job, 0);
+    }
+
+  private:
     bool isDuplicate(const meshtastic_MeshPacket &mp);
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);
     bool enqueueMoisturePir(const meshtastic_MeshPacket &mp);
