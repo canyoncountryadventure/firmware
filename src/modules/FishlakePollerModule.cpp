@@ -8,9 +8,7 @@
 #include "gps/RTC.h"
 #include "main.h"
 
-#include <HTTPClient.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 
 #include <cmath>
 #include <cstdio>
@@ -22,34 +20,6 @@ namespace
 bool timeReached(uint32_t now, uint32_t target)
 {
     return static_cast<int32_t>(now - target) >= 0;
-}
-
-uint8_t hopsAway(uint8_t hopStart, uint8_t hopLimit)
-{
-    return hopStart >= hopLimit ? hopStart - hopLimit : 0;
-}
-
-String jsonQuoted(const char *text)
-{
-    String out;
-    out += '"';
-    if (text != nullptr) {
-        for (const unsigned char *p = reinterpret_cast<const unsigned char *>(text); *p; ++p) {
-            switch (*p) {
-            case '"': out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default:
-                if (*p >= 0x20)
-                    out += static_cast<char>(*p);
-                break;
-            }
-        }
-    }
-    out += '"';
-    return out;
 }
 
 void copyField(char *dest, size_t destSize, const char *start)
@@ -103,7 +73,7 @@ ProcessMessage FishlakePollerModule::handleReceived(const meshtastic_MeshPacket 
         return ProcessMessage::CONTINUE;
     }
 
-    LOG_INFO("Fishlake poller: captured HOBO reply %.2f C from !5e021e35; queued for cloud",
+    LOG_INFO("Fishlake poller: captured HOBO reply %.2f C from !5e021e35; queued for synchronized cloud batch",
              reading.temperatureC);
     setIntervalFromNow(0);
     return ProcessMessage::CONTINUE;
@@ -214,67 +184,31 @@ bool FishlakePollerModule::parseReply(const meshtastic_MeshPacket &mp, Reading &
 
 bool FishlakePollerModule::upload(const Reading &reading)
 {
-    if (!WiFi.isConnected())
-        return false;
-    if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) {
-        LOG_ERROR("Fishlake poller: INGEST_KEY is empty");
+    if (hoboHttpGatewayModule == nullptr) {
+        LOG_WARN("Fishlake poller: HTTP gateway unavailable; keeping reading for retry");
         return false;
     }
 
-    String body;
-    body.reserve(900);
-    body += "{\"type\":\"telemetry\"";
-    body += ",\"timestamp\":" + String(reading.timestamp);
-    body += ",\"from\":" + String(FISHLAKE_NODE_NUM);
-    body += ",\"packet_id\":" + String(reading.packetId);
-    body += ",\"station_name\":\"Fishlake Hightop\"";
-    body += ",\"payload\":{";
-    body += "\"temperature\":" + String(reading.temperatureC, 3);
-    body += ",\"temperature_c\":" + String(reading.temperatureC, 3);
-    body += ",\"logger_model\":" + jsonQuoted(reading.loggerModel);
-    if (reading.loggerMac[0] != '\0')
-        body += ",\"logger_mac\":" + jsonQuoted(reading.loggerMac);
-    if (reading.bleRssi != 0)
-        body += ",\"ble_rssi_dbm\":" + String(reading.bleRssi);
-    body += ",\"source\":\"fishlake_dm_read\"";
-    body += "},\"radio\":{";
-    body += "\"rssi\":" + String(reading.rssi);
-    body += ",\"snr\":" + String(reading.snr, 2);
-    body += ",\"hop_start\":" + String(reading.hopStart);
-    body += ",\"hop_limit\":" + String(reading.hopLimit);
-    body += ",\"hops_away\":" + String(hopsAway(reading.hopStart, reading.hopLimit));
-    body += ",\"relay_node\":" + String(reading.relayNode);
-    body += ",\"channel\":" + String(reading.channel);
-    body += ",\"gateway\":" + jsonQuoted(HOBO_HTTP_GATEWAY_NAME);
-    body += "}}";
+    const bool queued = hoboHttpGatewayModule->queueTimedRemoteEnvironment(
+        FISHLAKE_NODE_NUM,
+        reading.timestamp,
+        reading.packetId,
+        reading.temperatureC,
+        reading.rssi,
+        reading.snr,
+        reading.hopStart,
+        reading.hopLimit,
+        reading.relayNode,
+        reading.channel,
+        "Fishlake Hightop");
 
-    WiFiClientSecure client;
-    client.setInsecure();
-    HTTPClient http;
-    http.setTimeout(10000);
-    if (!http.begin(client, HOBO_HTTP_GATEWAY_URL)) {
-        LOG_WARN("Fishlake poller: could not initialize HTTPS request");
-        return false;
-    }
-
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
-    http.addHeader("User-Agent", "cca-heltec-fishlake-poller/1.0");
-
-    const int status = http.POST(body);
-    if (status == 200 || status == 201) {
-        LOG_INFO("Fishlake poller: cloud stored %.2f C (HTTP %d)", reading.temperatureC, status);
-        http.end();
+    if (queued) {
+        LOG_INFO("Fishlake poller: held %.2f C for next synchronized Hidden Valley cloud flush",
+                 reading.temperatureC);
         return true;
     }
 
-    if (status > 0) {
-        const String response = http.getString();
-        LOG_WARN("Fishlake poller: HTTP %d: %.160s", status, response.c_str());
-    } else {
-        LOG_WARN("Fishlake poller: POST failed: %s", http.errorToString(status).c_str());
-    }
-    http.end();
+    LOG_WARN("Fishlake poller: synchronized hold queue full; keeping reading for retry");
     return false;
 }
 
