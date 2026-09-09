@@ -1,108 +1,107 @@
-# Meshtastic HOBO Field-Node Firmware
+# Fucking Around — Meshtastic Water + HOBO Test Firmware
 
-Custom Meshtastic firmware for remotely reading Onset HOBO loggers over Bluetooth and transmitting their measurements over the Meshtastic mesh.
+Experimental Seeed XIAO nRF52840 + Wio-SX1262 firmware for testing water-level sensors over Meshtastic while preserving the existing HOBO MX2001 / MX2201 / MX2203 support.
 
-## Repository map
+> Branch: `fucking-around`  
+> Hardware target: `seeed_xiao_nrf52840_kit`  
+> Current build: `2.7.26.c8b1d7a`
 
-This branch is the **HOBO field-node production line**, not the Heltec gateway firmware.
+## Download current Seeed firmware
 
-- HOBO field nodes: `hobo-mx2001-mx2201-mx2203`
-- Heltec V4 sensor gateway: `cca-heltec-sensor-gateway`
+**GitHub Actions build:** [Build Fucking Around Seeed — run 34386111305](https://github.com/canyoncountryadventure/firmware/actions/runs/34386111305)
 
-New Heltec gateway work belongs only on `cca-heltec-sensor-gateway`.
+**Build artifact:** [firmware-nrf52840-seeed_xiao_nrf52840_kit-fucking-around](https://github.com/canyoncountryadventure/firmware/actions/runs/34386111305/artifacts/10117892444)
 
-## Production status
+After downloading and extracting the artifact, flash:
 
-**Production branch:** `hobo-mx2001-mx2201-mx2203`  
-**Frozen validated snapshot:** `hobo-universal-validated-2026-08-19`
+`firmware-seeed_xiao_nrf52840_kit-2.7.26.c8b1d7a.uf2`
 
-The same universal firmware supports both:
+Do **not** use either factory-erase UF2 unless intentionally wiping the device.
 
-- Seeed XIAO nRF52840 + Wio-SX1262
-- RAK4631 / RAK19003
+## Current water test
 
-and all three supported HOBO logger families:
+Sensor: **DFRobot A02YYUW / SEN0311 waterproof ultrasonic**
 
-| HOBO | Automatic data | Direct `READ` |
-|---|---|---|
-| MX2001 | Water level + temperature | Water level + temperature |
-| MX2201 | Temperature | Temperature |
-| MX2203 | Temperature | Temperature |
+Wiring:
 
-## Automatic telemetry is tied to the HOBO logging interval
+- A02YYUW VCC -> XIAO 3V3
+- A02YYUW GND -> XIAO GND
+- A02YYUW TX -> XIAO D7 / UART RX
+- A02YYUW RX/control -> floating
 
-Automatic packets are **not** produced by an independent free-running radio timer.
+Calibration for the current cat-water test:
 
-The radio reads the HOBO `STATUS` response, learns the logger's configured interval and current write pointer, then waits for the write pointer to advance. Each confirmed new HOBO record triggers:
+- 100% full = 224 mm / 8.82 in sensor-to-water
+- 0% full = 406.4 mm / 16.00 in sensor-to-bottom
 
-1. one fresh `NEWREAD64` read;
-2. one Meshtastic telemetry packet;
-3. write-pointer advancement only after the packet is successfully queued.
+## Outlier-resistant water alerts
 
-If `STATUS` tracking fails, automatic telemetry pauses instead of guessing the schedule.
+The alert system now has two filtering layers.
 
-Final RAK4631 hardware validation on MX2201 at a 20-second logger interval produced consecutive automatic packet cadences of **19.848 s** and **19.879 s**, with the packet queued about **202 ms** after the new logger record was detected.
+### Layer 1 — each minute
 
-## Meshtastic commands
+The node collects up to 9 valid ultrasonic UART readings and uses their **median** as that minute's distance sample.
 
-Send these as direct text messages to the field radio:
+### Layer 2 — alert confirmation
 
-- `LOGGER` — show connected HOBO model, MAC, BLE RSSI, logging interval, and lock state.
-- `READ` — perform an immediate fresh read without disturbing the automatic schedule.
-- `LOCK` — save the currently identified HOBO BLE MAC to flash and reconnect only to that logger after reboot.
-- `UNLOCK` — clear the saved assignment and resume discovery of any supported HOBO.
+The node keeps the latest **5 valid minute-level samples**. Before an alert can fire it:
 
-A leading slash is optional and command matching is case-insensitive.
+1. sorts the 5 samples;
+2. removes the highest sample;
+3. removes the lowest sample;
+4. averages the middle 3;
+5. uses that filtered average for threshold and refill decisions.
 
-For field deployment, leave radios unlocked during bench work. At the monitoring site, verify the intended logger with `LOGGER`, then use `LOCK`.
+A single bad minute-level reading therefore cannot trigger a water-level threshold warning. A real change must persist across multiple samples.
 
-## Start here
+Threshold alerts remain at:
 
-**Open:** [`Meshtastic/README.md`](Meshtastic/README.md)
+`90, 80, 70, 60, 50, 40, 30, 20, 10, 0%`
 
-```text
-Meshtastic/
-├── SEEED-XIAO/     ← Seeed XIAO nRF52840 + Wio-SX1262
-├── RAK4631/        ← RAK4631 / RAK19003
-├── SHARED-HOBO/    ← automatic telemetry, commands, shared BLE protocol
-└── ARCHIVE/        ← old branches and recovery history
-```
+Sensor-fault behavior remains separate: a fault alert is sent after 3 consecutive failed minute samples, with a recovery alert after valid readings return.
 
-## Radio guides
+## Meshtastic water commands
 
-- Seeed: [`Meshtastic/SEEED-XIAO/README.md`](Meshtastic/SEEED-XIAO/README.md)
-- RAK4631: [`Meshtastic/RAK4631/README.md`](Meshtastic/RAK4631/README.md)
-- Shared HOBO behavior: [`Meshtastic/SHARED-HOBO/README.md`](Meshtastic/SHARED-HOBO/README.md)
+Direct-message the Seeed node. Commands are case-insensitive and may optionally start with `/`.
 
-## PlatformIO targets
+- `WATER` / `WATER STATUS` — latest water status, including the filtered alert value/window state
+- `READ WATER` / `WATER NOW` — force a fresh ultrasonic sample
+- `WATER RAW` — raw/median sample details plus alert-filter information
+- `WATER HELP` — command list
 
-Seeed:
+The existing HOBO commands remain available and unchanged:
 
-```text
-seeed_xiao_nrf52840_kit
-```
+- `LOGGER`
+- `READ`
+- `LOCK`
+- `UNLOCK`
 
-RAK4631:
+## Alert path
+
+Current tested path:
 
 ```text
-rak4631
+A02YYUW ultrasonic
+    ↓ UART
+Seeed XIAO + Wio-SX1262
+    ↓ Meshtastic text: WATER_ALERT|...
+mesh / relays
+    ↓
+Home Heltec V4 OLED
+    ↓ Wi-Fi
+GitHub issue
 ```
 
-## Local Windows repository
+The Heltec gateway recognizes `WATER_ALERT|...` messages and creates a GitHub issue with source node, alert data, RSSI, SNR, hops, and packet ID. The water-alert path does not write to Neon.
 
-Current working location:
+## Detailed water-test notes
 
-```text
-C:\Meshtastic-HOBO\firmware
-```
+See [`docs/fucking-around-water.md`](docs/fucking-around-water.md).
 
-Sync the production branch with:
+## Production firmware remains separate
 
-```powershell
-cd C:\Meshtastic-HOBO\firmware
-git fetch origin
-git switch hobo-mx2001-mx2201-mx2203
-git pull --ff-only origin hobo-mx2001-mx2201-mx2203
-```
+This branch is experimental. Production HOBO firmware remains on:
 
-The rest of this repository remains the full Meshtastic source tree because `src/`, `variants/`, `lib/`, PlatformIO configuration, and related directories are required to compile the firmware.
+`hobo-mx2001-mx2201-mx2203`
+
+The experimental water work must not be merged into production until field testing is complete.
