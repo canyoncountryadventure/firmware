@@ -28,8 +28,14 @@
 #define HOBO_HTTP_GATEWAY_NAME "Heltec Hub"
 #endif
 
-// MX2001-only build: authorization is based on the custom 19-byte PRIVATE_APP
-// packet format ("MX" signature), not on Meshtastic NodeDB favorites.
+#ifndef WATER_GITHUB_TOKEN
+#define WATER_GITHUB_TOKEN ""
+#endif
+
+#ifndef WATER_GITHUB_REPOSITORY
+#define WATER_GITHUB_REPOSITORY "canyoncountryadventure/firmware"
+#endif
+
 #ifndef HOBO_HTTP_GATEWAY_FAVORITES_ONLY
 #define HOBO_HTTP_GATEWAY_FAVORITES_ONLY 0
 #endif
@@ -53,7 +59,13 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     int32_t runOnce() override;
 
   private:
+    enum class JobKind : uint8_t {
+        MX2001 = 0,
+        WATER_ALERT = 1,
+    };
+
     struct UploadJob {
+        JobKind kind;
         uint8_t retries;
         uint8_t channel;
         uint8_t hopStart;
@@ -72,6 +84,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         float temperatureC;
         char loggerMac[18];
         char stationName[40];
+        char waterAlert[190];
     };
 
     struct SeenPacket {
@@ -89,9 +102,12 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 
     bool isDuplicate(const meshtastic_MeshPacket &mp);
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);
+    bool enqueueWaterAlert(const meshtastic_MeshPacket &mp);
     void fillCommon(UploadJob &job, const meshtastic_MeshPacket &mp);
     void fillStationName(char *dest, size_t destSize, uint32_t from);
     bool upload(const UploadJob &job);
+    bool uploadMX2001(const UploadJob &job);
+    bool uploadWaterAlert(const UploadJob &job);
 };
 
 #endif // HOBO_HTTP_GATEWAY_ENABLED
