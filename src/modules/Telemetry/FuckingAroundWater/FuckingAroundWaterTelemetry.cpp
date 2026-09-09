@@ -183,6 +183,44 @@ float FuckingAroundWaterTelemetryModule::distanceToPercent(uint16_t distanceMm) 
     return percent;
 }
 
+bool FuckingAroundWaterTelemetryModule::updateWaterAlertFilter(
+    uint16_t distanceMm,
+    uint16_t &filteredDistanceMm,
+    float &filteredPercent)
+{
+    waterAlertDistanceHistory[waterAlertHistoryIndex] = distanceMm;
+    waterAlertHistoryIndex =
+        static_cast<uint8_t>((waterAlertHistoryIndex + 1) % WATER_ALERT_HISTORY_SIZE);
+
+    if (waterAlertHistoryCount < WATER_ALERT_HISTORY_SIZE)
+        ++waterAlertHistoryCount;
+
+    // Do not arm water-level threshold/refill alerts until five complete
+    // minute-level samples exist. Each minute sample is already a median of
+    // nine UART readings, so this confirmation window represents up to 45
+    // raw sensor frames.
+    if (waterAlertHistoryCount < WATER_ALERT_HISTORY_SIZE)
+        return false;
+
+    uint16_t sorted[WATER_ALERT_HISTORY_SIZE] = {};
+    for (uint8_t i = 0; i < WATER_ALERT_HISTORY_SIZE; ++i)
+        sorted[i] = waterAlertDistanceHistory[i];
+
+    sortWaterReadings(sorted, WATER_ALERT_HISTORY_SIZE);
+
+    // Five-sample trimmed mean: discard the single lowest and highest
+    // minute-level distances, then average the middle three. One isolated
+    // outlier therefore has zero influence on the alert decision.
+    const uint32_t middleSum =
+        static_cast<uint32_t>(sorted[1]) +
+        static_cast<uint32_t>(sorted[2]) +
+        static_cast<uint32_t>(sorted[3]);
+
+    filteredDistanceMm = static_cast<uint16_t>((middleSum + 1U) / 3U);
+    filteredPercent = distanceToPercent(filteredDistanceMm);
+    return true;
+}
+
 void FuckingAroundWaterTelemetryModule::resetWaterAlertLadder(float percent)
 {
     if (percent > 90.0f) nextWaterAlertThreshold = 90;
@@ -230,10 +268,17 @@ bool FuckingAroundWaterTelemetryModule::sendWaterText(
     return true;
 }
 
-void FuckingAroundWaterTelemetryModule::sendWaterEvent(const char *type, int threshold)
+void FuckingAroundWaterTelemetryModule::sendWaterEvent(
+    const char *type,
+    int threshold,
+    float eventPercent,
+    uint16_t eventDistanceMm)
 {
     char text[180] = {};
-    const float inches = currentWaterDistanceMm / 25.4f;
+
+    const float percent = eventPercent >= 0.0f ? eventPercent : currentWaterPercent;
+    const uint16_t distanceMm = eventDistanceMm > 0 ? eventDistanceMm : currentWaterDistanceMm;
+    const float inches = distanceMm / 25.4f;
 
     if (threshold >= 0) {
         snprintf(
@@ -242,8 +287,8 @@ void FuckingAroundWaterTelemetryModule::sendWaterEvent(const char *type, int thr
             "WATER_ALERT|%s|threshold=%d|pct=%.1f|mm=%u|in=%.2f",
             type,
             threshold,
-            currentWaterPercent,
-            currentWaterDistanceMm,
+            percent,
+            distanceMm,
             inches);
     } else {
         snprintf(
@@ -251,8 +296,8 @@ void FuckingAroundWaterTelemetryModule::sendWaterEvent(const char *type, int thr
             sizeof(text),
             "WATER_ALERT|%s|pct=%.1f|mm=%u|in=%.2f",
             type,
-            currentWaterPercent,
-            currentWaterDistanceMm,
+            percent,
+            distanceMm,
             inches);
     }
 
@@ -264,21 +309,59 @@ void FuckingAroundWaterTelemetryModule::processWaterAlerts(
     float percent,
     uint16_t distanceMm)
 {
-    (void)distanceMm;
+    (void)percent;
 
-    if (previousWaterPercent >= 0.0f &&
-        percent >= previousWaterPercent + WATER_REFILL_DELTA_PERCENT) {
-        resetWaterAlertLadder(percent);
-        sendWaterEvent("refill");
+    uint16_t filteredDistanceMm = 0;
+    float filteredPercent = 0.0f;
+    if (!updateWaterAlertFilter(distanceMm, filteredDistanceMm, filteredPercent)) {
+        LOG_INFO(
+            "Fucking Around water: alert filter warming %u/%u",
+            waterAlertHistoryCount,
+            WATER_ALERT_HISTORY_SIZE);
+        return;
     }
 
-    while (nextWaterAlertThreshold >= 0 && percent <= nextWaterAlertThreshold) {
+    confirmedWaterDistanceMm = filteredDistanceMm;
+    confirmedWaterPercent = filteredPercent;
+
+    if (!haveConfirmedWaterReading) {
+        haveConfirmedWaterReading = true;
+        previousWaterPercent = confirmedWaterPercent;
+        resetWaterAlertLadder(confirmedWaterPercent);
+        LOG_INFO(
+            "Fucking Around water: alert filter armed %.1f%% %u mm",
+            confirmedWaterPercent,
+            confirmedWaterDistanceMm);
+        return;
+    }
+
+    if (previousWaterPercent >= 0.0f &&
+        confirmedWaterPercent >= previousWaterPercent + WATER_REFILL_DELTA_PERCENT) {
+        resetWaterAlertLadder(confirmedWaterPercent);
+        sendWaterEvent(
+            "refill",
+            -1,
+            confirmedWaterPercent,
+            confirmedWaterDistanceMm);
+    }
+
+    while (nextWaterAlertThreshold >= 0 &&
+           confirmedWaterPercent <= nextWaterAlertThreshold) {
         const int crossed = nextWaterAlertThreshold;
-        sendWaterEvent("threshold", crossed);
+        sendWaterEvent(
+            "threshold",
+            crossed,
+            confirmedWaterPercent,
+            confirmedWaterDistanceMm);
         nextWaterAlertThreshold -= 10;
     }
 
-    previousWaterPercent = percent;
+    previousWaterPercent = confirmedWaterPercent;
+
+    LOG_INFO(
+        "Fucking Around water: confirmed alert value %.1f%% %u mm (5-sample trimmed mean)",
+        confirmedWaterPercent,
+        confirmedWaterDistanceMm);
 }
 
 bool FuckingAroundWaterTelemetryModule::sampleWater(bool processAlerts)
@@ -311,15 +394,11 @@ bool FuckingAroundWaterTelemetryModule::sampleWater(bool processAlerts)
     currentWaterPercent = distanceToPercent(medianMm);
     lastWaterSampleMs = millis();
 
-    if (!haveWaterReading) {
+    if (!haveWaterReading)
         haveWaterReading = true;
-        previousWaterPercent = currentWaterPercent;
-        resetWaterAlertLadder(currentWaterPercent);
-    } else if (processAlerts) {
+
+    if (processAlerts)
         processWaterAlerts(currentWaterPercent, currentWaterDistanceMm);
-    } else {
-        previousWaterPercent = currentWaterPercent;
-    }
 
     LOG_INFO(
         "Fucking Around water: %.1f%% %u mm %.2f in median=%u",
@@ -354,15 +433,30 @@ void FuckingAroundWaterTelemetryModule::sendWaterStatus(
     const uint32_t ageSeconds = (millis() - lastWaterSampleMs) / 1000UL;
 
     if (raw) {
-        snprintf(
-            reply,
-            sizeof(reply),
-            "WATER RAW | median=%u mm | %.2f in | valid=%u/9 | failures=%u | age=%lus",
-            currentWaterDistanceMm,
-            currentWaterDistanceMm / 25.4f,
-            currentWaterValidCount,
-            consecutiveWaterFailures,
-            static_cast<unsigned long>(ageSeconds));
+        if (haveConfirmedWaterReading) {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "WATER RAW | median=%u mm | %.2f in | valid=%u/9 | alert=%.1f%%/%u mm | window=5/5 | failures=%u | age=%lus",
+                currentWaterDistanceMm,
+                currentWaterDistanceMm / 25.4f,
+                currentWaterValidCount,
+                confirmedWaterPercent,
+                confirmedWaterDistanceMm,
+                consecutiveWaterFailures,
+                static_cast<unsigned long>(ageSeconds));
+        } else {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "WATER RAW | median=%u mm | %.2f in | valid=%u/9 | alert window=%u/5 warming | failures=%u | age=%lus",
+                currentWaterDistanceMm,
+                currentWaterDistanceMm / 25.4f,
+                currentWaterValidCount,
+                waterAlertHistoryCount,
+                consecutiveWaterFailures,
+                static_cast<unsigned long>(ageSeconds));
+        }
     } else {
         char nextThreshold[16] = {};
         if (nextWaterAlertThreshold >= 0)
@@ -370,16 +464,30 @@ void FuckingAroundWaterTelemetryModule::sendWaterStatus(
         else
             snprintf(nextThreshold, sizeof(nextThreshold), "none");
 
-        snprintf(
-            reply,
-            sizeof(reply),
-            "WATER %.1f%% | %.2f in | %u mm | %s | next %s | age %lus",
-            currentWaterPercent,
-            currentWaterDistanceMm / 25.4f,
-            currentWaterDistanceMm,
-            waterFaultActive ? "FAULT" : "OK",
-            nextThreshold,
-            static_cast<unsigned long>(ageSeconds));
+        if (haveConfirmedWaterReading) {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "WATER %.1f%% | %.2f in | %u mm | alert-filter %.1f%% | %s | next %s | age %lus",
+                currentWaterPercent,
+                currentWaterDistanceMm / 25.4f,
+                currentWaterDistanceMm,
+                confirmedWaterPercent,
+                waterFaultActive ? "FAULT" : "OK",
+                nextThreshold,
+                static_cast<unsigned long>(ageSeconds));
+        } else {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "WATER %.1f%% | %.2f in | %u mm | alert-filter warming %u/5 | %s | age %lus",
+                currentWaterPercent,
+                currentWaterDistanceMm / 25.4f,
+                currentWaterDistanceMm,
+                waterAlertHistoryCount,
+                waterFaultActive ? "FAULT" : "OK",
+                static_cast<unsigned long>(ageSeconds));
+        }
     }
 
     sendWaterText(destination, channel, reply, true);
@@ -421,7 +529,7 @@ ProcessMessage FuckingAroundWaterTelemetryModule::handleReceived(
                 sendWaterText(
                     mp.from,
                     mp.channel,
-                    "WATER commands: WATER | READ WATER | WATER STATUS | WATER RAW | WATER NOW | WATER HELP | sample=60s",
+                    "WATER commands: WATER | READ WATER | WATER STATUS | WATER RAW | WATER NOW | WATER HELP | sample=60s | alerts=5-sample trimmed mean",
                     true);
                 return ProcessMessage::CONTINUE;
             }
