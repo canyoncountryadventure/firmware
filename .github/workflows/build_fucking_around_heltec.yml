@@ -16,7 +16,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Require gateway secrets and create local header
+      - name: Create protected gateway secret header
+        id: secrets
         env:
           HOBO_KEY: ${{ secrets.HOBO_HTTP_GATEWAY_INGEST_KEY }}
           WATER_TOKEN: ${{ secrets.WATER_GITHUB_TOKEN }}
@@ -25,14 +26,15 @@ jobs:
           import json, os, pathlib, sys
           hobo = os.environ.get("HOBO_KEY", "")
           water = os.environ.get("WATER_TOKEN", "")
-          missing = []
           if not hobo:
-              missing.append("HOBO_HTTP_GATEWAY_INGEST_KEY")
-          if not water:
-              missing.append("WATER_GITHUB_TOKEN")
-          if missing:
-              print("::error::Missing required GitHub Actions secret(s): " + ", ".join(missing))
+              print("::error::Missing required GitHub Actions secret: HOBO_HTTP_GATEWAY_INGEST_KEY")
               sys.exit(1)
+          water_missing = not bool(water)
+          if water_missing:
+              print("::warning::WATER_GITHUB_TOKEN is missing. Compiling with a nonfunctional placeholder; no firmware artifact will be published.")
+              water = "COMPILE_ONLY_WATER_TOKEN"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write("water_token_missing=" + ("true" if water_missing else "false") + "\n")
           p = pathlib.Path("src/modules/hobo_gateway_secrets.h")
           p.write_text(
               "#pragma once\n"
@@ -52,6 +54,7 @@ jobs:
           pio_target: build
 
       - name: Store Heltec firmware artifact
+        if: steps.secrets.outputs.water_token_missing == 'false'
         uses: actions/upload-artifact@v7
         with:
           name: firmware-heltec-v4-fucking-around
@@ -65,3 +68,9 @@ jobs:
             release/*.zip
             release/device-*.sh
             release/device-*.bat
+
+      - name: Block deployment artifact until water token is configured
+        if: steps.secrets.outputs.water_token_missing == 'true'
+        run: |
+          echo "::error::Heltec code compiled, but WATER_GITHUB_TOKEN is not configured. No deployable artifact was published."
+          exit 1
