@@ -1,0 +1,67 @@
+name: Build Fucking Around Heltec
+
+on:
+  push:
+    branches:
+      - fucking-around-heltec
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build-heltec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Require gateway secrets and create local header
+        env:
+          HOBO_KEY: ${{ secrets.HOBO_HTTP_GATEWAY_INGEST_KEY }}
+          WATER_TOKEN: ${{ secrets.WATER_GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, sys
+          hobo = os.environ.get("HOBO_KEY", "")
+          water = os.environ.get("WATER_TOKEN", "")
+          missing = []
+          if not hobo:
+              missing.append("HOBO_HTTP_GATEWAY_INGEST_KEY")
+          if not water:
+              missing.append("WATER_GITHUB_TOKEN")
+          if missing:
+              print("::error::Missing required GitHub Actions secret(s): " + ", ".join(missing))
+              sys.exit(1)
+          p = pathlib.Path("src/modules/hobo_gateway_secrets.h")
+          p.write_text(
+              "#pragma once\n"
+              + "#define HOBO_HTTP_GATEWAY_INGEST_KEY " + json.dumps(hobo) + "\n"
+              + "#define HOBO_HTTP_GATEWAY_NAME \"Heltec Hub (Home)\"\n"
+              + "#define WATER_GITHUB_TOKEN " + json.dumps(water) + "\n"
+              + "#define WATER_GITHUB_REPOSITORY \"canyoncountryadventure/firmware\"\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build Heltec V4 OLED
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: esp32s3
+          pio_env: heltec-v4
+          pio_target: build
+
+      - name: Store Heltec firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-heltec-v4-fucking-around
+          overwrite: true
+          path: |
+            release/*.mt.json
+            release/*.bin
+            release/*.elf
+            release/*.uf2
+            release/*.hex
+            release/*.zip
+            release/device-*.sh
+            release/device-*.bat
