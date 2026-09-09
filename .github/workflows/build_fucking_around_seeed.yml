@@ -1,0 +1,17 @@
+name: Build Fucking Around Seeed
+
+on:
+  push:
+    branches:
+      - fucking-around
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build-seeed:
+    uses: ./.github/workflows/build_firmware.yml
+    with:
+      version: fucking-around
+      platform: nrf52840
+      pio_env: seeed_xiao_nrf52840_kit
