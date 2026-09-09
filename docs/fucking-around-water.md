@@ -2,6 +2,14 @@
 
 Experimental branch: `fucking-around`
 
+## Current build
+
+- Version: `2.7.26.c8b1d7a`
+- Target: `seeed_xiao_nrf52840_kit`
+- GitHub Actions run: https://github.com/canyoncountryadventure/firmware/actions/runs/34386111305
+- Artifact: https://github.com/canyoncountryadventure/firmware/actions/runs/34386111305/artifacts/10117892444
+- Flash file inside artifact: `firmware-seeed_xiao_nrf52840_kit-2.7.26.c8b1d7a.uf2`
+
 ## Hardware
 
 - Seeed XIAO nRF52840 + Wio-SX1262
@@ -17,67 +25,84 @@ Experimental branch: `fucking-around`
 - 0% full: 406.4 mm / 16.00 in sensor-to-bottom
 - Percent full is linear between those two calibration points.
 
-## Sampling
+## Sampling and alert filtering
 
-- Sample interval: 60 seconds
-- Each sample: median of 9 UART readings
-- Minimum accepted frames: 5
-- Sensor fault alert after 3 consecutive failed samples
-- Sensor recovered alert on first subsequent valid sample
+The node samples every 60 seconds.
+
+### Minute-level sample
+
+Each minute it:
+
+- collects up to 9 valid A02YYUW UART readings;
+- requires at least 5 valid frames;
+- sorts the valid readings;
+- uses the median distance as that minute's sample.
+
+### Persistent alert confirmation
+
+Threshold/refill alerts do not use a single minute sample directly.
+
+The node keeps the latest 5 valid minute-level samples. Once the 5-sample window is full it:
+
+1. sorts the five minute samples;
+2. discards the highest;
+3. discards the lowest;
+4. averages the middle three;
+5. converts that filtered distance to percent full;
+6. uses only that filtered value for water-level threshold/refill alerts.
+
+This prevents one isolated bad minute sample from generating a false water alert. A change must persist across multiple samples before the filtered value crosses a threshold.
+
+Sensor-health alerts remain independent:
+
+- sensor fault after 3 consecutive failed minute samples;
+- sensor recovered alert on the first subsequent valid sample.
 
 ## Meshtastic commands
 
 Direct-message the node with any of the following. Commands are case-insensitive and may optionally start with `/`.
 
-- `WATER` — latest percent, distance, health, next alert threshold, sample age
+- `WATER` — latest percent/distance, health, next alert threshold, sample age, and filtered alert state
 - `WATER STATUS` — same as `WATER`
 - `READ WATER` — force a fresh 9-reading median sample and return it
 - `WATER NOW` — alias for `READ WATER`
-- `WATER RAW` — latest median distance, valid-frame count, failure count, sample age
+- `WATER RAW` — latest median distance, valid-frame count, failure count, sample age, and rolling-filter information
 - `WATER HELP` — command list
 
 The existing HOBO commands remain available and unchanged, including `READ`, `LOGGER`, `LOCK`, and `UNLOCK`.
 
-Example response:
-
-`WATER 73.4% | 10.73 in | 273 mm | OK | next 70% | age 18s`
-
 ## Alert behavior
 
-The node broadcasts a short `WATER_ALERT|...` Meshtastic text message when:
+The node broadcasts a short `WATER_ALERT|...` Meshtastic text message when the **filtered 5-sample result** crosses:
 
-- level crosses 90%, 80%, 70%, 60%, 50%, 40%, 30%, 20%, 10%, or 0%
-- level rises at least 10 percentage points between valid samples (refill)
-- sensor fails 3 consecutive minute samples
-- sensor recovers after a fault
+- 90%
+- 80%
+- 70%
+- 60%
+- 50%
+- 40%
+- 30%
+- 20%
+- 10%
+- 0%
 
-A refill resets the downward threshold ladder.
+A refill alert is generated when the filtered level rises by at least 10 percentage points. A refill resets the downward threshold ladder.
 
-## Email without Neon
+## Tested alert path
 
-`tools/water_github_email_gateway.py` listens to an Internet-connected Meshtastic gateway radio. It ignores ordinary messages and reacts only to `WATER_ALERT|...` messages.
+```text
+A02YYUW
+  ↓ UART
+Seeed XIAO + Wio-SX1262
+  ↓ Meshtastic WATER_ALERT|...
+mesh / relays
+  ↓
+Home Heltec V4 OLED
+  ↓ Wi-Fi
+GitHub issue
+```
 
-For each water alert it creates a GitHub issue in `canyoncountryadventure/firmware` and assigns `canyoncountryadventure`. GitHub's normal issue-notification system then provides the email notification when issue email notifications are enabled for the account/repository.
-
-The gateway performs no Neon or other database writes.
-
-### Gateway requirements
-
-Python packages:
-
-`py -m pip install meshtastic pypubsub`
-
-Set a fine-grained GitHub token in the process environment with Issues read/write permission for this repository. Do not store the token in the repository or script.
-
-PowerShell for the current window only:
-
-`$env:GITHUB_TOKEN="YOUR_TOKEN"`
-
-Run the gateway, substituting the radio COM port:
-
-`py tools/water_github_email_gateway.py --port COM11`
-
-Closing that PowerShell window removes the process environment variable. The gateway must be running on an Internet-connected computer/radio bridge for GitHub/email alerts to leave the mesh.
+The Heltec records source node, raw alert, LoRa RSSI/SNR, hop count, and packet ID in the GitHub issue. The water-alert path does not write to Neon.
 
 ## Data storage
 
