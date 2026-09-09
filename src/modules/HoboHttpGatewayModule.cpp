@@ -36,27 +36,13 @@ String jsonQuoted(const char *text)
     if (text != nullptr) {
         for (const unsigned char *p = reinterpret_cast<const unsigned char *>(text); *p; ++p) {
             switch (*p) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\b':
-                out += "\\b";
-                break;
-            case '\f':
-                out += "\\f";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
             default:
                 if (*p < 0x20) {
                     char escaped[7] = {};
@@ -76,9 +62,16 @@ String jsonQuoted(const char *text)
 
 uint8_t hopsAway(uint8_t hopStart, uint8_t hopLimit)
 {
-    if (hopStart >= hopLimit)
-        return hopStart - hopLimit;
-    return 0;
+    return hopStart >= hopLimit ? hopStart - hopLimit : 0;
+}
+
+bool payloadStartsWith(const meshtastic_MeshPacket &mp, const char *prefix)
+{
+    if (prefix == nullptr)
+        return false;
+    const size_t n = strlen(prefix);
+    return mp.decoded.payload.size >= n &&
+           memcmp(mp.decoded.payload.bytes, prefix, n) == 0;
 }
 
 } // namespace
@@ -88,15 +81,19 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
       concurrency::OSThread("hobo_http_gateway"),
       uploadQueue(UPLOAD_QUEUE_SIZE)
 {
-    // The home gateway must see broadcast packets even when they are not addressed to it.
     isPromiscuous = true;
     uploadQueue.setReader(this);
     setInterval(5000);
 
-    LOG_INFO("HOBO HTTP gateway enabled: MX2001-only -> %s", HOBO_HTTP_GATEWAY_URL);
-    if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) {
-        LOG_ERROR("HOBO HTTP gateway: INGEST_KEY is empty; cloud uploads are disabled");
-    }
+    LOG_INFO("HOBO HTTP gateway enabled: MX2001 -> %s", HOBO_HTTP_GATEWAY_URL);
+    if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0)
+        LOG_ERROR("HOBO HTTP gateway: INGEST_KEY is empty; MX2001 cloud uploads are disabled");
+
+    if (strlen(WATER_GITHUB_TOKEN) == 0)
+        LOG_WARN("Water alert gateway: WATER_GITHUB_TOKEN is empty; email/issue alerts are disabled");
+    else
+        LOG_INFO("Water alert gateway enabled: GitHub repo %s", WATER_GITHUB_REPOSITORY);
+
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     LOG_INFO("HOBO HTTP gateway: favorite-nodes-only filtering enabled");
 #endif
@@ -107,8 +104,8 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     if (p == nullptr || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
         return false;
 
-    // Final MX2001 build intentionally ignores all normal Meshtastic telemetry.
-    if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP)
+    if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
+        p->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP)
         return false;
 
     const uint32_t from = getFrom(p);
@@ -184,7 +181,6 @@ void HoboHttpGatewayModule::fillCommon(UploadJob &job, const meshtastic_MeshPack
 
 bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
 {
-    // Our MX2001 wire format is exactly 19 bytes and starts with ASCII "MX".
     if (mp.decoded.payload.size != 19)
         return false;
 
@@ -193,6 +189,7 @@ bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
         return false;
 
     UploadJob job = {};
+    job.kind = JobKind::MX2001;
     fillCommon(job, mp);
 
     job.sequence = readLE16(&payload[4]);
@@ -218,24 +215,46 @@ bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
     return true;
 }
 
+bool HoboHttpGatewayModule::enqueueWaterAlert(const meshtastic_MeshPacket &mp)
+{
+    if (!payloadStartsWith(mp, "WATER_ALERT|"))
+        return false;
+
+    UploadJob job = {};
+    job.kind = JobKind::WATER_ALERT;
+    fillCommon(job, mp);
+
+    size_t n = mp.decoded.payload.size;
+    if (n >= sizeof(job.waterAlert))
+        n = sizeof(job.waterAlert) - 1;
+    memcpy(job.waterAlert, mp.decoded.payload.bytes, n);
+    job.waterAlert[n] = '\0';
+
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("Water alert gateway: queue full, dropped packet 0x%08lx",
+                 static_cast<unsigned long>(mp.id));
+        return false;
+    }
+
+    LOG_INFO("Water alert gateway: queued alert from %s", job.stationName);
+    return true;
+}
+
 ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket &mp)
 {
     if (isDuplicate(mp))
         return ProcessMessage::CONTINUE;
 
-    // wantPacket() already restricts this module to PRIVATE_APP. enqueueMX2001()
-    // performs the final 19-byte + "MX" signature validation.
-    enqueueMX2001(mp);
+    if (mp.decoded.portnum == meshtastic_PortNum_PRIVATE_APP)
+        enqueueMX2001(mp);
+    else if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP)
+        enqueueWaterAlert(mp);
 
-    // Never consume the packet; normal Meshtastic processing continues.
     return ProcessMessage::CONTINUE;
 }
 
-bool HoboHttpGatewayModule::upload(const UploadJob &job)
+bool HoboHttpGatewayModule::uploadMX2001(const UploadJob &job)
 {
-    if (!WiFi.isConnected())
-        return false;
-
     if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) {
         LOG_ERROR("HOBO HTTP gateway: INGEST_KEY is empty");
         return false;
@@ -245,64 +264,40 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     body.reserve(768);
     body += "{";
     body += "\"type\":\"mx2001\"";
-    body += ",\"timestamp\":";
-    body += String(job.timestamp);
-    body += ",\"from\":";
-    body += String(job.from);
-    body += ",\"packet_id\":";
-    body += String(job.packetId);
-    body += ",\"station_name\":";
-    body += jsonQuoted(job.stationName);
+    body += ",\"timestamp\":" + String(job.timestamp);
+    body += ",\"from\":" + String(job.from);
+    body += ",\"packet_id\":" + String(job.packetId);
+    body += ",\"station_name\":" + jsonQuoted(job.stationName);
     body += ",\"payload\":{";
-    body += "\"water_level_ft\":";
-    body += String(job.waterLevelFt, 3);
-    body += ",\"temperature_f\":";
-    body += String(job.temperatureF, 3);
-    body += ",\"temperature_c\":";
-    body += String(job.temperatureC, 3);
-    body += ",\"temperature_raw\":";
-    body += String(job.temperatureRaw);
-    body += ",\"logger_mac\":";
-    body += jsonQuoted(job.loggerMac);
-    body += ",\"sequence\":";
-    body += String(job.sequence);
-    body += ",\"ble_rssi_dbm\":";
-    body += String(job.bleRssi);
+    body += "\"water_level_ft\":" + String(job.waterLevelFt, 3);
+    body += ",\"temperature_f\":" + String(job.temperatureF, 3);
+    body += ",\"temperature_c\":" + String(job.temperatureC, 3);
+    body += ",\"temperature_raw\":" + String(job.temperatureRaw);
+    body += ",\"logger_mac\":" + jsonQuoted(job.loggerMac);
+    body += ",\"sequence\":" + String(job.sequence);
+    body += ",\"ble_rssi_dbm\":" + String(job.bleRssi);
     body += "},\"radio\":{";
-    body += "\"rssi\":";
-    body += String(job.rssi);
-    body += ",\"snr\":";
-    body += String(job.snr, 2);
-    body += ",\"hop_start\":";
-    body += String(job.hopStart);
-    body += ",\"hop_limit\":";
-    body += String(job.hopLimit);
-    body += ",\"hops_away\":";
-    body += String(hopsAway(job.hopStart, job.hopLimit));
-    body += ",\"relay_node\":";
-    body += String(job.relayNode);
-    body += ",\"channel\":";
-    body += String(job.channel);
-    body += ",\"gateway\":";
-    body += jsonQuoted(HOBO_HTTP_GATEWAY_NAME);
+    body += "\"rssi\":" + String(job.rssi);
+    body += ",\"snr\":" + String(job.snr, 2);
+    body += ",\"hop_start\":" + String(job.hopStart);
+    body += ",\"hop_limit\":" + String(job.hopLimit);
+    body += ",\"hops_away\":" + String(hopsAway(job.hopStart, job.hopLimit));
+    body += ",\"relay_node\":" + String(job.relayNode);
+    body += ",\"channel\":" + String(job.channel);
+    body += ",\"gateway\":" + jsonQuoted(HOBO_HTTP_GATEWAY_NAME);
     body += "}}";
 
     WiFiClientSecure client;
-    // Initial field build: HTTPS is encrypted, but certificate-chain validation is
-    // intentionally disabled to avoid bundling a changing Vercel CA in firmware.
-    // The application-layer INGEST_KEY still authenticates writes at the API.
     client.setInsecure();
 
     HTTPClient http;
     http.setTimeout(10000);
-    if (!http.begin(client, HOBO_HTTP_GATEWAY_URL)) {
-        LOG_WARN("HOBO HTTP gateway: could not initialize HTTPS request");
+    if (!http.begin(client, HOBO_HTTP_GATEWAY_URL))
         return false;
-    }
 
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
-    http.addHeader("User-Agent", "heltec-hobo-http-gateway/1.0");
+    http.addHeader("User-Agent", "heltec-hobo-http-gateway/1.1");
 
     const int status = http.POST(body);
     if (status >= 200 && status < 300) {
@@ -312,22 +307,103 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
         return true;
     }
 
-    if (status > 0) {
-        const String response = http.getString();
-        LOG_WARN("HOBO HTTP gateway: HTTP %d: %.120s", status, response.c_str());
-    } else {
+    if (status > 0)
+        LOG_WARN("HOBO HTTP gateway: HTTP %d: %.120s", status, http.getString().c_str());
+    else
         LOG_WARN("HOBO HTTP gateway: POST failed: %s", http.errorToString(status).c_str());
-    }
 
     http.end();
     return false;
 }
 
+bool HoboHttpGatewayModule::uploadWaterAlert(const UploadJob &job)
+{
+    if (strlen(WATER_GITHUB_TOKEN) == 0) {
+        LOG_ERROR("Water alert gateway: WATER_GITHUB_TOKEN is empty");
+        return false;
+    }
+
+    String url = "https://api.github.com/repos/";
+    url += WATER_GITHUB_REPOSITORY;
+    url += "/issues";
+
+    String title = "Water alert: ";
+    title += job.stationName;
+
+    String issueBody;
+    issueBody.reserve(700);
+    issueBody += "Automated Meshtastic water-level alert.\n\n";
+    issueBody += "**Source:** ";
+    issueBody += job.stationName;
+    issueBody += "\n\n**Alert:** `";
+    issueBody += job.waterAlert;
+    issueBody += "`\n\n";
+    issueBody += "**LoRa RSSI:** ";
+    issueBody += String(job.rssi);
+    issueBody += " dBm\n\n**LoRa SNR:** ";
+    issueBody += String(job.snr, 2);
+    issueBody += " dB\n\n**Hops:** ";
+    issueBody += String(hopsAway(job.hopStart, job.hopLimit));
+    issueBody += "\n\n**Packet:** `";
+    char packetHex[12] = {};
+    snprintf(packetHex, sizeof(packetHex), "%08lx", static_cast<unsigned long>(job.packetId));
+    issueBody += packetHex;
+    issueBody += "`";
+
+    String body;
+    body.reserve(1000);
+    body += "{\"title\":";
+    body += jsonQuoted(title.c_str());
+    body += ",\"body\":";
+    body += jsonQuoted(issueBody.c_str());
+    body += "}";
+
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    http.setTimeout(10000);
+    if (!http.begin(client, url))
+        return false;
+
+    String authorization = "Bearer ";
+    authorization += WATER_GITHUB_TOKEN;
+
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Accept", "application/vnd.github+json");
+    http.addHeader("Authorization", authorization);
+    http.addHeader("X-GitHub-Api-Version", "2022-11-28");
+    http.addHeader("User-Agent", "heltec-water-alert-gateway/1.0");
+
+    const int status = http.POST(body);
+    if (status == 201) {
+        LOG_INFO("Water alert gateway: GitHub issue created for packet 0x%08lx",
+                 static_cast<unsigned long>(job.packetId));
+        http.end();
+        return true;
+    }
+
+    if (status > 0)
+        LOG_WARN("Water alert gateway: GitHub HTTP %d: %.160s", status, http.getString().c_str());
+    else
+        LOG_WARN("Water alert gateway: GitHub POST failed: %s", http.errorToString(status).c_str());
+
+    http.end();
+    return false;
+}
+
+bool HoboHttpGatewayModule::upload(const UploadJob &job)
+{
+    if (!WiFi.isConnected())
+        return false;
+
+    if (job.kind == JobKind::WATER_ALERT)
+        return uploadWaterAlert(job);
+    return uploadMX2001(job);
+}
+
 int32_t HoboHttpGatewayModule::runOnce()
 {
-    if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0)
-        return 60000;
-
     if (!WiFi.isConnected())
         return 5000;
 
@@ -342,13 +418,13 @@ int32_t HoboHttpGatewayModule::runOnce()
         ++job.retries;
         if (uploadQueue.enqueue(job, 0)) {
             const uint32_t delayMs = 1000UL << job.retries;
-            LOG_WARN("HOBO HTTP gateway: retry %u/%u in %lu ms",
+            LOG_WARN("Gateway: retry %u/%u in %lu ms",
                      job.retries, MAX_RETRIES, static_cast<unsigned long>(delayMs));
             return delayMs;
         }
     }
 
-    LOG_ERROR("HOBO HTTP gateway: dropping packet 0x%08lx after upload failure",
+    LOG_ERROR("Gateway: dropping packet 0x%08lx after upload failure",
               static_cast<unsigned long>(job.packetId));
     return 1000;
 }
