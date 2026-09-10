@@ -1,0 +1,16 @@
+name: ChatGPT Build HOBO Mesh Seeed UF2
+
+on:
+  push:
+    branches:
+      - chatgpt-hobo-mesh-uf2-build
+
+permissions: read-all
+
+jobs:
+  build:
+    uses: ./.github/workflows/build_firmware.yml
+    with:
+      version: 2.7.26-hobo-mesh
+      pio_env: seeed_xiao_nrf52840_kit
+      platform: nrf52840
