@@ -1,11 +1,34 @@
 # CCA Heltec Sensor Gateway
 
-**Canonical branch:** `cca-heltec-sensor-gateway`  
-**Hardware:** Heltec WiFi LoRa 32 V4 OLED  
-**PlatformIO target:** `heltec-v4`  
-**Cloud path:** Heltec -> Vercel ingest -> Neon PostgreSQL -> dashboard
+> **Canonical production branch:** `cca-heltec-sensor-gateway`
+>
+> **Hardware:** Heltec WiFi LoRa 32 V4 OLED
+>
+> **PlatformIO target:** `heltec-v4`
+>
+> **Cloud path:** Heltec → Vercel ingest → Neon PostgreSQL → dashboard
 
-This branch is the single production gateway branch for the CCA Meshtastic sensor network. The Heltec remains a normal Meshtastic radio/server while also reading the Home HOBO, receiving remote telemetry, polling Fishlake, and uploading accepted readings over Wi-Fi.
+This branch is the single production Heltec gateway line for the CCA Meshtastic sensor network. The Heltec remains a normal Meshtastic radio/server while also reading the Home HOBO, receiving remote telemetry, polling Fishlake, batching accepted observations, and uploading them over Wi-Fi.
+
+## Branch policy
+
+Use this branch for production gateway work.
+
+Historical branches such as:
+
+```text
+heltec-home-http-gateway
+heltec-home-http-gateway-hidden-valley
+heltec-home-http-gateway-rock
+```
+
+are legacy development snapshots and should not be used as current deployment sources. New location-specific Heltec branches should not be created unless a temporary isolated test genuinely requires one.
+
+The experimental water-alert gateway remains separate on:
+
+```text
+fucking-around-heltec
+```
 
 ## Production station identities
 
@@ -16,17 +39,20 @@ This branch is the single production gateway branch for the CCA Meshtastic senso
 | **Fishlake Hightop** | `!5e021e35` | `1577197109` | Heltec-triggered `READ` |
 | **It's a Swell Day** | `!742ecff5` | `1949224949` | automatic remote RAK4631 + HOBO |
 
-**Important:** `!55a55ce8 / 1436900584` is not Hidden Valley and must not be used as the production Hidden Valley identity.
+**Do not use** `!55a55ce8 / 1436900584` as the production Hidden Valley identity.
 
 ## Acquisition modes
 
-Hidden Valley and It's a Swell Day read their own HOBO loggers and send Meshtastic telemetry. Home is read directly by the Heltec over BLE. Fishlake is polled by the Heltec with a direct `READ` command every 60 minutes.
+- **Hidden Valley:** its field node reads its own HOBO and transmits automatic Meshtastic telemetry.
+- **It's a Swell Day:** its field node reads its own HOBO and transmits automatic telemetry.
+- **Home:** the Heltec reads the local HOBO directly over BLE.
+- **Fishlake:** the Heltec sends a direct `READ` request on its polling schedule and parses the reply.
 
-The remote RAK HOBO production firmware follows the logger's actual HOBO interval. Hidden Valley is currently configured for a 3600-second HOBO interval.
+Remote RAK HOBO production firmware follows the logger's actual HOBO interval. Hidden Valley is currently configured for a 3600-second logger interval.
 
-## Cloud batching — Home is the clock
+## Cloud batching — Home is the normal clock
 
-The local **Heltec Home HOBO environmental reading is the normal cloud flush trigger**. Remote permanent-station environmental/device packets are held on the Heltec until the next Home reading, then submitted with Home in one HTTPS array request.
+Remote permanent-station observations are held on the Heltec until the next Home HOBO observation, then uploaded with Home in one HTTPS array request.
 
 ```text
 Hidden Valley telemetry ---------> held remote queue --+
@@ -43,22 +69,22 @@ Home HOBO BLE reading ---------------------------------+--> one HTTPS batch
                                                             Neon
 ```
 
-This design deliberately avoids making any remote radio a dependency for the rest of the network.
+No remote station is allowed to become a dependency for the rest of the network.
 
 ### Failure protection
 
-- A missing Hidden Valley packet cannot block Home, Swell, or Fishlake.
-- A missing Swell/Fishlake packet cannot block any other station.
-- If the local Home HOBO trigger itself stops, the Heltec performs a **70-minute safety flush** of held remote data.
+- Missing Hidden Valley data cannot block Home, Swell, or Fishlake.
+- Missing Swell/Fishlake data cannot block any other station.
+- If the Home HOBO trigger stops, the gateway performs a **70-minute safety flush** of held remote data.
 - Held queue capacity is 48 readings.
 - Failed Home batches restore remote jobs for retry.
-- A Home reading that exhausts normal upload retries is preserved in the held queue for the safety-flush path.
-- Observation timestamps and RF metadata are preserved while readings wait for the cloud batch.
-- Unconfigured/public Meshtastic environmental/device telemetry is discarded before creating cloud work.
+- A Home reading that exhausts normal upload retries is preserved for the safety-flush path.
+- Observation timestamps and RF metadata are preserved while data waits in the queue.
+- Unconfigured/public Meshtastic environmental/device telemetry is discarded before cloud work is created.
 
 ## Gateway responsibilities
 
-The current branch preserves:
+The production branch preserves:
 
 - normal Meshtastic LoRa radio/client operation;
 - Meshtastic TCP/API and web services;
@@ -67,7 +93,7 @@ The current branch preserves:
 - Hidden Valley automatic environmental and device/battery telemetry;
 - It's a Swell Day automatic environmental and device/battery telemetry;
 - Fishlake remote `READ` polling and reply parsing;
-- existing moisture/PIR and MX2001 compatibility paths;
+- moisture/PIR and MX2001 compatibility paths already intentionally supported;
 - Wi-Fi Unified OTA on Heltec V4.
 
 ## Channel policy
@@ -79,7 +105,7 @@ channel 0: LayMesh
 channel 1: LongFast
 ```
 
-Channel index and LoRa RF slot/frequency are different settings. Matching channel names/PSKs alone does not prove two radios are on the same RF frequency.
+Channel index and LoRa RF slot/frequency are different settings. Matching names/PSKs alone does not prove two radios are on the same RF frequency.
 
 ## Architecture
 
@@ -92,12 +118,12 @@ HOME HOBO ------------------------------ BLE ---------+
                                                         +--> Wi-Fi HTTPS --> Vercel --> Neon
 ```
 
-## GitHub build
+## Build
 
-Use the dedicated workflow:
+Use the dedicated GitHub workflow:
 
 ```text
-Actions -> Build CCA Heltec Sensor Gateway
+Actions → Build CCA Heltec Sensor Gateway
 ```
 
 It builds:
@@ -106,7 +132,7 @@ It builds:
 heltec-v4 / esp32s3
 ```
 
-The workflow injects `HOBO_HTTP_GATEWAY_INGEST_KEY` into the gateway build.
+The workflow injects `HOBO_HTTP_GATEWAY_INGEST_KEY` at build time. Do not commit the real ingest key into source.
 
 ## Wi-Fi OTA
 
@@ -122,18 +148,20 @@ ESP32 Unified OTA loader:
 3232
 ```
 
-Use the regular `firmware-heltec-v4-*.bin` from the GitHub build artifact for routine OTA updates. Do not use the factory image and do not erase NVS/configuration.
+For routine OTA updates, use the regular `firmware-heltec-v4-*.bin` from the build artifact. Do not use a factory image and do not erase NVS/configuration unless an intentional full reset is required.
 
-## Repository rules
+## Production rules
 
-1. `cca-heltec-sensor-gateway` is the single current Heltec gateway branch.
+1. `cca-heltec-sensor-gateway` is the single current production Heltec gateway branch.
 2. Hidden Valley is `!b57d051f / 3044869407`.
 3. Home is the normal cloud batch trigger; no remote station may be a required trigger.
-4. A time-based fallback must remain so Home failure cannot strand remote telemetry.
+4. Preserve a time-based fallback so Home failure cannot strand remote telemetry.
 5. Hidden Valley, Home, and Swell remain automatic acquisition paths; Fishlake remains Heltec-polled unless intentionally redesigned.
-6. Do not create location-specific Heltec firmware branches.
+6. Do not create location-specific production gateway branches.
 7. Keep ordinary Meshtastic radio/server behavior working while sensor features are added.
 8. Keep packet/database formats backward-compatible unless the backend is migrated at the same time.
 9. GitHub Actions is the normal build path; Wi-Fi OTA is the normal Heltec update path.
+10. Experimental water-alert work stays on `fucking-around-heltec` until intentionally promoted.
+11. Preserve retired gateway milestones with tags rather than leaving obsolete branches that look deployable.
 
-See [`docs/CCA_HELTEC_SENSOR_GATEWAY.md`](docs/CCA_HELTEC_SENSOR_GATEWAY.md) for the operational specification.
+See [`docs/CCA_HELTEC_SENSOR_GATEWAY.md`](docs/CCA_HELTEC_SENSOR_GATEWAY.md) for the detailed operational specification.
