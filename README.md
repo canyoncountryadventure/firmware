@@ -22,7 +22,9 @@ This repository is a custom Meshtastic firmware tree for remotely reading Onset 
 | `fucking-around-heltec` | Experimental Heltec water-alert gateway work | Test only |
 | `trail-sen0171` | Dedicated SEN0171 trail-counter experiment | Test only |
 
-Historical logger-specific, raw-debug, universal-test, temporary build, and location-specific gateway branches are **not deployment targets**. In particular, do not confuse the older `hobo-mx2001-mx2201-mx2203-rak4631` branch with this production branch.
+Historical logger-specific, raw-debug, universal-test, temporary build, and location-specific gateway branches are **not deployment targets**. In particular, do not confuse the retired `hobo-mx2001-mx2201-mx2203-rak4631` line with this production branch.
+
+All retired branch names and their immutable recovery tags are recorded in [`docs/ARCHIVED_BRANCHES.md`](docs/ARCHIVED_BRANCHES.md).
 
 ## Production HOBO behavior
 
