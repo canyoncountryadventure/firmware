@@ -83,6 +83,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
 {
     isPromiscuous = true;
     uploadQueue.setReader(this);
+    pendingLocalEnvironmentQueue.setReader(this);
     setInterval(5000);
     LOG_INFO("CCA sensor gateway enabled: HOBO + moisture/PIR + environment + device -> %s", HOBO_HTTP_GATEWAY_URL);
     LOG_INFO("CCA sensor gateway: Home HOBO is normal cloud batch trigger; remote hold queue=%u, fallback=%lu min",
@@ -187,6 +188,7 @@ bool HoboHttpGatewayModule::enqueueHeld(UploadJob job, TickType_t maxWait)
     }
     if (heldQueueStartedMs == 0)
         heldQueueStartedMs = millis();
+    setIntervalFromNow(0);
     return true;
 }
 

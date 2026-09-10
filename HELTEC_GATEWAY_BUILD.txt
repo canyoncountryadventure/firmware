@@ -1,4 +1,4 @@
 Heltec Gateway 2026-09-10
 Target: Heltec V4 OLED / ESP32-S3
 Recovered/preserved: direct HOBO MX2001/MX2201/MX2203 BLE, logger-interval auto transmission, Meshtastic mesh, remote Home/Swell/Fishlake/Hidden Valley synchronized batching, device/battery telemetry, moisture/PIR compatibility, Fishlake polling, plus A02YYUW WATER_ALERT handling from fucking-around/fucking-around-heltec.
-Reliability: permanent remote telemetry uses the held queue; failed HOBO STATUS tracking falls back to interval-timed direct reads so Home cloud batches cannot silently pause.
+Reliability: permanent remote telemetry uses the held queue; the held queue wakes the gateway worker; failed HOBO STATUS tracking falls back to interval-timed direct reads so Home cloud batches cannot silently pause.
