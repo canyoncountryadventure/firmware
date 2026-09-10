@@ -55,6 +55,10 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
                           uint16_t temperatureRaw, const char *loggerMac, int8_t bleRssi,
                           uint16_t sequence);
 
+    // Called from the stock telemetry decoder, which is the authoritative
+    // receive path for TELEMETRY_APP packets.
+    bool captureDecodedTelemetry(const meshtastic_MeshPacket &mp);
+
   protected:
     bool wantPacket(const meshtastic_MeshPacket *p) override;
     ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
