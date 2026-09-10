@@ -46,9 +46,9 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
   public:
     HoboHttpGatewayModule();
 
-    // Local sensor modules use the same proven HTTP gateway as mesh-received data.
-    // Local environmental temperature is deliberately held until the next Hidden Valley
-    // environmental packet so permanent timed readings can share one HTTPS / Neon wake window.
+    // The Home HOBO is the normal cloud batch clock. Its automatic BLE reading
+    // triggers one upload containing Home plus any held permanent remote readings.
+    // A time-based fallback flush prevents a failed Home sensor from blocking cloud data.
     bool queueLocalEnvironment(float temperatureC, const char *loggerModel, const char *loggerMac,
                                int8_t bleRssi, uint16_t sequence);
     bool queueLocalMX2001(float waterLevelFt, float temperatureF, float temperatureC,
@@ -82,7 +82,6 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t from;
         uint32_t timestamp;
 
-        // HOBO / environmental temperature
         uint16_t sequence;
         uint16_t temperatureRaw;
         float waterLevelFt;
@@ -92,7 +91,6 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         char loggerModel[12];
         bool localBleSensor;
 
-        // Legacy RK wire packet: sandstone moisture + PIR
         uint16_t moistureAdc;
         uint16_t moistureSensorMv;
         uint32_t motionCount;
@@ -100,7 +98,6 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint8_t batteryPercent;
         bool motionDetected;
 
-        // Native Meshtastic device telemetry
         bool hasDeviceBatteryLevel;
         bool hasDeviceVoltage;
         bool hasChannelUtilization;
@@ -121,17 +118,20 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     };
 
     static constexpr uint8_t UPLOAD_QUEUE_SIZE = 24;
-    static constexpr uint8_t LOCAL_HOLD_QUEUE_SIZE = 20;
+    static constexpr uint8_t LOCAL_HOLD_QUEUE_SIZE = 48;
     static constexpr uint8_t SEEN_PACKET_SLOTS = 48;
     static constexpr uint8_t MAX_RETRIES = 4;
-    static constexpr uint32_t HIDDEN_VALLEY_NODE_NUM = 1436900584UL; // !55a55ce8
+    static constexpr uint32_t FALLBACK_FLUSH_MS = 70UL * 60UL * 1000UL;
+
+    // Production permanent-node identities. !55a55ce8 is NOT Hidden Valley.
+    static constexpr uint32_t HIDDEN_VALLEY_NODE_NUM = 3044869407UL; // !b57d051f
     static constexpr uint32_t FISHLAKE_NODE_NUM = 1577197109UL;      // !5e021e35
     static constexpr uint32_t SWELL_NODE_NUM = 1949224949UL;         // !742ecff5
 
-    // Preserve staggered LoRa transmissions, but coalesce their cloud work.
-    // Only the three configured remote permanent stations are eligible for
-    // environmental/device cloud upload. Public mesh telemetry from every
-    // other node is consumed without creating an HTTPS/Vercel/Neon request.
+    bool enqueueHeld(UploadJob job, TickType_t maxWait);
+
+    // Remote environmental/device telemetry is held for the Home HOBO clock.
+    // Unrelated public Meshtastic telemetry is discarded before HTTP work.
     class SynchronizedUploadQueue : public TypedQueue<UploadJob>
     {
       public:
@@ -152,20 +152,18 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
                 job.from == FISHLAKE_NODE_NUM ||
                 job.from == SWELL_NODE_NUM;
 
-            // Drop unrelated public Meshtastic telemetry before it reaches HTTP.
-            // Return true because the mesh packet was intentionally handled; there
-            // is no cloud retry to perform for a node outside the permanent network.
+            // Local Home BLE environmental readings are allowed through this queue
+            // and become the normal synchronized flush trigger.
+            if (job.localBleSensor && job.type == JobType::ENVIRONMENT)
+                return TypedQueue<UploadJob>::enqueue(job, maxWait);
+
+            // Public/unconfigured environmental and device telemetry never wakes cloud.
             if (environmentOrDevice && !permanentRemote)
                 return true;
 
-            const bool remoteTimedEnvironment =
-                job.type == JobType::ENVIRONMENT &&
-                (job.from == FISHLAKE_NODE_NUM || job.from == SWELL_NODE_NUM);
-            const bool permanentRemoteDevice =
-                job.type == JobType::DEVICE && permanentRemote;
-
-            if (owner != nullptr && (remoteTimedEnvironment || permanentRemoteDevice))
-                return owner->pendingLocalEnvironmentQueue.enqueue(job, maxWait);
+            // Every configured remote environment/device reading waits for the Home trigger.
+            if (owner != nullptr && environmentOrDevice && permanentRemote)
+                return owner->enqueueHeld(job, maxWait);
 
             return TypedQueue<UploadJob>::enqueue(job, maxWait);
         }
@@ -179,12 +177,12 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     SeenPacket seenPackets[SEEN_PACKET_SLOTS] = {};
     uint8_t seenPacketIndex = 0;
     uint32_t localPacketCounter = 0;
+    uint32_t heldQueueStartedMs = 0;
+    uint32_t heldRetryDueMs = 0;
+    uint8_t heldBatchRetries = 0;
 
   public:
-    // Fishlake's timed DM READ result enters the same held queue as Home/Swell
-    // instead of opening its own HTTPS connection. Original observation/radio
-    // timestamps are preserved and the next Hidden Valley environment packet
-    // flushes all held readings in one Vercel ingest request.
+    // Fishlake's timed DM READ result joins the same remote hold queue.
     bool queueTimedRemoteEnvironment(uint32_t from, uint32_t timestamp, uint32_t packetId,
                                      float temperatureC, int16_t rssi, float snr,
                                      uint8_t hopStart, uint8_t hopLimit, uint8_t relayNode, uint8_t channel,
@@ -205,7 +203,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         job.channel = channel;
         job.localBleSensor = false;
         snprintf(job.stationName, sizeof(job.stationName), "%s", stationName ? stationName : "Remote station");
-        return pendingLocalEnvironmentQueue.enqueue(job, 0);
+        return enqueueHeld(job, 0);
     }
 
   private:
@@ -217,11 +215,12 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     void fillCommon(UploadJob &job, const meshtastic_MeshPacket &mp);
     void fillLocalCommon(UploadJob &job, uint16_t sequence);
     void fillStationName(char *dest, size_t destSize, uint32_t from);
-    bool isHiddenValleyEnvironment(const UploadJob &job) const;
+    bool isHomeEnvironmentTrigger(const UploadJob &job) const;
     String serializeJob(const UploadJob &job) const;
     bool postBody(const String &body, uint32_t packetId, uint8_t readingCount);
     bool upload(const UploadJob &job);
-    bool uploadHiddenValleyBatch(const UploadJob &hiddenValleyJob);
+    bool uploadHomeBatch(const UploadJob &homeJob);
+    bool uploadHeldBatch();
 };
 
 extern HoboHttpGatewayModule *hoboHttpGatewayModule;
