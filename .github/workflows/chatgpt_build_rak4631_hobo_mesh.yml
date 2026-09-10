@@ -1,0 +1,16 @@
+name: ChatGPT Build RAK4631 HOBO Mesh UF2
+
+on:
+  push:
+    branches:
+      - chatgpt-rak4631-hobo-mesh-uf2
+
+permissions: read-all
+
+jobs:
+  build:
+    uses: ./.github/workflows/build_firmware.yml
+    with:
+      version: 2.7.26-hobo-mesh-rak4631
+      pio_env: rak4631
+      platform: nrf52840
