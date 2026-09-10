@@ -1,0 +1,65 @@
+name: Build Heltec Gateway 2026-09-10
+
+on:
+  push:
+    branches:
+      - heltec-gateway-2026-09-10
+    paths:
+      - '.github/workflows/build_heltec_gateway_2026_09_10.yml'
+      - 'src/**'
+      - 'variants/**'
+      - 'arch/**'
+      - 'platformio.ini'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  correct-held-batch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: heltec-gateway-2026-09-10
+          fetch-depth: 0
+      - name: Correct remote hold queues and stamp build
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('src/modules/HoboHttpGatewayModule.cpp')
+          s = p.read_text()
+          marker = 'if (!uploadQueue.enqueue(job, 0)) {\n        LOG_WARN("CCA sensor gateway: hold queue full'
+          count = s.count(marker)
+          if count not in (0, 2):
+              raise SystemExit(f'Expected 0 or 2 incorrect hold-queue calls, found {count}')
+          if count == 2:
+              s = s.replace(marker, 'if (!enqueueHeld(job, 0)) {\n        LOG_WARN("CCA sensor gateway: hold queue full')
+              p.write_text(s)
+          Path('HELTEC_GATEWAY_BUILD.txt').write_text(
+              'Heltec Gateway 2026-09-10\n'
+              'Target: Heltec V4 OLED / ESP32-S3\n'
+              'Features: Meshtastic mesh gateway, direct HOBO MX2001/MX2201/MX2203 BLE, remote telemetry hold-and-Home-triggered batch upload, device/battery telemetry, moisture/PIR compatibility, Fishlake polling.\n'
+              'Remote environment and device telemetry use the dedicated held queue and are released by the Home HOBO observation.\n'
+              'Ultrasonic water-level integration point is reserved; no fabricated sensor driver was added because no ultrasonic implementation exists in repository history as of this build.\n'
+          )
+      - name: Commit corrected source
+        run: |
+          if git diff --quiet -- src/modules/HoboHttpGatewayModule.cpp HELTEC_GATEWAY_BUILD.txt; then
+            echo "No source correction needed"
+            exit 0
+          fi
+          git config user.name "Canyon Country Firmware Bot"
+          git config user.email "293924291+canyoncountryadventure@users.noreply.github.com"
+          git add src/modules/HoboHttpGatewayModule.cpp HELTEC_GATEWAY_BUILD.txt
+          git commit -m "Fix Heltec Home-triggered held telemetry batch"
+          git push origin HEAD:heltec-gateway-2026-09-10
+
+  build-heltec-v4:
+    needs: correct-held-batch
+    uses: ./.github/workflows/build_firmware.yml
+    secrets: inherit
+    with:
+      version: heltec-gateway-2026-09-10-${{ github.run_number }}
+      pio_env: heltec-v4
+      platform: esp32s3
