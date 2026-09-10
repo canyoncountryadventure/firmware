@@ -44,9 +44,18 @@ class WaterAlertGatewayModule : public MeshModule, private concurrency::OSThread
         uint8_t retries;
     };
 
-    static constexpr uint8_t QUEUE_SIZE = 12;
-    static constexpr uint8_t MAX_RETRIES = 4;
+    // A full 0-100% threshold ladder plus refill/fault/recovery events fits
+    // comfortably even during a prolonged cloud outage.
+    static constexpr uint8_t QUEUE_SIZE = 32;
+    static constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 15000UL;
+    static constexpr uint32_t MAX_RETRY_DELAY_MS = 60000UL;
+
     TypedQueue<AlertJob> queue;
+    AlertJob activeJob = {};
+    bool haveActiveJob = false;
+    uint32_t nextRetryMs = 0;
+    uint32_t lastWifiReconnectMs = 0;
+    bool wifiWasConnected = false;
 
     void fillStationName(char *dest, size_t size, uint32_t from);
     bool uploadAlert(const AlertJob &job);
