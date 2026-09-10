@@ -42,8 +42,9 @@ WaterAlertGatewayModule::WaterAlertGatewayModule()
 {
     isPromiscuous = true;
     queue.setReader(this);
+    WiFi.setAutoReconnect(true);
     setInterval(5000);
-    LOG_INFO("CCA water alert gateway enabled: recovered A02YYUW WATER_ALERT receiver");
+    LOG_INFO("CCA water alert gateway enabled: durable A02YYUW WATER_ALERT receiver + WiFi watchdog");
 }
 
 bool WaterAlertGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
@@ -87,7 +88,7 @@ ProcessMessage WaterAlertGatewayModule::handleReceived(const meshtastic_MeshPack
     job.text[n] = '\0';
 
     if (!queue.enqueue(job, 0))
-        LOG_WARN("CCA water alert gateway: queue full, dropped packet 0x%08lx", static_cast<unsigned long>(job.packetId));
+        LOG_ERROR("CCA water alert gateway: queue full; could not queue packet 0x%08lx", static_cast<unsigned long>(job.packetId));
     else
         LOG_INFO("CCA water alert gateway: queued %s from %s", job.text, job.stationName);
     return ProcessMessage::CONTINUE;
@@ -142,22 +143,78 @@ bool WaterAlertGatewayModule::uploadAlert(const AlertJob &job)
         http.end();
         return true;
     }
-    LOG_WARN("CCA water alert gateway: GitHub POST status=%d", status);
+    if (status > 0) {
+        const String response = http.getString();
+        LOG_WARN("CCA water alert gateway: GitHub POST status=%d: %.120s", status, response.c_str());
+    } else {
+        LOG_WARN("CCA water alert gateway: GitHub POST failed: %s", http.errorToString(status).c_str());
+    }
     http.end();
     return false;
 }
 
 int32_t WaterAlertGatewayModule::runOnce()
 {
-    AlertJob job = {};
-    if (!queue.dequeue(&job, 0)) return 1000;
-    if (uploadAlert(job)) return 25;
-    if (job.retries < MAX_RETRIES) {
-        ++job.retries;
-        if (queue.enqueue(job, 0)) return 1000UL << job.retries;
+    const uint32_t now = millis();
+
+    // This module also serves as the Heltec gateway WiFi watchdog. The cloud
+    // telemetry module intentionally does not own Meshtastic's WiFi setup, but
+    // once credentials have been configured there is no reason a transient
+    // disconnect should leave the gateway offline indefinitely.
+    if (!WiFi.isConnected()) {
+        if (wifiWasConnected) {
+            LOG_WARN("CCA gateway WiFi lost; automatic reconnect active");
+            wifiWasConnected = false;
+        }
+
+        if (lastWifiReconnectMs == 0 ||
+            static_cast<uint32_t>(now - lastWifiReconnectMs) >= WIFI_RECONNECT_INTERVAL_MS) {
+            lastWifiReconnectMs = now;
+            WiFi.setAutoReconnect(true);
+            const bool requested = WiFi.reconnect();
+            LOG_WARN("CCA gateway WiFi reconnect requested=%s status=%d",
+                     requested ? "true" : "false", static_cast<int>(WiFi.status()));
+        }
+        return 5000;
     }
-    LOG_ERROR("CCA water alert gateway: alert dropped after retries: %s", job.text);
-    return 1000;
+
+    if (!wifiWasConnected) {
+        wifiWasConnected = true;
+        lastWifiReconnectMs = 0;
+        LOG_INFO("CCA gateway WiFi connected/recovered; cloud queues will resume");
+    }
+
+    if (haveActiveJob && nextRetryMs != 0 &&
+        static_cast<int32_t>(now - nextRetryMs) < 0)
+        return 1000;
+
+    if (!haveActiveJob) {
+        if (!queue.dequeue(&activeJob, 0))
+            return 1000;
+        haveActiveJob = true;
+        nextRetryMs = 0;
+    }
+
+    if (uploadAlert(activeJob)) {
+        haveActiveJob = false;
+        activeJob = {};
+        nextRetryMs = 0;
+        return 25;
+    }
+
+    if (activeJob.retries < 255)
+        ++activeJob.retries;
+
+    const uint8_t shift = activeJob.retries > 6 ? 6 : activeJob.retries;
+    uint32_t delayMs = 1000UL << shift;
+    if (delayMs > MAX_RETRY_DELAY_MS)
+        delayMs = MAX_RETRY_DELAY_MS;
+    nextRetryMs = now + delayMs;
+
+    // Never discard the active alert because of a temporary WiFi/GitHub failure.
+    LOG_WARN("CCA water alert gateway: retaining alert; retry=%u in %lu ms: %s",
+             activeJob.retries, static_cast<unsigned long>(delayMs), activeJob.text);
+    return delayMs;
 }
 
 #endif
