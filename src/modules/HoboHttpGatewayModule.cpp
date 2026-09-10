@@ -85,8 +85,8 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
     uploadQueue.setReader(this);
     setInterval(5000);
     LOG_INFO("CCA sensor gateway enabled: HOBO + moisture/PIR + environment + device -> %s", HOBO_HTTP_GATEWAY_URL);
-    LOG_INFO("CCA sensor gateway: permanent-station readings can batch with Hidden Valley but also flush independently (max %u held readings)",
-             LOCAL_HOLD_QUEUE_SIZE);
+    LOG_INFO("CCA sensor gateway: Home HOBO is normal cloud batch trigger; remote hold queue=%u, fallback=%lu min",
+             LOCAL_HOLD_QUEUE_SIZE, static_cast<unsigned long>(FALLBACK_FLUSH_MS / 60000UL));
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     LOG_INFO("CCA sensor gateway: favorite-nodes-only filtering enabled");
 #endif
@@ -178,6 +178,18 @@ void HoboHttpGatewayModule::fillLocalCommon(UploadJob &job, uint16_t sequence)
     fillStationName(job.stationName, sizeof(job.stationName), job.from);
 }
 
+bool HoboHttpGatewayModule::enqueueHeld(UploadJob job, TickType_t maxWait)
+{
+    if (!pendingLocalEnvironmentQueue.enqueue(job, maxWait)) {
+        LOG_WARN("CCA sensor gateway: remote hold queue full, packet 0x%08lx not queued",
+                 static_cast<unsigned long>(job.packetId));
+        return false;
+    }
+    if (heldQueueStartedMs == 0)
+        heldQueueStartedMs = millis();
+    return true;
+}
+
 bool HoboHttpGatewayModule::queueLocalEnvironment(float temperatureC, const char *loggerModel, const char *loggerMac,
                                                    int8_t bleRssi, uint16_t sequence)
 {
@@ -189,14 +201,13 @@ bool HoboHttpGatewayModule::queueLocalEnvironment(float temperatureC, const char
     snprintf(job.loggerMac, sizeof(job.loggerMac), "%s", loggerMac ? loggerMac : "");
     snprintf(job.loggerModel, sizeof(job.loggerModel), "%s", loggerModel ? loggerModel : "HOBO");
 
-    // Hold briefly so a contemporaneous Hidden Valley packet can still coalesce the cloud work.
-    // The worker now drains this queue independently when Hidden Valley is absent, so one remote
-    // station can never block Home/Swell/Fishlake from reaching Vercel/Neon.
-    if (!pendingLocalEnvironmentQueue.enqueue(job, 0)) {
-        LOG_WARN("CCA sensor gateway: Home hold queue full; could not hold local environment sequence=%u", sequence);
+    // Home is deliberately placed on the normal queue. The worker recognizes
+    // this local environmental job as the synchronized cloud flush trigger.
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("CCA sensor gateway: upload queue full; could not queue Home environment sequence=%u", sequence);
         return false;
     }
-    LOG_INFO("CCA sensor gateway: held Home temp=%.2f C sequence=%u for cloud flush",
+    LOG_INFO("CCA sensor gateway: Home temp=%.2f C sequence=%u queued as cloud batch trigger",
              job.temperatureC, sequence);
     setIntervalFromNow(0);
     return true;
@@ -300,18 +311,21 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
     job.type = JobType::ENVIRONMENT;
     fillCommon(job, mp);
     job.temperatureC = decoded.variant.environment_metrics.temperature;
+
+    const bool permanentRemote =
+        job.from == HIDDEN_VALLEY_NODE_NUM ||
+        job.from == FISHLAKE_NODE_NUM ||
+        job.from == SWELL_NODE_NUM;
+    if (!permanentRemote)
+        return true;
+
     if (!uploadQueue.enqueue(job, 0)) {
-        LOG_WARN("CCA sensor gateway: upload queue full, dropped environment packet 0x%08lx",
+        LOG_WARN("CCA sensor gateway: hold queue full, dropped environment packet 0x%08lx",
                  static_cast<unsigned long>(mp.id));
         return false;
     }
-    if (job.from == HIDDEN_VALLEY_NODE_NUM) {
-        LOG_INFO("CCA sensor gateway: Hidden Valley temp=%.2f C arrived; queued for cloud",
-                 job.temperatureC);
-    } else {
-        LOG_INFO("CCA sensor gateway: queued environment temp=%.2f C from 0x%08lx",
-                 job.temperatureC, static_cast<unsigned long>(job.from));
-    }
+    LOG_INFO("CCA sensor gateway: held remote environment temp=%.2f C from 0x%08lx for Home batch",
+             job.temperatureC, static_cast<unsigned long>(job.from));
     return true;
 }
 
@@ -331,6 +345,14 @@ bool HoboHttpGatewayModule::enqueueDevice(const meshtastic_MeshPacket &mp)
     UploadJob job = {};
     job.type = JobType::DEVICE;
     fillCommon(job, mp);
+
+    const bool permanentRemote =
+        job.from == HIDDEN_VALLEY_NODE_NUM ||
+        job.from == FISHLAKE_NODE_NUM ||
+        job.from == SWELL_NODE_NUM;
+    if (!permanentRemote)
+        return true;
+
     job.hasDeviceBatteryLevel = device.has_battery_level;
     job.hasDeviceVoltage = device.has_voltage;
     job.hasChannelUtilization = device.has_channel_utilization;
@@ -343,11 +365,11 @@ bool HoboHttpGatewayModule::enqueueDevice(const meshtastic_MeshPacket &mp)
     job.uptimeSeconds = device.uptime_seconds;
 
     if (!uploadQueue.enqueue(job, 0)) {
-        LOG_WARN("CCA sensor gateway: upload queue full, dropped device packet 0x%08lx",
+        LOG_WARN("CCA sensor gateway: hold queue full, dropped device packet 0x%08lx",
                  static_cast<unsigned long>(mp.id));
         return false;
     }
-    LOG_INFO("CCA sensor gateway: queued device battery=%lu%% voltage=%.3f V from 0x%08lx",
+    LOG_INFO("CCA sensor gateway: held device battery=%lu%% voltage=%.3f V from 0x%08lx for Home batch",
              static_cast<unsigned long>(job.deviceBatteryLevel), job.deviceVoltage,
              static_cast<unsigned long>(job.from));
     return true;
@@ -367,9 +389,9 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
     return ProcessMessage::CONTINUE;
 }
 
-bool HoboHttpGatewayModule::isHiddenValleyEnvironment(const UploadJob &job) const
+bool HoboHttpGatewayModule::isHomeEnvironmentTrigger(const UploadJob &job) const
 {
-    return job.type == JobType::ENVIRONMENT && !job.localBleSensor && job.from == HIDDEN_VALLEY_NODE_NUM;
+    return job.type == JobType::ENVIRONMENT && job.localBleSensor;
 }
 
 String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
@@ -380,7 +402,7 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
     if (job.type == JobType::MX2001)
         body += "\"type\":\"mx2001\"";
     else if (job.type == JobType::MOISTURE_PIR)
-        body += "\"type\":\"rock_test\""; // backend compatibility; RK is only a legacy wire/database schema name
+        body += "\"type\":\"rock_test\"";
     else if (job.type == JobType::DEVICE)
         body += "\"type\":\"device\"";
     else
@@ -479,7 +501,7 @@ bool HoboHttpGatewayModule::postBody(const String &body, uint32_t packetId, uint
     }
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
-    http.addHeader("User-Agent", "cca-heltec-sensor-gateway/2.2");
+    http.addHeader("User-Agent", "cca-heltec-sensor-gateway/2.3");
 
     const int status = http.POST(body);
     if (status >= 200 && status < 300) {
@@ -508,7 +530,7 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     return postBody(serializeJob(job), job.packetId, 1);
 }
 
-bool HoboHttpGatewayModule::uploadHiddenValleyBatch(const UploadJob &hiddenValleyJob)
+bool HoboHttpGatewayModule::uploadHomeBatch(const UploadJob &homeJob)
 {
     UploadJob held[LOCAL_HOLD_QUEUE_SIZE] = {};
     uint8_t heldCount = 0;
@@ -516,33 +538,91 @@ bool HoboHttpGatewayModule::uploadHiddenValleyBatch(const UploadJob &hiddenValle
         ++heldCount;
 
     if (heldCount == 0)
-        return upload(hiddenValleyJob);
+        return upload(homeJob);
 
     String body;
     body.reserve(static_cast<unsigned int>(heldCount + 1) * 700U);
     body += '[';
-    body += serializeJob(hiddenValleyJob);
+    body += serializeJob(homeJob);
     for (uint8_t i = 0; i < heldCount; ++i) {
         body += ',';
         body += serializeJob(held[i]);
     }
     body += ']';
 
-    LOG_INFO("CCA sensor gateway: flushing Hidden Valley + %u held station reading%s in one HTTPS POST",
+    LOG_INFO("CCA sensor gateway: Home HOBO trigger flushing Home + %u held remote reading%s in one HTTPS POST",
              heldCount, heldCount == 1 ? "" : "s");
 
-    if (postBody(body, hiddenValleyJob.packetId, heldCount + 1))
+    if (postBody(body, homeJob.packetId, heldCount + 1)) {
+        // Keep a conservative fallback clock alive; if the queue is empty it will
+        // harmlessly clear itself when checked, and if a packet raced the POST it
+        // cannot become permanently stranded.
+        heldQueueStartedMs = millis();
+        heldBatchRetries = 0;
+        heldRetryDueMs = 0;
         return true;
+    }
 
-    // Network/cloud failure: preserve every held reading for a later independent retry.
     uint8_t restored = 0;
     for (uint8_t i = 0; i < heldCount; ++i) {
         if (pendingLocalEnvironmentQueue.enqueue(held[i], 0))
             ++restored;
         else
-            LOG_ERROR("CCA sensor gateway: failed to restore held station sequence=%u after batch failure", held[i].sequence);
+            LOG_ERROR("CCA sensor gateway: failed to restore held remote packet 0x%08lx after Home batch failure",
+                      static_cast<unsigned long>(held[i].packetId));
     }
-    LOG_WARN("CCA sensor gateway: batch failed; restored %u/%u held station readings for retry",
+    LOG_WARN("CCA sensor gateway: Home batch failed; restored %u/%u held remote readings",
+             restored, heldCount);
+    return false;
+}
+
+bool HoboHttpGatewayModule::uploadHeldBatch()
+{
+    UploadJob held[LOCAL_HOLD_QUEUE_SIZE] = {};
+    uint8_t heldCount = 0;
+    while (heldCount < LOCAL_HOLD_QUEUE_SIZE && pendingLocalEnvironmentQueue.dequeue(&held[heldCount], 0))
+        ++heldCount;
+
+    if (heldCount == 0) {
+        heldQueueStartedMs = 0;
+        heldBatchRetries = 0;
+        heldRetryDueMs = 0;
+        return true;
+    }
+
+    String body;
+    body.reserve(static_cast<unsigned int>(heldCount) * 700U);
+    if (heldCount == 1) {
+        body = serializeJob(held[0]);
+    } else {
+        body += '[';
+        for (uint8_t i = 0; i < heldCount; ++i) {
+            if (i > 0)
+                body += ',';
+            body += serializeJob(held[i]);
+        }
+        body += ']';
+    }
+
+    LOG_WARN("CCA sensor gateway: Home trigger overdue; safety-flushing %u held reading%s",
+             heldCount, heldCount == 1 ? "" : "s");
+
+    if (postBody(body, held[0].packetId, heldCount)) {
+        heldQueueStartedMs = millis();
+        heldBatchRetries = 0;
+        heldRetryDueMs = 0;
+        return true;
+    }
+
+    uint8_t restored = 0;
+    for (uint8_t i = 0; i < heldCount; ++i) {
+        if (pendingLocalEnvironmentQueue.enqueue(held[i], 0))
+            ++restored;
+        else
+            LOG_ERROR("CCA sensor gateway: failed to restore safety-flush packet 0x%08lx",
+                      static_cast<unsigned long>(held[i].packetId));
+    }
+    LOG_WARN("CCA sensor gateway: safety flush failed; restored %u/%u held readings",
              restored, heldCount);
     return false;
 }
@@ -555,40 +635,58 @@ int32_t HoboHttpGatewayModule::runOnce()
         return 5000;
 
     UploadJob job = {};
-    bool fromHeldQueue = false;
+    if (uploadQueue.dequeue(&job, 0)) {
+        const bool uploaded = isHomeEnvironmentTrigger(job)
+                                  ? uploadHomeBatch(job)
+                                  : upload(job);
+        if (uploaded)
+            return 25;
 
-    if (!uploadQueue.dequeue(&job, 0)) {
-        // Reliability fallback: Home, Swell, Fishlake, and permanent-station device
-        // readings must never depend on Hidden Valley being reachable. If no normal
-        // upload is waiting, drain the held queue directly.
-        if (!pendingLocalEnvironmentQueue.dequeue(&job, 0))
+        if (job.retries < MAX_RETRIES) {
+            ++job.retries;
+            if (uploadQueue.enqueue(job, 0)) {
+                const uint32_t delayMs = 1000UL << job.retries;
+                LOG_WARN("CCA sensor gateway: retry %u/%u in %lu ms",
+                         job.retries, MAX_RETRIES, static_cast<unsigned long>(delayMs));
+                return delayMs;
+            }
+        }
+
+        // Never throw away the Home clock reading after repeated cloud failure.
+        // Preserve it in the held queue so the independent safety flush can retry it.
+        if (isHomeEnvironmentTrigger(job) && enqueueHeld(job, 0)) {
+            LOG_ERROR("CCA sensor gateway: Home upload exhausted retries; preserved reading for safety flush");
             return 1000;
-        fromHeldQueue = true;
-        LOG_INFO("CCA sensor gateway: independently flushing held station packet 0x%08lx",
-                 static_cast<unsigned long>(job.packetId));
+        }
+
+        LOG_ERROR("CCA sensor gateway: dropping packet 0x%08lx after upload failure",
+                  static_cast<unsigned long>(job.packetId));
+        return 1000;
     }
 
-    const bool uploaded = (!fromHeldQueue && isHiddenValleyEnvironment(job))
-                              ? uploadHiddenValleyBatch(job)
-                              : upload(job);
-    if (uploaded)
+    if (heldQueueStartedMs == 0)
+        return 1000;
+
+    const uint32_t now = millis();
+    if (heldRetryDueMs != 0 && static_cast<int32_t>(now - heldRetryDueMs) < 0)
+        return 1000;
+
+    if (static_cast<uint32_t>(now - heldQueueStartedMs) < FALLBACK_FLUSH_MS)
+        return 1000;
+
+    if (uploadHeldBatch())
         return 25;
 
-    if (job.retries < MAX_RETRIES) {
-        ++job.retries;
-        const bool requeued = fromHeldQueue
-                                  ? pendingLocalEnvironmentQueue.enqueue(job, 0)
-                                  : uploadQueue.enqueue(job, 0);
-        if (requeued) {
-            const uint32_t delayMs = 1000UL << job.retries;
-            LOG_WARN("CCA sensor gateway: retry %u/%u in %lu ms",
-                     job.retries, MAX_RETRIES, static_cast<unsigned long>(delayMs));
-            return delayMs;
-        }
-    }
-    LOG_ERROR("CCA sensor gateway: dropping packet 0x%08lx after upload failure",
-              static_cast<unsigned long>(job.packetId));
-    return 1000;
+    if (heldBatchRetries < MAX_RETRIES)
+        ++heldBatchRetries;
+    const uint8_t shift = heldBatchRetries > 5 ? 5 : heldBatchRetries;
+    uint32_t delayMs = 1000UL << shift;
+    if (delayMs > 60000UL)
+        delayMs = 60000UL;
+    heldRetryDueMs = now + delayMs;
+    LOG_WARN("CCA sensor gateway: safety-flush retry %u in %lu ms",
+             heldBatchRetries, static_cast<unsigned long>(delayMs));
+    return delayMs;
 }
 
 #endif // ARCH_ESP32 && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
