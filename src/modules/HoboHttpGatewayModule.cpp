@@ -381,6 +381,18 @@ bool HoboHttpGatewayModule::enqueueDevice(const meshtastic_MeshPacket &mp)
     return true;
 }
 
+bool HoboHttpGatewayModule::captureDecodedTelemetry(const meshtastic_MeshPacket &mp)
+{
+    if (!wantPacket(&mp) || isDuplicate(mp))
+        return false;
+    LOG_INFO("CCA sensor gateway: stock decoder bridge packet=0x%08lx from=0x%08lx bytes=%u",
+             static_cast<unsigned long>(mp.id), static_cast<unsigned long>(getFrom(&mp)),
+             static_cast<unsigned int>(mp.decoded.payload.size));
+    if (enqueueEnvironment(mp))
+        return true;
+    return enqueueDevice(mp);
+}
+
 ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket &mp)
 {
     LOG_INFO("CCA sensor gateway: RX packet=0x%08lx from=0x%08lx port=%u variant=%u bytes=%u",
