@@ -29,6 +29,7 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           # 1) Make permanent remote environment/device routing explicit.
           p = Path('src/modules/HoboHttpGatewayModule.cpp')
@@ -47,11 +48,26 @@ jobs:
           s = s.replace(
               'LOG_WARN("CCA HOBO: pointer tracking unavailable; automatic TX PAUSED");',
               'LOG_WARN("CCA HOBO: pointer tracking unavailable; using interval-timed direct-read fallback");')
-          old = '''    case HoboState::READY:\n        if (!readRequestPending && (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs))) {\n            state = HoboState::SEND_STATUS;\n            stateDueMs = now;\n        }\n        break;'''
-          new = '''    case HoboState::READY:\n        if (!readRequestPending && (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs))) {\n            if (!statusTrackingAvailable) {\n                // Degraded mode: still read and publish on the HOBO's detected logging cadence.\n                // This prevents a transient STATUS failure from stopping Home-triggered cloud batches.\n                readPurpose = ReadPurpose::AUTOMATIC;\n                pendingWritePointer = lastWritePointer + 1;\n                pendingPointerDetectedMs = now;\n                state = HoboState::SEND_READ;\n                stateDueMs = now;\n                const uint32_t cadenceMs = loggerIntervalSeconds\n                    ? static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL\n                    : 60000UL;\n                nextStatusCheckMs = now + cadenceMs;\n                LOG_INFO("CCA HOBO AUTO fallback read interval=%u sec",\n                         loggerIntervalSeconds ? loggerIntervalSeconds : 60);\n            } else {\n                state = HoboState::SEND_STATUS;\n                stateDueMs = now;\n            }\n        }\n        break;'''
-          if old not in s:
-              raise SystemExit('READY state patch target not found')
-          s = s.replace(old, new)
+
+          ready_pattern = re.compile(
+              r'    case HoboState::READY:\s*\n'
+              r'        if \(!readRequestPending && \(nextStatusCheckMs == 0 \|\| reached\(now, nextStatusCheckMs\)\)\) \{\s*\n'
+              r'            state = HoboState::SEND_STATUS;\s*\n'
+              r'            stateDueMs = now;\s*\n'
+              r'        \}\s*\n'
+              r'        break;')
+          new_ready = '''    case HoboState::READY:\n        if (!readRequestPending && (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs))) {\n            if (!statusTrackingAvailable) {\n                // Degraded mode: still read and publish on the HOBO detected logging cadence.\n                readPurpose = ReadPurpose::AUTOMATIC;\n                pendingWritePointer = lastWritePointer + 1;\n                pendingPointerDetectedMs = now;\n                state = HoboState::SEND_READ;\n                stateDueMs = now;\n                const uint32_t cadenceMs = loggerIntervalSeconds\n                    ? static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL\n                    : 60000UL;\n                nextStatusCheckMs = now + cadenceMs;\n                LOG_INFO("CCA HOBO AUTO fallback read interval=%u sec",\n                         loggerIntervalSeconds ? loggerIntervalSeconds : 60);\n            } else {\n                state = HoboState::SEND_STATUS;\n                stateDueMs = now;\n            }\n        }\n        break;'''
+          s, changed = ready_pattern.subn(new_ready, s, count=1)
+          if changed != 1 and 'CCA HOBO AUTO fallback read interval=' not in s:
+              raise SystemExit(f'READY state patch failed, replacements={changed}')
+
+          # In degraded mode, an automatic read must publish even though no fresh pointer was available.
+          old_gate = '''            if (readPurpose == ReadPurpose::AUTOMATIC) {\n                if (!haveStatusBaseline || pendingWritePointer == lastWritePointer) {\n                    nextStatusCheckMs = now + POINTER_FINE_POLL_MS;\n                    state = HoboState::READY;\n                    break;\n                }'''
+          new_gate = '''            if (readPurpose == ReadPurpose::AUTOMATIC) {\n                if (statusTrackingAvailable && (!haveStatusBaseline || pendingWritePointer == lastWritePointer)) {\n                    nextStatusCheckMs = now + POINTER_FINE_POLL_MS;\n                    state = HoboState::READY;\n                    break;\n                }'''
+          if old_gate in s:
+              s = s.replace(old_gate, new_gate, 1)
+          elif 'statusTrackingAvailable && (!haveStatusBaseline || pendingWritePointer == lastWritePointer)' not in s:
+              raise SystemExit('automatic publish gate patch target not found')
           p.write_text(s)
 
           # 3) Wire the recovered A02YYUW WATER_ALERT receiver into the Heltec module set.
@@ -74,7 +90,7 @@ jobs:
           Path('HELTEC_GATEWAY_BUILD.txt').write_text(
               'Heltec Gateway 2026-09-10\n'
               'Target: Heltec V4 OLED / ESP32-S3\n'
-              'Recovered/preserved: direct HOBO MX2001/MX2201/MX2203 BLE, logger-interval auto transmission, Meshtastic mesh, remote Home/Swell/Fishlake/Hidden Valley synchronized batching, device/battery telemetry, moisture/PIR compatibility, Fishlake polling, and A02YYUW WATER_ALERT gateway handling from the archived experimental branches.\n'
+              'Recovered/preserved: direct HOBO MX2001/MX2201/MX2203 BLE, logger-interval auto transmission, Meshtastic mesh, remote Home/Swell/Fishlake/Hidden Valley synchronized batching, device/battery telemetry, moisture/PIR compatibility, Fishlake polling, plus A02YYUW WATER_ALERT handling from fucking-around/fucking-around-heltec.\n'
               'Reliability: permanent remote telemetry uses the held queue; failed HOBO STATUS tracking falls back to interval-timed direct reads so Home cloud batches cannot silently pause.\n'
           )
 
