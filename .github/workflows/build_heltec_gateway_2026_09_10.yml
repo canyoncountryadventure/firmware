@@ -16,50 +16,115 @@ permissions:
   contents: write
 
 jobs:
-  correct-held-batch:
+  build-heltec-v4:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: heltec-gateway-2026-09-10
           fetch-depth: 0
-      - name: Correct remote hold queues and stamp build
+          submodules: recursive
+
+      - name: Apply production gateway fixes
         shell: python
         run: |
           from pathlib import Path
+
+          # 1) Make permanent remote environment/device routing explicit.
           p = Path('src/modules/HoboHttpGatewayModule.cpp')
           s = p.read_text()
           marker = 'if (!uploadQueue.enqueue(job, 0)) {\n        LOG_WARN("CCA sensor gateway: hold queue full'
-          count = s.count(marker)
-          if count not in (0, 2):
-              raise SystemExit(f'Expected 0 or 2 incorrect hold-queue calls, found {count}')
-          if count == 2:
+          if s.count(marker) == 2:
               s = s.replace(marker, 'if (!enqueueHeld(job, 0)) {\n        LOG_WARN("CCA sensor gateway: hold queue full')
-              p.write_text(s)
+          p.write_text(s)
+
+          # 2) Never allow failed HOBO STATUS/pointer polling to pause Home uploads.
+          p = Path('src/modules/HoboBleSensorModule.cpp')
+          s = p.read_text()
+          s = s.replace(
+              'LOG_WARN("CCA HOBO: STATUS unavailable; automatic TX PAUSED");',
+              'LOG_WARN("CCA HOBO: STATUS unavailable; using interval-timed direct-read fallback");')
+          s = s.replace(
+              'LOG_WARN("CCA HOBO: pointer tracking unavailable; automatic TX PAUSED");',
+              'LOG_WARN("CCA HOBO: pointer tracking unavailable; using interval-timed direct-read fallback");')
+          old = '''    case HoboState::READY:\n        if (!readRequestPending && (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs))) {\n            state = HoboState::SEND_STATUS;\n            stateDueMs = now;\n        }\n        break;'''
+          new = '''    case HoboState::READY:\n        if (!readRequestPending && (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs))) {\n            if (!statusTrackingAvailable) {\n                // Degraded mode: still read and publish on the HOBO's detected logging cadence.\n                // This prevents a transient STATUS failure from stopping Home-triggered cloud batches.\n                readPurpose = ReadPurpose::AUTOMATIC;\n                pendingWritePointer = lastWritePointer + 1;\n                pendingPointerDetectedMs = now;\n                state = HoboState::SEND_READ;\n                stateDueMs = now;\n                const uint32_t cadenceMs = loggerIntervalSeconds\n                    ? static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL\n                    : 60000UL;\n                nextStatusCheckMs = now + cadenceMs;\n                LOG_INFO("CCA HOBO AUTO fallback read interval=%u sec",\n                         loggerIntervalSeconds ? loggerIntervalSeconds : 60);\n            } else {\n                state = HoboState::SEND_STATUS;\n                stateDueMs = now;\n            }\n        }\n        break;'''
+          if old not in s:
+              raise SystemExit('READY state patch target not found')
+          s = s.replace(old, new)
+          p.write_text(s)
+
+          # 3) Wire the recovered A02YYUW WATER_ALERT receiver into the Heltec module set.
+          p = Path('src/modules/Modules.cpp')
+          s = p.read_text()
+          inc = '#include "modules/WaterAlertGatewayModule.h"\n'
+          anchor = '#include "modules/HoboHttpGatewayModule.h"\n'
+          if inc not in s:
+              if anchor not in s:
+                  raise SystemExit('Modules include anchor not found')
+              s = s.replace(anchor, anchor + inc)
+          init = '    new WaterAlertGatewayModule();\n'
+          anchor2 = '    hoboHttpGatewayModule = new HoboHttpGatewayModule();\n'
+          if init not in s:
+              if anchor2 not in s:
+                  raise SystemExit('Modules init anchor not found')
+              s = s.replace(anchor2, anchor2 + init)
+          p.write_text(s)
+
           Path('HELTEC_GATEWAY_BUILD.txt').write_text(
               'Heltec Gateway 2026-09-10\n'
               'Target: Heltec V4 OLED / ESP32-S3\n'
-              'Features: Meshtastic mesh gateway, direct HOBO MX2001/MX2201/MX2203 BLE, remote telemetry hold-and-Home-triggered batch upload, device/battery telemetry, moisture/PIR compatibility, Fishlake polling.\n'
-              'Remote environment and device telemetry use the dedicated held queue and are released by the Home HOBO observation.\n'
-              'Ultrasonic water-level integration point is reserved; no fabricated sensor driver was added because no ultrasonic implementation exists in repository history as of this build.\n'
+              'Recovered/preserved: direct HOBO MX2001/MX2201/MX2203 BLE, logger-interval auto transmission, Meshtastic mesh, remote Home/Swell/Fishlake/Hidden Valley synchronized batching, device/battery telemetry, moisture/PIR compatibility, Fishlake polling, and A02YYUW WATER_ALERT gateway handling from the archived experimental branches.\n'
+              'Reliability: permanent remote telemetry uses the held queue; failed HOBO STATUS tracking falls back to interval-timed direct reads so Home cloud batches cannot silently pause.\n'
           )
-      - name: Commit corrected source
+
+      - name: Configure gateway credentials
+        env:
+          HOBO_HTTP_GATEWAY_INGEST_KEY: ${{ secrets.HOBO_HTTP_GATEWAY_INGEST_KEY }}
+          WATER_GITHUB_TOKEN: ${{ secrets.WATER_GITHUB_TOKEN }}
         run: |
-          if git diff --quiet -- src/modules/HoboHttpGatewayModule.cpp HELTEC_GATEWAY_BUILD.txt; then
-            echo "No source correction needed"
-            exit 0
+          if [ -z "$HOBO_HTTP_GATEWAY_INGEST_KEY" ]; then
+            echo "::error::Repository secret HOBO_HTTP_GATEWAY_INGEST_KEY is not configured"
+            exit 1
           fi
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          def esc(v): return v.replace('\\', '\\\\').replace('"', '\\"')
+          key = esc(os.environ['HOBO_HTTP_GATEWAY_INGEST_KEY'])
+          water = esc(os.environ.get('WATER_GITHUB_TOKEN',''))
+          Path('src/modules/hobo_gateway_secrets.h').write_text(
+              '#pragma once\n'
+              '#define HOBO_HTTP_GATEWAY_INGEST_KEY "' + key + '"\n'
+              '#define WATER_GITHUB_TOKEN "' + water + '"\n'
+          )
+          PY
+
+      - name: Commit consolidated production source
+        run: |
           git config user.name "Canyon Country Firmware Bot"
           git config user.email "293924291+canyoncountryadventure@users.noreply.github.com"
-          git add src/modules/HoboHttpGatewayModule.cpp HELTEC_GATEWAY_BUILD.txt
-          git commit -m "Fix Heltec Home-triggered held telemetry batch"
-          git push origin HEAD:heltec-gateway-2026-09-10
+          git add src/modules/HoboHttpGatewayModule.cpp src/modules/HoboBleSensorModule.cpp src/modules/Modules.cpp src/modules/WaterAlertGatewayModule.* HELTEC_GATEWAY_BUILD.txt || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Consolidate Heltec gateway 2026-09-10 production firmware"
+            git push origin HEAD:heltec-gateway-2026-09-10
+          fi
 
-  build-heltec-v4:
-    needs: correct-held-batch
-    uses: ./.github/workflows/build_firmware.yml
-    secrets: inherit
-    with:
-      version: heltec-gateway-2026-09-10-${{ github.run_number }}
-      pio_env: heltec-v4
-      platform: esp32s3
+      - name: Build Heltec V4
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: esp32s3
+          pio_env: heltec-v4
+          pio_target: build
+
+      - name: Upload flashable firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: heltec-gateway-2026-09-10-${{ github.run_number }}
+          path: |
+            release/*.bin
+            release/*.zip
+            release/*.mt.json
+            release/device-*.sh
+            release/device-*.bat
+            .pio/build/heltec-v4/*.bin
