@@ -7,6 +7,9 @@
 #include "../concurrency/Periodic.h"
 #include "BluetoothCommon.h" // needed for updateBatteryLevel, FIXME, eventually when we pull mesh out into a lib we shouldn't be whacking bluetooth from here
 #include "MeshService.h"
+#if defined(ARCH_ESP32) && HAS_WIFI
+#include "../modules/HoboHttpGatewayModule.h"
+#endif
 #include "MessageStore.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
@@ -304,6 +307,16 @@ bool MeshService::trySendPosition(NodeNum dest, bool wantReplies)
 void MeshService::sendToPhone(meshtastic_MeshPacket *p)
 {
     perhapsDecode(p);
+
+#if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    // Direct telemetry responses can be forwarded to the client without
+    // traversing normal MeshModule receive callbacks. Capture at this final,
+    // proven forwarding boundary before the packet enters toPhoneQueue.
+    if (hoboHttpGatewayModule != nullptr &&
+        p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+        p->decoded.portnum == meshtastic_PortNum_TELEMETRY_APP)
+        hoboHttpGatewayModule->captureDecodedTelemetry(*p);
+#endif
 
 #ifdef ARCH_ESP32
 #if !MESHTASTIC_EXCLUDE_STOREFORWARD
