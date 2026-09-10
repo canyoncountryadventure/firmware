@@ -31,12 +31,32 @@ jobs:
           from pathlib import Path
           import re
 
-          # 1) Make permanent remote environment/device routing explicit.
+          # 1) Make permanent remote environment/device routing explicit and
+          #    wake the gateway worker whenever the held queue receives data.
           p = Path('src/modules/HoboHttpGatewayModule.cpp')
           s = p.read_text()
           marker = 'if (!uploadQueue.enqueue(job, 0)) {\n        LOG_WARN("CCA sensor gateway: hold queue full'
           if s.count(marker) == 2:
               s = s.replace(marker, 'if (!enqueueHeld(job, 0)) {\n        LOG_WARN("CCA sensor gateway: hold queue full')
+
+          # The held queue previously had no reader attached. TypedQueue only
+          # wakes a worker when its own reader is set, so the five-minute
+          # fallback could remain asleep indefinitely when only remote packets
+          # arrived. Attach the same gateway worker to both queues.
+          old_reader = '    uploadQueue.setReader(this);\n    setInterval(5000);'
+          new_reader = '    uploadQueue.setReader(this);\n    pendingLocalEnvironmentQueue.setReader(this);\n    setInterval(5000);'
+          if old_reader in s:
+              s = s.replace(old_reader, new_reader, 1)
+          elif 'pendingLocalEnvironmentQueue.setReader(this);' not in s:
+              raise SystemExit('held queue reader patch target not found')
+
+          # Also explicitly wake the worker after every successful held enqueue.
+          old_held = '''    if (heldQueueStartedMs == 0)\n        heldQueueStartedMs = millis();\n    return true;'''
+          new_held = '''    if (heldQueueStartedMs == 0)\n        heldQueueStartedMs = millis();\n    setIntervalFromNow(0);\n    return true;'''
+          if old_held in s:
+              s = s.replace(old_held, new_held, 1)
+          elif 'setIntervalFromNow(0);' not in s[s.find('bool HoboHttpGatewayModule::enqueueHeld'):s.find('bool HoboHttpGatewayModule::queueLocalEnvironment')]:
+              raise SystemExit('held queue wake patch target not found')
           p.write_text(s)
 
           # 2) Never allow failed HOBO STATUS/pointer polling to pause Home uploads.
@@ -91,7 +111,7 @@ jobs:
               'Heltec Gateway 2026-09-10\n'
               'Target: Heltec V4 OLED / ESP32-S3\n'
               'Recovered/preserved: direct HOBO MX2001/MX2201/MX2203 BLE, logger-interval auto transmission, Meshtastic mesh, remote Home/Swell/Fishlake/Hidden Valley synchronized batching, device/battery telemetry, moisture/PIR compatibility, Fishlake polling, plus A02YYUW WATER_ALERT handling from fucking-around/fucking-around-heltec.\n'
-              'Reliability: permanent remote telemetry uses the held queue; failed HOBO STATUS tracking falls back to interval-timed direct reads so Home cloud batches cannot silently pause.\n'
+              'Reliability: permanent remote telemetry uses the held queue; the held queue wakes the gateway worker; failed HOBO STATUS tracking falls back to interval-timed direct reads so Home cloud batches cannot silently pause.\n'
           )
 
       - name: Configure gateway credentials
