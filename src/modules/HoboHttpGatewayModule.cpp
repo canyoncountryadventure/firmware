@@ -321,13 +321,15 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
     if (!permanentRemote)
         return true;
 
-    if (!enqueueHeld(job, 0)) {
-        LOG_WARN("CCA sensor gateway: hold queue full, dropped environment packet 0x%08lx",
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("CCA sensor gateway: upload queue full, dropped remote environment packet 0x%08lx",
                  static_cast<unsigned long>(mp.id));
         return false;
     }
-    LOG_INFO("CCA sensor gateway: held remote environment temp=%.2f C from 0x%08lx for Home batch",
-             job.temperatureC, static_cast<unsigned long>(job.from));
+    LOG_INFO("CCA sensor gateway: accepted remote environment packet=0x%08lx from=0x%08lx temp=%.2f C queue=%d",
+             static_cast<unsigned long>(mp.id), static_cast<unsigned long>(job.from),
+             job.temperatureC, uploadQueue.numUsed());
+    setIntervalFromNow(0);
     return true;
 }
 
@@ -366,21 +368,31 @@ bool HoboHttpGatewayModule::enqueueDevice(const meshtastic_MeshPacket &mp)
     job.airUtilTx = device.air_util_tx;
     job.uptimeSeconds = device.uptime_seconds;
 
-    if (!enqueueHeld(job, 0)) {
-        LOG_WARN("CCA sensor gateway: hold queue full, dropped device packet 0x%08lx",
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("CCA sensor gateway: upload queue full, dropped remote device packet 0x%08lx",
                  static_cast<unsigned long>(mp.id));
         return false;
     }
-    LOG_INFO("CCA sensor gateway: held device battery=%lu%% voltage=%.3f V from 0x%08lx for Home batch",
+    LOG_INFO("CCA sensor gateway: accepted remote device packet=0x%08lx from=0x%08lx battery=%lu%% voltage=%.3f V uptime=%lu queue=%d",
+             static_cast<unsigned long>(mp.id), static_cast<unsigned long>(job.from),
              static_cast<unsigned long>(job.deviceBatteryLevel), job.deviceVoltage,
-             static_cast<unsigned long>(job.from));
+             static_cast<unsigned long>(job.uptimeSeconds), uploadQueue.numUsed());
+    setIntervalFromNow(0);
     return true;
 }
 
 ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket &mp)
 {
-    if (isDuplicate(mp))
+    LOG_INFO("CCA sensor gateway: RX packet=0x%08lx from=0x%08lx port=%u variant=%u bytes=%u",
+             static_cast<unsigned long>(mp.id), static_cast<unsigned long>(getFrom(&mp)),
+             static_cast<unsigned int>(mp.decoded.portnum),
+             static_cast<unsigned int>(mp.which_payload_variant),
+             static_cast<unsigned int>(mp.decoded.payload.size));
+    if (isDuplicate(mp)) {
+        LOG_INFO("CCA sensor gateway: duplicate ignored packet=0x%08lx from=0x%08lx",
+                 static_cast<unsigned long>(mp.id), static_cast<unsigned long>(getFrom(&mp)));
         return ProcessMessage::CONTINUE;
+    }
     if (mp.decoded.portnum == meshtastic_PortNum_PRIVATE_APP) {
         if (!enqueueMoisturePir(mp))
             enqueueMX2001(mp);
@@ -486,8 +498,11 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
 
 bool HoboHttpGatewayModule::postBody(const String &body, uint32_t packetId, uint8_t readingCount)
 {
-    if (!WiFi.isConnected())
+    if (!WiFi.isConnected()) {
+        LOG_WARN("CCA sensor gateway: POST blocked; Wi-Fi disconnected packet=0x%08lx",
+                 static_cast<unsigned long>(packetId));
         return false;
+    }
     if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) {
         LOG_ERROR("CCA sensor gateway: INGEST_KEY is empty");
         return false;
@@ -505,6 +520,9 @@ bool HoboHttpGatewayModule::postBody(const String &body, uint32_t packetId, uint
     http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
     http.addHeader("User-Agent", "cca-heltec-sensor-gateway/2.3");
 
+    LOG_INFO("CCA sensor gateway: POST attempt packet=0x%08lx readings=%u bytes=%u Wi-Fi RSSI=%d",
+             static_cast<unsigned long>(packetId), readingCount,
+             static_cast<unsigned int>(body.length()), WiFi.RSSI());
     const int status = http.POST(body);
     if (status >= 200 && status < 300) {
         if (readingCount > 1) {
