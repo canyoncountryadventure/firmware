@@ -37,6 +37,7 @@
 #include "concurrency/OSThread.h"
 #include "mesh/MeshModule.h"
 #include "mesh/TypedQueue.h"
+#include "mesh/generated/meshtastic/telemetry.pb.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -58,6 +59,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     // Called from the stock telemetry decoder, which is the authoritative
     // receive path for TELEMETRY_APP packets.
     bool captureDecodedTelemetry(const meshtastic_MeshPacket &mp);
+    bool captureDeviceMetrics(const meshtastic_MeshPacket &mp, const meshtastic_DeviceMetrics &device);
 
   protected:
     bool wantPacket(const meshtastic_MeshPacket *p) override;
@@ -218,6 +220,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 
   private:
     bool isDuplicate(const meshtastic_MeshPacket &mp);
+    void markProcessed(const meshtastic_MeshPacket &mp);
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);
     bool enqueueMoisturePir(const meshtastic_MeshPacket &mp);
     bool enqueueEnvironment(const meshtastic_MeshPacket &mp);
