@@ -62,7 +62,7 @@ bool DeviceTelemetryModule::handleReceivedProtobuf(const meshtastic_MeshPacket &
         nodeDB->updateTelemetry(getFrom(&mp), *t, RX_SRC_RADIO);
 #if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
         if (hoboHttpGatewayModule != nullptr)
-            hoboHttpGatewayModule->captureDecodedTelemetry(mp);
+            hoboHttpGatewayModule->captureDeviceMetrics(mp, t->variant.device_metrics);
 #endif
     }
     return false; // Let others look at this message also if they want
