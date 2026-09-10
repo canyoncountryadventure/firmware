@@ -1,99 +1,82 @@
-# Meshtastic HOBO Firmware
+# SEN0171 Meshtastic Trail-Counter Experiment
 
-Custom Meshtastic firmware for remotely reading Onset HOBO loggers over Bluetooth and transmitting their measurements over the Meshtastic mesh.
+> **Branch:** `trail-sen0171`
+>
+> **Status:** Dedicated experimental/legacy trail-counter firmware. **Not HOBO production firmware.**
+>
+> **Sensor:** DFRobot SEN0171 PIR
+>
+> **Signal pin:** `D0`
 
-## Production status
+This branch isolates the early SEN0171 trail-counter experiment from the production HOBO and CCA field-node firmware.
 
-**Production branch:** `hobo-mx2001-mx2201-mx2203`  
-**Frozen validated snapshot:** `hobo-universal-validated-2026-08-19`
+## What it does
 
-The same universal firmware supports both:
+When the dedicated trail-counter build flag is enabled, the node:
 
-- Seeed XIAO nRF52840 + Wio-SX1262
-- RAK4631 / RAK19003
-
-and all three supported HOBO logger families:
-
-| HOBO | Automatic data | Direct `READ` |
-|---|---|---|
-| MX2001 | Water level + temperature | Water level + temperature |
-| MX2201 | Temperature | Temperature |
-| MX2203 | Temperature | Temperature |
-
-## Automatic telemetry is tied to the HOBO logging interval
-
-Automatic packets are **not** produced by an independent free-running radio timer.
-
-The radio reads the HOBO `STATUS` response, learns the logger's configured interval and current write pointer, then waits for the write pointer to advance. Each confirmed new HOBO record triggers:
-
-1. one fresh `NEWREAD64` read;
-2. one Meshtastic telemetry packet;
-3. write-pointer advancement only after the packet is successfully queued.
-
-If `STATUS` tracking fails, automatic telemetry pauses instead of guessing the schedule.
-
-Final RAK4631 hardware validation on MX2201 at a 20-second logger interval produced consecutive automatic packet cadences of **19.848 s** and **19.879 s**, with the packet queued about **202 ms** after the new logger record was detected.
-
-## Meshtastic commands
-
-Send these as direct text messages to the field radio:
-
-- `LOGGER` — show connected HOBO model, MAC, BLE RSSI, logging interval, and lock state.
-- `READ` — perform an immediate fresh read without disturbing the automatic schedule.
-- `LOCK` — save the currently identified HOBO BLE MAC to flash and reconnect only to that logger after reboot.
-- `UNLOCK` — clear the saved assignment and resume discovery of any supported HOBO.
-
-A leading slash is optional and command matching is case-insensitive.
-
-For field deployment, leave radios unlocked during bench work. At the monitoring site, verify the intended logger with `LOGGER`, then use `LOCK`.
-
-## Start here
-
-**Open:** [`Meshtastic/README.md`](Meshtastic/README.md)
+1. reads the SEN0171 digital output on `D0`;
+2. waits for an initial HIGH to clear before arming;
+3. counts each distinct LOW → HIGH transition as one PIR event;
+4. broadcasts a Meshtastic text message such as:
 
 ```text
-Meshtastic/
-├── SEEED-XIAO/     ← Seeed XIAO nRF52840 + Wio-SX1262
-├── RAK4631/        ← RAK4631 / RAK19003
-├── SHARED-HOBO/    ← automatic telemetry, commands, shared BLE protocol
-└── ARCHIVE/        ← old branches and recovery history
+PERSON WALKED BY #12
 ```
 
-## Radio guides
+For later events it may also include the measured LOW gap between PIR activations.
 
-- Seeed: [`Meshtastic/SEEED-XIAO/README.md`](Meshtastic/SEEED-XIAO/README.md)
-- RAK4631: [`Meshtastic/RAK4631/README.md`](Meshtastic/RAK4631/README.md)
-- Shared HOBO behavior: [`Meshtastic/SHARED-HOBO/README.md`](Meshtastic/SHARED-HOBO/README.md)
-
-## PlatformIO targets
-
-Seeed:
+The module is compiled only when:
 
 ```text
-seeed_xiao_nrf52840_kit
+TRAIL_COUNTER_SEN0171
 ```
 
-RAK4631:
+is defined. This prevents the experimental trail code from being included accidentally in unrelated firmware targets.
+
+## Important sensor limitation
+
+This is **not a precise individual people counter**.
+
+The SEN0171 can remain HIGH for several seconds. If multiple people pass while the sensor never returns LOW, the hardware presents one continuous event and firmware cannot reliably split that into separate people.
+
+The branch is therefore useful for testing coarse visitation/activity detection, sensor placement, detection duration, and spacing between distinct PIR activations.
+
+## Current event logic
+
+- Poll interval: approximately 20 ms.
+- Startup HIGH is ignored until the PIR first returns LOW.
+- A LOW → HIGH transition increments the count once.
+- The node does not count repeatedly while the PIR remains HIGH.
+- A HIGH → LOW transition records the detection duration and rearms the next distinct event.
+
+The current implementation uses a simple digital input on `D0`; it does **not** include the later RF-aware PIR filtering used by the CCA production PIR branches.
+
+## Do not use this branch for CCA production PIR nodes
+
+The production CCA PIR work is on:
 
 ```text
-rak4631
+CCA-MX-HOBO-PIR-SEEED-v1
 ```
 
-## Local Windows repository
-
-Current working location:
+and the combined rock/soil variant is:
 
 ```text
-C:\Meshtastic-HOBO\firmware
+CCA-MX-HOBO-PIR-ROCK-SEEED-v1
 ```
 
-Sync the production branch with:
+Those branches include the later PIR protections, including RF self-trigger rejection and private alert routing. Do not treat this trail experiment as a rollback source for that behavior.
 
-```powershell
-cd C:\Meshtastic-HOBO\firmware
-git fetch origin
-git switch hobo-mx2001-mx2201-mx2203
-git pull --ff-only origin hobo-mx2001-mx2201-mx2203
+## HOBO production firmware
+
+The canonical HOBO field-node branch is:
+
+```text
+hobo-mx2001-mx2201-mx2203
 ```
 
-The rest of this repository remains the full Meshtastic source tree because `src/`, `variants/`, `lib/`, PlatformIO configuration, and related directories are required to compile the firmware.
+That production line contains MX2001/MX2201/MX2203 support, pointer-gated automatic HOBO transmissions, and the `LOGGER`, `READ`, `LOCK`, and `UNLOCK` direct-message commands. This trail branch should not be flashed when those features are required.
+
+## When to keep this branch
+
+Keep `trail-sen0171` only while the dedicated trail-counter concept is still useful for development or field experiments. If that work is retired, preserve the final state as a tag and delete the branch rather than leaving it looking like a production firmware choice.
