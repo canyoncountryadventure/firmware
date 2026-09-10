@@ -1385,7 +1385,7 @@ int32_t HoboBleSensorModule::runOnce()
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
                 statusTrackingAvailable = false;
                 nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
-                LOG_WARN("CCA HOBO: STATUS unavailable; automatic TX PAUSED");
+                LOG_WARN("CCA HOBO: STATUS unavailable; using interval-timed direct-read fallback");
             } else {
                 nextStatusCheckMs = now + 1000;
             }
@@ -1425,7 +1425,7 @@ int32_t HoboBleSensorModule::runOnce()
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
                 statusTrackingAvailable = false;
                 nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
-                LOG_WARN("CCA HOBO: pointer tracking unavailable; automatic TX PAUSED");
+                LOG_WARN("CCA HOBO: pointer tracking unavailable; using interval-timed direct-read fallback");
                 state = HoboState::READY;
             } else {
                 state = HoboState::SEND_STATUS;
@@ -1436,8 +1436,24 @@ int32_t HoboBleSensorModule::runOnce()
 
     case HoboState::READY:
         if (!readRequestPending && (nextStatusCheckMs == 0 || reached(now, nextStatusCheckMs))) {
-            state = HoboState::SEND_STATUS;
-            stateDueMs = now;
+            if (!statusTrackingAvailable) {
+                // Degraded mode: still read and publish on the HOBO's detected logging cadence.
+                // This prevents a transient STATUS failure from stopping Home-triggered cloud batches.
+                readPurpose = ReadPurpose::AUTOMATIC;
+                pendingWritePointer = lastWritePointer + 1;
+                pendingPointerDetectedMs = now;
+                state = HoboState::SEND_READ;
+                stateDueMs = now;
+                const uint32_t cadenceMs = loggerIntervalSeconds
+                    ? static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL
+                    : 60000UL;
+                nextStatusCheckMs = now + cadenceMs;
+                LOG_INFO("CCA HOBO AUTO fallback read interval=%u sec",
+                         loggerIntervalSeconds ? loggerIntervalSeconds : 60);
+            } else {
+                state = HoboState::SEND_STATUS;
+                stateDueMs = now;
+            }
         }
         break;
 

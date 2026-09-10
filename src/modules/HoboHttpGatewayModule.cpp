@@ -319,7 +319,7 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
     if (!permanentRemote)
         return true;
 
-    if (!uploadQueue.enqueue(job, 0)) {
+    if (!enqueueHeld(job, 0)) {
         LOG_WARN("CCA sensor gateway: hold queue full, dropped environment packet 0x%08lx",
                  static_cast<unsigned long>(mp.id));
         return false;
@@ -364,7 +364,7 @@ bool HoboHttpGatewayModule::enqueueDevice(const meshtastic_MeshPacket &mp)
     job.airUtilTx = device.air_util_tx;
     job.uptimeSeconds = device.uptime_seconds;
 
-    if (!uploadQueue.enqueue(job, 0)) {
+    if (!enqueueHeld(job, 0)) {
         LOG_WARN("CCA sensor gateway: hold queue full, dropped device packet 0x%08lx",
                  static_cast<unsigned long>(mp.id));
         return false;
