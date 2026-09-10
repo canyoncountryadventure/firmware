@@ -85,7 +85,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
     uploadQueue.setReader(this);
     setInterval(5000);
     LOG_INFO("CCA sensor gateway enabled: HOBO + moisture/PIR + environment + device -> %s", HOBO_HTTP_GATEWAY_URL);
-    LOG_INFO("CCA sensor gateway: local Home temperature held until Hidden Valley environment trigger (max %u readings)",
+    LOG_INFO("CCA sensor gateway: permanent-station readings can batch with Hidden Valley but also flush independently (max %u held readings)",
              LOCAL_HOLD_QUEUE_SIZE);
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     LOG_INFO("CCA sensor gateway: favorite-nodes-only filtering enabled");
@@ -189,14 +189,16 @@ bool HoboHttpGatewayModule::queueLocalEnvironment(float temperatureC, const char
     snprintf(job.loggerMac, sizeof(job.loggerMac), "%s", loggerMac ? loggerMac : "");
     snprintf(job.loggerModel, sizeof(job.loggerModel), "%s", loggerModel ? loggerModel : "HOBO");
 
-    // Deliberately do NOT place Home temperature on the normal upload queue.
-    // It stays here until Hidden Valley's next environmental temperature packet arrives.
+    // Hold briefly so a contemporaneous Hidden Valley packet can still coalesce the cloud work.
+    // The worker now drains this queue independently when Hidden Valley is absent, so one remote
+    // station can never block Home/Swell/Fishlake from reaching Vercel/Neon.
     if (!pendingLocalEnvironmentQueue.enqueue(job, 0)) {
         LOG_WARN("CCA sensor gateway: Home hold queue full; could not hold local environment sequence=%u", sequence);
         return false;
     }
-    LOG_INFO("CCA sensor gateway: held Home temp=%.2f C sequence=%u until Hidden Valley arrives",
+    LOG_INFO("CCA sensor gateway: held Home temp=%.2f C sequence=%u for cloud flush",
              job.temperatureC, sequence);
+    setIntervalFromNow(0);
     return true;
 }
 
@@ -304,7 +306,7 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
         return false;
     }
     if (job.from == HIDDEN_VALLEY_NODE_NUM) {
-        LOG_INFO("CCA sensor gateway: Hidden Valley temp=%.2f C arrived; queued as Home batch trigger",
+        LOG_INFO("CCA sensor gateway: Hidden Valley temp=%.2f C arrived; queued for cloud",
                  job.temperatureC);
     } else {
         LOG_INFO("CCA sensor gateway: queued environment temp=%.2f C from 0x%08lx",
@@ -477,12 +479,12 @@ bool HoboHttpGatewayModule::postBody(const String &body, uint32_t packetId, uint
     }
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
-    http.addHeader("User-Agent", "cca-heltec-sensor-gateway/2.1");
+    http.addHeader("User-Agent", "cca-heltec-sensor-gateway/2.2");
 
     const int status = http.POST(body);
     if (status >= 200 && status < 300) {
         if (readingCount > 1) {
-            LOG_INFO("CCA sensor gateway: cloud accepted %u-reading Hidden Valley/Home batch (HTTP %d)",
+            LOG_INFO("CCA sensor gateway: cloud accepted %u-reading station batch (HTTP %d)",
                      readingCount, status);
         } else {
             LOG_INFO("CCA sensor gateway: cloud accepted packet 0x%08lx (HTTP %d)",
@@ -526,22 +528,21 @@ bool HoboHttpGatewayModule::uploadHiddenValleyBatch(const UploadJob &hiddenValle
     }
     body += ']';
 
-    LOG_INFO("CCA sensor gateway: flushing Hidden Valley + %u held Home reading%s in one HTTPS POST",
+    LOG_INFO("CCA sensor gateway: flushing Hidden Valley + %u held station reading%s in one HTTPS POST",
              heldCount, heldCount == 1 ? "" : "s");
 
     if (postBody(body, hiddenValleyJob.packetId, heldCount + 1))
         return true;
 
-    // Network/cloud failure: never sacrifice the held Home history. Put each item back
-    // so the retry of Hidden Valley can attempt the same batch again.
+    // Network/cloud failure: preserve every held reading for a later independent retry.
     uint8_t restored = 0;
     for (uint8_t i = 0; i < heldCount; ++i) {
         if (pendingLocalEnvironmentQueue.enqueue(held[i], 0))
             ++restored;
         else
-            LOG_ERROR("CCA sensor gateway: failed to restore held Home sequence=%u after batch failure", held[i].sequence);
+            LOG_ERROR("CCA sensor gateway: failed to restore held station sequence=%u after batch failure", held[i].sequence);
     }
-    LOG_WARN("CCA sensor gateway: batch failed; restored %u/%u held Home readings for retry",
+    LOG_WARN("CCA sensor gateway: batch failed; restored %u/%u held station readings for retry",
              restored, heldCount);
     return false;
 }
@@ -554,16 +555,31 @@ int32_t HoboHttpGatewayModule::runOnce()
         return 5000;
 
     UploadJob job = {};
-    if (!uploadQueue.dequeue(&job, 0))
-        return 1000;
+    bool fromHeldQueue = false;
 
-    const bool uploaded = isHiddenValleyEnvironment(job) ? uploadHiddenValleyBatch(job) : upload(job);
+    if (!uploadQueue.dequeue(&job, 0)) {
+        // Reliability fallback: Home, Swell, Fishlake, and permanent-station device
+        // readings must never depend on Hidden Valley being reachable. If no normal
+        // upload is waiting, drain the held queue directly.
+        if (!pendingLocalEnvironmentQueue.dequeue(&job, 0))
+            return 1000;
+        fromHeldQueue = true;
+        LOG_INFO("CCA sensor gateway: independently flushing held station packet 0x%08lx",
+                 static_cast<unsigned long>(job.packetId));
+    }
+
+    const bool uploaded = (!fromHeldQueue && isHiddenValleyEnvironment(job))
+                              ? uploadHiddenValleyBatch(job)
+                              : upload(job);
     if (uploaded)
         return 25;
 
     if (job.retries < MAX_RETRIES) {
         ++job.retries;
-        if (uploadQueue.enqueue(job, 0)) {
+        const bool requeued = fromHeldQueue
+                                  ? pendingLocalEnvironmentQueue.enqueue(job, 0)
+                                  : uploadQueue.enqueue(job, 0);
+        if (requeued) {
             const uint32_t delayMs = 1000UL << job.retries;
             LOG_WARN("CCA sensor gateway: retry %u/%u in %lu ms",
                      job.retries, MAX_RETRIES, static_cast<unsigned long>(delayMs));
