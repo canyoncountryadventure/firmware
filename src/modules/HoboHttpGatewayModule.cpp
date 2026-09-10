@@ -120,10 +120,17 @@ bool HoboHttpGatewayModule::isDuplicate(const meshtastic_MeshPacket &mp)
         if (seen.from == from && seen.id == mp.id)
             return true;
     }
+    return false;
+}
+
+void HoboHttpGatewayModule::markProcessed(const meshtastic_MeshPacket &mp)
+{
+    if (mp.id == 0)
+        return;
+    const uint32_t from = getFrom(&mp);
     seenPackets[seenPacketIndex].from = from;
     seenPackets[seenPacketIndex].id = mp.id;
     seenPacketIndex = (seenPacketIndex + 1) % SEEN_PACKET_SLOTS;
-    return false;
 }
 
 void HoboHttpGatewayModule::fillStationName(char *dest, size_t destSize, uint32_t from)
@@ -266,6 +273,7 @@ bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
         return false;
     }
     LOG_INFO("CCA sensor gateway: queued MX2001 from 0x%08lx", static_cast<unsigned long>(job.from));
+    markProcessed(mp);
     return true;
 }
 
@@ -294,6 +302,7 @@ bool HoboHttpGatewayModule::enqueueMoisturePir(const meshtastic_MeshPacket &mp)
     }
     LOG_INFO("CCA sensor gateway: queued moisture ADC=%u + PIR from 0x%08lx",
              job.moistureAdc, static_cast<unsigned long>(job.from));
+    markProcessed(mp);
     return true;
 }
 
@@ -329,6 +338,7 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
     LOG_INFO("CCA sensor gateway: accepted remote environment packet=0x%08lx from=0x%08lx temp=%.2f C queue=%d",
              static_cast<unsigned long>(mp.id), static_cast<unsigned long>(job.from),
              job.temperatureC, uploadQueue.numUsed());
+    markProcessed(mp);
     setIntervalFromNow(0);
     return true;
 }
@@ -376,6 +386,42 @@ bool HoboHttpGatewayModule::enqueueDevice(const meshtastic_MeshPacket &mp)
     LOG_INFO("CCA sensor gateway: accepted remote device packet=0x%08lx from=0x%08lx battery=%lu%% voltage=%.3f V uptime=%lu queue=%d",
              static_cast<unsigned long>(mp.id), static_cast<unsigned long>(job.from),
              static_cast<unsigned long>(job.deviceBatteryLevel), job.deviceVoltage,
+             static_cast<unsigned long>(job.uptimeSeconds), uploadQueue.numUsed());
+    markProcessed(mp);
+    setIntervalFromNow(0);
+    return true;
+}
+
+bool HoboHttpGatewayModule::captureDeviceMetrics(const meshtastic_MeshPacket &mp,
+                                                 const meshtastic_DeviceMetrics &device)
+{
+    if (!wantPacket(&mp) || isDuplicate(mp))
+        return false;
+
+    UploadJob job = {};
+    job.type = JobType::DEVICE;
+    fillCommon(job, mp);
+    if (job.from != HIDDEN_VALLEY_NODE_NUM && job.from != FISHLAKE_NODE_NUM && job.from != SWELL_NODE_NUM)
+        return false;
+
+    job.hasDeviceBatteryLevel = device.has_battery_level;
+    job.hasDeviceVoltage = device.has_voltage;
+    job.hasChannelUtilization = device.has_channel_utilization;
+    job.hasAirUtilTx = device.has_air_util_tx;
+    job.hasUptimeSeconds = device.has_uptime_seconds;
+    job.deviceBatteryLevel = device.battery_level;
+    job.deviceVoltage = device.voltage;
+    job.channelUtilization = device.channel_utilization;
+    job.airUtilTx = device.air_util_tx;
+    job.uptimeSeconds = device.uptime_seconds;
+
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("CCA sensor gateway: decoded device queue full packet=0x%08lx", static_cast<unsigned long>(mp.id));
+        return false;
+    }
+    markProcessed(mp);
+    LOG_INFO("CCA sensor gateway: directly queued decoded device packet=0x%08lx from=0x%08lx uptime=%lu queue=%d",
+             static_cast<unsigned long>(mp.id), static_cast<unsigned long>(job.from),
              static_cast<unsigned long>(job.uptimeSeconds), uploadQueue.numUsed());
     setIntervalFromNow(0);
     return true;
