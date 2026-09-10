@@ -46,9 +46,9 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
   public:
     HoboHttpGatewayModule();
 
-    // The Home HOBO is the normal cloud batch clock. Its automatic BLE reading
-    // triggers one upload containing Home plus any held permanent remote readings.
-    // A time-based fallback flush prevents a failed Home sensor from blocking cloud data.
+    // The Home HOBO remains the preferred synchronized cloud batch clock.
+    // Permanent remote readings also safety-flush after five minutes so a
+    // Home logger/BLE problem can never strand live radio telemetry for an hour.
     bool queueLocalEnvironment(float temperatureC, const char *loggerModel, const char *loggerMac,
                                int8_t bleRssi, uint16_t sequence);
     bool queueLocalMX2001(float waterLevelFt, float temperatureF, float temperatureC,
@@ -120,8 +120,12 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     static constexpr uint8_t UPLOAD_QUEUE_SIZE = 24;
     static constexpr uint8_t LOCAL_HOLD_QUEUE_SIZE = 48;
     static constexpr uint8_t SEEN_PACKET_SLOTS = 48;
-    static constexpr uint8_t MAX_RETRIES = 4;
-    static constexpr uint32_t FALLBACK_FLUSH_MS = 70UL * 60UL * 1000UL;
+    // Eight application-level HTTP retries gives transient Vercel/network
+    // failures substantially more recovery time without changing mesh behavior.
+    static constexpr uint8_t MAX_RETRIES = 8;
+    // Home is still the preferred synchronized batch trigger, but permanent
+    // remote telemetry must reach cloud even if Home BLE/pointer tracking fails.
+    static constexpr uint32_t FALLBACK_FLUSH_MS = 5UL * 60UL * 1000UL;
 
     // Production permanent-node identities. !55a55ce8 is NOT Hidden Valley.
     static constexpr uint32_t HIDDEN_VALLEY_NODE_NUM = 3044869407UL; // !b57d051f
@@ -130,8 +134,9 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 
     bool enqueueHeld(UploadJob job, TickType_t maxWait);
 
-    // Remote environmental/device telemetry is held for the Home HOBO clock.
-    // Unrelated public Meshtastic telemetry is discarded before HTTP work.
+    // Remote environmental/device telemetry is held briefly for the Home HOBO
+    // clock, with the five-minute independent fallback above. Unrelated public
+    // Meshtastic telemetry is discarded before HTTP work.
     class SynchronizedUploadQueue : public TypedQueue<UploadJob>
     {
       public:
@@ -161,7 +166,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
             if (environmentOrDevice && !permanentRemote)
                 return true;
 
-            // Every configured remote environment/device reading waits for the Home trigger.
+            // Every configured remote environment/device reading waits briefly for
+            // the Home trigger, then the independent fallback flushes it to cloud.
             if (owner != nullptr && environmentOrDevice && permanentRemote)
                 return owner->enqueueHeld(job, maxWait);
 
