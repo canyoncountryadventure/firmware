@@ -1320,7 +1320,7 @@ int32_t HoboBleSensorModule::runOnce()
             }
 
             if (readPurpose == ReadPurpose::AUTOMATIC) {
-                if (!haveStatusBaseline || pendingWritePointer == lastWritePointer) {
+                if (statusTrackingAvailable && (!haveStatusBaseline || pendingWritePointer == lastWritePointer)) {
                     nextStatusCheckMs = now + POINTER_FINE_POLL_MS;
                     state = HoboState::READY;
                     break;
