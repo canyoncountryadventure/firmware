@@ -1,435 +1,452 @@
-# Distance Sensor Module
+# Distance Sensor Firmware
 
-This folder is the planned shared home for **field-configurable distance sensing** on both supported field platforms:
+This folder contains the first working implementation of the **field-configurable distance-sensor firmware** for the Meshtastic field network.
+
+It is built on the `field-self-recovery` foundation, so the distance code does not replace the recovery/solar work. It inherits it.
+
+Supported field platforms are:
 
 ```text
 Seeed XIAO nRF52840 + Wio-SX1262
 RAK4631 + RAK19007
 ```
 
-The goal is not to create one firmware for water and a completely different firmware for trails.
-
-The goal is to build **one distance-sensor subsystem** with:
-
-- interchangeable sensor drivers;
-- a shared calibration system;
-- a water mode;
-- a trail-counter mode;
-- persistent settings;
-- Meshtastic direct-message configuration;
-- common health and recovery behavior inherited from `field-self-recovery`.
-
-This document is written so someone who understands basic electronics but has never seen this project can follow the design.
-
----
-
-# 1. Current status
-
-This directory currently represents the **design/scaffold stage** of the distance subsystem.
-
-The recovery/power foundation is already working in the parent branch, but the full production distance drivers and application logic are the next implementation task.
-
-Do not assume a command described below is already compiled into a production image until the distance branches show the implementation and successful hardware tests.
-
-Development branches:
+The same application supports three DFRobot sensors:
 
 ```text
-distance-self-recovery-seeed
-distance-self-recovery-rak4631
+DFRobot SEN0590
+DFRobot SEN0311 / A02YYUW
+DFRobot SEN0313 / A01NYUB
 ```
 
-Canonical parent:
-
-```text
-field-self-recovery
-```
-
----
-
-# 2. First supported sensors
-
-The project begins with the three sensor models already available for physical bench testing.
-
-| Sensor | Interface | First intended role |
-|---|---|---|
-| DFRobot SEN0590 | I2C | fast trail/distance testing |
-| DFRobot SEN0311 / A02YYUW | UART | general ultrasonic distance, trail, shorter water setups |
-| DFRobot SEN0313 / A01NYUB | UART | longer-range ultrasonic water/stage work |
-
-The exact sensor range, filtering, no-echo behavior, and update rate should remain properties of the driver rather than being hard-coded into the water/trail application logic.
-
----
-
-# 3. Supported board/sensor combinations
-
-The design target is all six combinations:
-
-| Board | SEN0590 | SEN0311 / A02YYUW | SEN0313 / A01NYUB |
-|---|---|---|---|
-| Seeed XIAO nRF52840 + Wio-SX1262 | supported target | supported target | supported target |
-| RAK4631 + RAK19007 | supported target | supported target | supported target |
-
-That means field crews should not have to learn a different calibration philosophy for Seeed versus RAK.
-
-The board layer selects pins and interfaces.
-
-The shared application layer handles stage or counting.
-
----
-
-# 4. Architecture
-
-The intended structure is:
-
-```text
-DistanceSensorModule
-│
-├── configuration
-│   ├── selected mode
-│   ├── selected sensor
-│   ├── calibration values
-│   ├── trigger settings
-│   └── persistent counters
-│
-├── water application
-│   ├── raw distance
-│   ├── stage calibration
-│   ├── derived stage
-│   └── water QA/QC
-│
-├── trail application
-│   ├── clear-path calibration
-│   ├── baseline
-│   ├── blocked/clear state machine
-│   ├── hysteresis
-│   ├── fast rearm
-│   ├── daily count
-│   └── lifetime count
-│
-└── drivers
-    ├── SEN0590
-    ├── SEN0311 / A02YYUW
-    └── SEN0313 / A01NYUB
-```
-
-The shared code should ask a driver something conceptually like:
-
-```text
-read distance
-```
-
-The driver can then do whatever hardware-specific work is required.
-
-The water or trail code should not care whether the measurement came from I2C or UART.
-
----
-
-# 5. Why sensor drivers are separated
-
-Different sensors speak different electronic languages.
-
-For example:
-
-```text
-SEN0590
-  ↓
-I2C request/response
-
-SEN0311 / SEN0313
-  ↓
-UART serial frames
-```
-
-They may also differ in:
-
-- measurement range;
-- update rate;
-- invalid-value codes;
-- startup time;
-- filtering behavior;
-- no-target behavior;
-- power requirements.
-
-Those differences belong in the **driver**.
-
-The rest of the firmware should receive a normalized result such as:
-
-```text
-valid: true
-distance_mm: 1842
-quality: OK
-```
-
-or:
-
-```text
-valid: false
-error: NO_ECHO
-```
-
-That makes it possible to add another sensor later without rewriting the trail counter.
-
----
-
-# 6. Planned board wiring philosophy
-
-The project should standardize pins rather than choosing random GPIOs for every node.
-
-## Seeed
-
-Target interfaces:
-
-```text
-I2C sensor:
-  SDA → standard XIAO I2C SDA
-  SCL → standard XIAO I2C SCL
-
-UART sensor:
-  sensor TX → XIAO UART RX
-```
-
-If a sensor streams data and does not require commands, a receive-only UART connection can be enough for the first implementation.
-
-## RAK19007
-
-Target interfaces:
-
-```text
-I2C sensor:
-  use standard WisBlock I2C bus
-
-UART sensor:
-  sensor TX → RAK4631 UART RX exposed through RAK19007
-```
-
-Exact connector/pin documentation should be finalized and tested before field deployment.
-
-The architecture should permit future power-control GPIOs if a sensor can be switched off between measurements.
-
----
-
-# 7. Operating modes
-
-The planned top-level modes are:
+And the same firmware can be configured in the field for either:
 
 ```text
 MODE WATER
 MODE TRAIL
 ```
 
-Mode controls how a valid distance reading is interpreted.
-
-The underlying driver does not change its job.
-
-A distance is still a distance.
-
-What changes is what the firmware does with it.
+The important design idea is that **the sensor driver and the field application are separate**. A distance is read first. Water or trail logic decides what that distance means afterward.
 
 ---
 
-# 8. Water mode
+# 1. Current status
 
-## 8.1 What the sensor measures
+## Implemented now
 
-An overhead distance sensor measures:
+The distance branches now compile the real distance subsystem rather than the old HOBO module.
+
+Implemented features include:
+
+- common `DistanceSensorDriver` interface;
+- SEN0590 I2C driver;
+- common DFRobot UART ultrasonic parser for SEN0311/A02YYUW and SEN0313/A01NYUB;
+- sensor selection by Meshtastic direct message;
+- limited automatic sensor detection;
+- `MODE WATER`;
+- `MODE TRAIL`;
+- field water calibration with `CAL STAGE`;
+- field trail calibration with `CAL CLEAR`;
+- saved calibration across reboot/power loss;
+- configurable trail trigger and clear hysteresis;
+- two-sample blocked confirmation;
+- two-sample clear/rearm confirmation;
+- obstruction detection after a continuously blocked beam;
+- daily and lifetime trail counters;
+- calendar-day rollover when the node has valid time;
+- persistent count checkpoints;
+- raw-distance readback;
+- configurable reporting interval;
+- compact versioned private Meshtastic telemetry packets;
+- battery/device telemetry inherited from Meshtastic;
+- a distance-specific 15-minute watchdog supervisor;
+- non-destructive `RECOVER` / `REBOOT`;
+- inherited solar low-voltage protection and solar-recharge wake behavior;
+- separate CI builds for Seeed and RAK4631.
+
+## Build status
+
+Both initial implementation branches compiled successfully in GitHub Actions:
 
 ```text
-sensor → water surface
+distance-self-recovery-seeed      PASS
+distance-self-recovery-rak4631    PASS
 ```
 
-Call this:
+Compilation proves that the code integrates with the Meshtastic firmware tree for both boards.
+
+It does **not** replace bench testing. Each physical sensor still needs to be connected and tested before a field deployment is considered validated.
+
+---
+
+# 2. Branches
 
 ```text
-D = raw distance
+field-self-recovery
+    ├── distance-self-recovery-seeed
+    └── distance-self-recovery-rak4631
 ```
 
-That is not automatically stage.
+`field-self-recovery` remains the canonical recovery/solar foundation.
 
-## 8.2 Field calibration
+The distance branches add the actual distance module and board-specific build flags.
 
-The operator mounts the sensor first.
+They intentionally disable the normal GPS module and generic serial module because the distance firmware reserves the hardware UART for the ultrasonic sensor.
 
-Then the operator measures the actual water stage using a tape, staff gauge, or another trusted reference.
+---
+
+# 3. Supported sensors
+
+| Sensor | Firmware name | Interface | Nominal role in this project |
+|---|---|---|---|
+| DFRobot SEN0590 | `SEN0590` | I2C | fast close/medium-range distance and trail testing |
+| DFRobot SEN0311 / A02YYUW | `SEN0311` | UART 9600 | trail counting and shorter water installations |
+| DFRobot SEN0313 / A01NYUB | `SEN0313` | UART 9600 | longer water/stage installations, up to roughly the project's 25 ft target |
+
+The UART sensors use the same basic 4-byte frame format, so they share one parser. Model selection changes the allowed range and the model label rather than duplicating the whole UART implementation.
+
+---
+
+# 4. Driver architecture
+
+The application sees this conceptual interface:
+
+```text
+begin sensor
+read sensor
+    ↓
+DistanceReading
+    ├── status
+    ├── distance_mm
+    └── measurement time
+```
+
+A valid driver result looks conceptually like:
+
+```text
+status: OK
+distance_mm: 1842
+```
+
+An invalid result may look like:
+
+```text
+status: TIMEOUT
+```
+
+or:
+
+```text
+status: CHECKSUM
+```
+
+or:
+
+```text
+status: OUT_OF_RANGE
+```
+
+The water and trail state machines never need to decode I2C or UART themselves.
+
+---
+
+# 5. SEN0590 implementation
+
+The SEN0590 driver uses I2C address:
+
+```text
+0x74
+```
+
+The implemented measurement transaction is:
+
+```text
+write 0xB0 to register 0x10
+wait about 50 ms
+select register 0x02
+read two bytes
+combine them as a big-endian distance value
+apply the manufacturer's +10 mm compensation
+```
+
+The driver rejects values outside its configured usable range rather than treating them as real measurements.
+
+---
+
+# 6. SEN0311 / SEN0313 UART implementation
+
+The two ultrasonic UART sensors use 9600 baud and a four-byte frame:
+
+```text
+Byte 0: 0xFF
+Byte 1: distance high byte
+Byte 2: distance low byte
+Byte 3: checksum
+```
+
+The checksum must equal:
+
+```text
+(Byte0 + Byte1 + Byte2) & 0xFF
+```
+
+The distance is reconstructed as:
+
+```text
+distance_mm = (Byte1 << 8) | Byte2
+```
+
+The parser does not trust random serial bytes. It:
+
+1. searches for the `0xFF` frame header;
+2. collects the remaining bytes;
+3. verifies the checksum;
+4. applies the selected model's valid range;
+5. returns a normalized `DistanceReading`.
+
+This allows the parser to recover if it begins listening halfway through a serial frame.
+
+---
+
+# 7. Sensor selection
+
+The configured sensor type is saved persistently.
+
+Commands:
+
+```text
+SENSOR
+SENSOR AUTO
+SENSOR SEN0590
+SENSOR SEN0311
+SENSOR A02YYUW
+SENSOR SEN0313
+SENSOR A01NYUB
+```
+
+`SENSOR` reports both the saved configuration and the currently active driver.
+
+## AUTO behavior
+
+`SENSOR AUTO` currently works like this:
+
+```text
+probe I2C address 0x74
+    ↓
+if present → use SEN0590
+
+otherwise
+    ↓
+listen for a valid DFRobot UART frame
+    ↓
+if found → use generic compatible UART ultrasonic driver
+```
+
+The firmware cannot reliably distinguish SEN0311 from SEN0313 from the shared UART frame alone. If the exact model matters for range validation, set it explicitly with `SENSOR SEN0311` or `SENSOR SEN0313`.
+
+---
+
+# 8. Board wiring interfaces
+
+## Seeed XIAO nRF52840 + Wio-SX1262
+
+The Wio-SX1262 already uses several of the normal XIAO pins. The distance branch therefore reserves interfaces that do not collide with the LoRa radio.
+
+### UART ultrasonic sensors
+
+```text
+Sensor TX  → XIAO D7 / hardware UART RX
+Sensor RX  → XIAO D6 / hardware UART TX if a future command mode needs it
+GND        → GND
+Power      → appropriate sensor supply
+```
+
+Normal GPS support is disabled in this branch so GPS cannot fight the distance sensor for D6/D7.
+
+### SEN0590 I2C
+
+The default XIAO Meshtastic variant routes `Wire` to the NFC pads:
+
+```text
+SDA → D30 / NFC1
+SCL → D31 / NFC2
+```
+
+Those are intentionally used instead of D4/D5 because D4/D5 are part of the Wio-SX1262 radio wiring on the standard kit.
+
+The build already enables the NFC pins as GPIOs.
+
+## RAK4631 + RAK19007
+
+### UART ultrasonic sensors
+
+The firmware uses the RAK4631 hardware UART1 exposed through the WisBlock base:
+
+```text
+RX1 = Arduino pin 15
+TX1 = Arduino pin 16
+```
+
+The exact RAK19007 connector pins used in the physical wiring should be checked against the RAK19007 silkscreen/datasheet before soldering a field unit.
+
+### SEN0590 I2C
+
+The firmware uses the normal WisBlock I2C bus:
+
+```text
+SDA = WB_I2C1_SDA / Arduino pin 13
+SCL = WB_I2C1_SCL / Arduino pin 14
+```
+
+The distance branch is standardized on **RAK19007** for new builds.
+
+---
+
+# 9. Power note
+
+The firmware controls the communications interface; it does not magically make every supply voltage safe.
+
+Before bench wiring, verify the sensor's actual supply requirements and the logic level presented to the nRF52840.
+
+The nRF52840 GPIO logic is 3.3 V logic. Do not put an unsafe 5 V logic signal directly into a GPIO just because a sensor can itself be powered from 5 V.
+
+---
+
+# 10. Operating modes
+
+Commands:
+
+```text
+MODE WATER
+MODE TRAIL
+MODE IDLE
+```
+
+The selected mode is saved in:
+
+```text
+/prefs/distance_sensor.bin
+```
+
+It survives ordinary reboot, watchdog reset, manual recovery, and battery loss.
+
+`MODE IDLE` leaves the distance module configured but stops automatic water/trail sampling.
+
+---
+
+# 11. Water mode
+
+Water mode treats the sensor as an overhead distance measurement.
+
+The raw quantity is:
+
+```text
+D = sensor-to-water distance
+```
+
+The firmware does not assume that this is stage.
+
+## Calibration
+
+After the sensor is physically mounted, measure the real stage/depth at that moment and send it to the node.
 
 Example:
 
 ```text
-raw sensor distance = 6.83 ft
-known stage         = 1.42 ft
-```
-
-Command:
-
-```text
+MODE WATER
 CAL STAGE 1.42FT
 ```
 
-The firmware calculates:
+The firmware takes several valid sensor measurements and uses the median raw distance.
+
+Suppose:
 
 ```text
-reference = raw distance + known stage
-reference = 6.83 + 1.42
+median raw distance = 6.83 ft
+known stage         = 1.42 ft
+```
+
+It calculates and saves:
+
+```text
+reference = raw + known stage
 reference = 8.25 ft
 ```
 
-That reference is saved.
-
-Future reading:
+Future stage is:
 
 ```text
-raw distance = 5.83 ft
-reference    = 8.25 ft
-
-stage = reference - raw distance
-stage = 2.42 ft
+stage = saved reference - current raw distance
 ```
 
-## 8.3 Why this calibration method is important
+If the water rises one foot, sensor-to-water distance falls one foot and calculated stage rises one foot.
 
-The field crew does not need to know the final sensor mounting height before installation.
+## Why this is useful
 
-The sensor can be mounted where:
+The sensor can be mounted wherever the site actually allows:
 
-- the tree is stable;
-- the bridge beam is accessible;
-- the beam has a clear view of water;
-- flood debris is less likely to strike it;
-- maintenance access is practical.
+- bridge beam;
+- tree;
+- post;
+- rock anchor;
+- other stable overhead structure.
 
-After mounting, one trusted stage measurement defines the geometry.
+The final mounting height does not have to be known when the firmware is compiled.
 
-## 8.4 Calibration sampling
+## Supported calibration units
 
-`CAL STAGE` should not trust one noisy distance sample if the driver can provide multiple samples.
-
-Preferred behavior:
+Examples:
 
 ```text
-collect several valid readings
-reject obvious invalid values
-use a stable representative value such as median
-combine with known stage
-save reference
+CAL STAGE 1.42FT
+CAL STAGE 17IN
+CAL STAGE 43CM
+CAL STAGE 430MM
+CAL STAGE 0.43M
 ```
 
-The response should show the operator exactly what was saved.
+Internally the firmware stores millimeters.
 
-Example:
+## Read commands
 
 ```text
-CALIBRATION SAVED
-Sensor: SEN0313
-Raw distance used: 6.830 ft
-Known stage:       1.420 ft
-Reference:         8.250 ft
-Samples:           15
-Spread:            0.018 ft
+RAW
+READ
 ```
 
-## 8.5 Raw measurement retention
+`RAW` reports only the measured sensor distance.
 
-Telemetry should retain:
+`READ` in water mode reports raw distance and calculated stage if calibration exists.
 
-```text
-raw distance
-calculated stage
-calibration reference
-```
-
-The raw distance must never be silently replaced by stage.
-
-## 8.6 Missing calibration
-
-If the node is in water mode but has not been calibrated, it should still be able to report raw distance.
-
-It should not invent stage.
-
-Example health state:
-
-```text
-RAW: 1842 mm
-STAGE: unavailable
-STATUS: CALIBRATION_MISSING
-```
+If calibration is missing, the firmware reports the raw measurement and explicitly says stage is not calibrated. It does not invent a stage value.
 
 ---
 
-# 9. Water QA/QC
+# 12. Trail mode
 
-Potential checks include:
+Trail mode samples distance locally and turns a blocked beam into a single pass event.
 
-## No echo / no target
-
-If the ultrasonic sensor does not return a valid target, report:
+Example geometry:
 
 ```text
-NO_ECHO
+sensor  ------------------------------ opposite side
+                 trail
 ```
 
-Do not reuse the previous stage as though it were a new reading.
+The normal empty-trail distance is learned after installation.
 
-## Out of range
+## Clear-path calibration
 
-If a value falls outside the valid range for that sensor model:
-
-```text
-OUT_OF_RANGE
-```
-
-## Excessive sample spread
-
-If a calibration set or normal measurement set varies too widely, flag it:
+With nobody in the beam:
 
 ```text
-NOISY
-```
-
-## Implausible jump
-
-A sudden large stage change may be real during a flash flood, so the firmware should be careful about rejecting it.
-
-The preferred approach is:
-
-```text
-preserve raw reading
-flag questionable jump
-let downstream QA/QC decide whether it is real
-```
-
-This is safer than deleting unusual hydrologic events automatically.
-
----
-
-# 10. Trail mode
-
-Trail mode turns a stream of distance measurements into discrete pass events.
-
-The sensor is mounted on one side of the trail and looks across it.
-
-Example:
-
-```text
-sensor  ---------------------------------- opposite side
-                empty trail
-```
-
-The empty-trail reading becomes the baseline.
-
----
-
-# 11. `CAL CLEAR`
-
-The preferred field command is:
-
-```text
+MODE TRAIL
 CAL CLEAR
 ```
 
-The operator makes sure the trail is empty.
+The firmware collects multiple valid readings, sorts them, and stores the median as the baseline.
 
-The firmware takes many clear-path samples.
-
-Example samples:
+Example:
 
 ```text
 1575 mm
@@ -437,567 +454,519 @@ Example samples:
 1577 mm
 1576 mm
 1579 mm
+
+saved baseline = 1577 mm
 ```
 
-The firmware saves a stable baseline, for example:
-
-```text
-baseline = 1577 mm
-```
-
-This is better than typing only the tape-measured trail width because it reflects the actual sensor beam and mounting angle.
-
-A manual baseline command may still be useful for testing, but `CAL CLEAR` should be the normal field workflow.
+That is more useful than trusting only a tape measurement because it captures the actual sensor angle and target surface.
 
 ---
 
-# 12. Trail trigger logic
+# 13. Trail trigger and hysteresis
 
-The counter should not count every reading slightly below baseline.
-
-Instead:
+Defaults are approximately:
 
 ```text
-trigger threshold = baseline - trigger_delta
+TRIGGER = 12 in closer than baseline
+CLEAR   =  6 in closer than baseline
 ```
 
-Example:
+Commands:
 
 ```text
-baseline      = 1577 mm
-trigger delta = 305 mm  (~12 in)
-trigger point = 1272 mm
+TRIGGER 12IN
+CLEAR 6IN
 ```
 
-Only a substantial intrusion into the beam should start a pass event.
+The trigger value must be larger than the clear value.
+
+Example with a 1577 mm baseline:
+
+```text
+trigger delta = 305 mm
+blocked below = 1272 mm
+
+clear delta   = 152 mm
+clear above   = 1425 mm
+```
+
+That gap is hysteresis. It prevents one noisy person/object near the threshold from rapidly switching between blocked and clear.
 
 ---
 
-# 13. Hysteresis
+# 14. Trail counting state machine
 
-The blocked threshold and clear threshold should be different.
-
-Example:
+The implemented logic is:
 
 ```text
-baseline:       1577 mm
-blocked below:  1272 mm
-clear above:    1425 mm
-```
-
-Why?
-
-Without hysteresis, noisy readings near one threshold could cause:
-
-```text
-BLOCKED
 CLEAR
+  │
+  │ two consecutive measurements below block threshold
+  ▼
 BLOCKED
-CLEAR
-BLOCKED
+  │
+  ├── increment daily count once
+  ├── increment lifetime count once
+  └── remember minimum distance during event
+  │
+  │ two consecutive measurements above clear threshold
+  ▼
+CLEAR / ARMED AGAIN
 ```
 
-for one person.
+The important behavior is:
 
-Hysteresis makes the state machine stable.
+```text
+one person blocks beam for 0.3 s → one count
+one person blocks beam for 5 s   → one count
+```
+
+It does not count every sample while the beam is blocked.
+
+The normal trail sampling loop runs at approximately 100 ms between module iterations. Actual effective rate also depends on the physical sensor's response time.
 
 ---
 
-# 14. Trail state machine
+# 15. Obstruction detection
 
-The intended logic is approximately:
-
-```text
-STATE: CLEAR
-    │
-    │ several consecutive blocked samples
-    ▼
-STATE: BLOCKED
-    │
-    │ count event exactly once
-    ▼
-STATE: WAITING_FOR_CLEAR
-    │
-    │ several consecutive clear samples
-    ▼
-STATE: CLEAR
-```
-
-The system counts the **transition/event**, not every raw sample.
-
-This means:
-
-```text
-person blocks beam for 0.3 s → one count
-person blocks beam for 5 s   → one count
-```
-
-The node must not count 50 people just because one person stood still in front of a 10 Hz sensor.
-
----
-
-# 15. Fast rearm
-
-The project specifically wants to avoid the long fixed hold times seen with earlier PIR trail testing.
-
-The distance counter should rearm when the beam actually clears.
-
-Target behavior:
-
-```text
-blocked
-  ↓
-person leaves beam
-  ↓
-2–3 valid clear samples
-  ↓
-armed again
-```
-
-With a sufficiently fast sensor and sensible filtering, rearm may be possible in a few hundred milliseconds.
-
-The exact value should be proven on the bench with real passes rather than guessed.
-
----
-
-# 16. Consecutive-sample confirmation
-
-One noisy measurement should not create a person.
-
-A reasonable initial design is:
-
-```text
-require 2 or 3 blocked samples before declaring BLOCKED
-require 2 or 3 clear samples before declaring CLEAR
-```
-
-The exact number may be sensor-specific because SEN0590 and the ultrasonic sensors can have different update behavior.
-
-This is a good example of why the shared state machine should accept driver timing information instead of assuming every sensor behaves identically.
-
----
-
-# 17. Obstruction handling
-
-A permanent obstruction is different from a person passing through.
-
-Possible causes:
-
-```text
-fallen branch
-snow
-vegetation
-animal standing nearby
-rock or debris
-sensor knocked out of alignment
-```
-
-If the beam stays blocked for an unusually long time, the firmware should flag:
+If the node remains in the blocked state for about 30 seconds, it flags:
 
 ```text
 OBSTRUCTION
 ```
 
-It should not silently redefine the obstruction as the new baseline.
+Possible causes include:
 
-Automatic silent recalibration would make bad data look good.
+- branch;
+- snow;
+- vegetation;
+- animal;
+- debris;
+- sensor knocked out of alignment.
 
----
+The firmware does **not** silently relearn that obstruction as the new baseline.
 
-# 18. Counters
-
-Trail mode should keep at least:
-
-```text
-count_today
-count_total
-```
-
-Potential future fields:
-
-```text
-count_since_boot
-last_event_time
-last_event_duration
-minimum_distance_last_event
-maximum_events_per_minute
-```
-
-Persistent counters must survive normal reboot and battery loss.
-
-Counter storage should be designed carefully so flash is not written excessively on every high-rate sensor sample.
+Recalibration requires an explicit operator command.
 
 ---
 
-# 19. Local sampling versus LoRa transmission
+# 16. Trail counters
 
-Trail detection may require fast local sampling.
-
-Example:
+Command:
 
 ```text
-10–20 sensor samples per second
+COUNT
 ```
 
-That does **not** mean 10–20 LoRa packets per second.
-
-LoRa airtime is limited and shared with the mesh.
-
-The correct model is:
+Reports:
 
 ```text
-fast local sampling
-       ↓
-local event detection
-       ↓
-update local counters
-       ↓
-transmit compact event or periodic summary
+Daily
+Lifetime
+CLEAR/BLOCKED state
+Obstruction state
+Clock synchronization state
 ```
 
-Water mode can normally sample and transmit much more slowly.
+Reset only the daily count:
 
-This distinction is essential for a scalable network.
+```text
+RESET DAILY
+```
+
+Reset both daily and lifetime counts:
+
+```text
+RESET COUNT
+```
+
+The firmware uses Meshtastic's RTC time when valid. A UTC day number is saved with the count. When a new valid UTC day is detected, `dailyCount` resets automatically while `lifetimeCount` continues.
+
+If the node does not yet have valid time, it reports the clock as unsynchronized rather than pretending that a calendar rollover is known.
+
+## Flash-write compromise
+
+The live count increments in RAM immediately.
+
+To reduce unnecessary flash wear, count state is checkpointed after several events and again at periodic telemetry reports. This means a sudden hard power loss immediately after a few new events could theoretically lose a small number of not-yet-checkpointed counts. That tradeoff can be changed later after field traffic volume is known.
 
 ---
 
-# 20. Planned commands
+# 17. Reporting interval
 
-The exact parser is not final, but the desired operator experience is:
+Command examples:
 
-## General
+```text
+INTERVAL 30SEC
+INTERVAL 5MIN
+INTERVAL 15MIN
+INTERVAL 1HR
+```
+
+Allowed range in the first implementation is approximately 5 seconds through 24 hours.
+
+In water mode, the interval controls automatic measurement/report timing.
+
+In trail mode, local detection continues rapidly, but compact summary telemetry is sent only at the reporting interval.
+
+This prevents high-rate trail sampling from flooding the LoRa mesh.
+
+---
+
+# 18. Automatic telemetry packet
+
+Distance telemetry uses Meshtastic `PRIVATE_APP` with a compact versioned binary packet.
+
+Current packet length:
+
+```text
+24 bytes
+```
+
+Layout:
+
+| Byte(s) | Meaning |
+|---|---|
+| 0–1 | ASCII `DS` magic |
+| 2 | packet version, currently `1` |
+| 3 | mode: idle/water/trail |
+| 4 | active sensor type |
+| 5 | flags |
+| 6–7 | little-endian sequence number |
+| 8–11 | raw distance in mm, or zero if invalid |
+| 12–15 | water: signed stage mm; trail: daily count |
+| 16–19 | water: signed calibration reference mm; trail: lifetime count |
+| 20–23 | Unix time when valid, otherwise zero |
+
+Flag bits currently represent:
+
+```text
+bit 0 = raw reading valid
+bit 1 = application calibration valid
+bit 2 = obstruction active
+bit 3 = timestamp valid
+bit 4 = event flag/reserved event indication
+```
+
+Water stage is stored as a signed 32-bit integer because a valid local datum could produce a stage below zero.
+
+The packet deliberately carries raw distance separately from derived stage.
+
+## Important cloud status
+
+The field firmware can now transmit this packet through Meshtastic.
+
+The Heltec/Vercel/Neon cloud gateway still needs a distance-packet decoder before these `DS` packets become first-class water/trail records in the web dashboard.
+
+Do not confuse **mesh transmission working** with **cloud ingestion already implemented**.
+
+---
+
+# 19. Manual telemetry test
+
+Command:
+
+```text
+TELEMETRY NOW
+```
+
+The node performs a fresh distance read and queues a `DS` packet immediately.
+
+This is useful for packet sniffing and gateway development.
+
+---
+
+# 20. Persistent configuration
+
+Saved values include:
+
+```text
+schema magic/version
+selected sensor
+selected mode
+water calibration reference
+trail baseline
+trail trigger delta
+trail clear delta
+report interval
+daily count
+lifetime count
+UTC day key when known
+```
+
+The file includes a checksum. Invalid or incompatible saved data is ignored instead of being trusted blindly.
+
+Normal recovery must preserve this file.
+
+---
+
+# 21. Self-recovery
+
+Distance nodes use `DistanceSelfRecoveryModule` rather than the HOBO-specific BLE recovery module.
+
+That distinction is important.
+
+The HOBO recovery module actively manages Bluetooth scanning because HOBO loggers use BLE.
+
+These distance sensors use I2C/UART, so the distance recovery supervisor does **not** manipulate the BLE scanner.
+
+Implemented recovery commands:
+
+```text
+PING
+WAKE
+VERSION
+UPTIME
+POWER
+BATTERY
+WATCHDOG
+RECOVER
+REBOOT
+```
+
+The supervisor uses the same conservative philosophy as the HOBO field firmware:
+
+- approximately 15-minute nRF52840 watchdog;
+- do not steal watchdog ownership if something else already owns it;
+- safe reboot after sending the reply;
+- no NVS erase;
+- preserve node identity;
+- preserve channels/keys;
+- preserve calibration;
+- preserve saved counts.
+
+---
+
+# 22. Solar behavior inherited from the parent branch
+
+The distance branches inherit the validated power changes from `field-self-recovery`.
+
+## Seeed
+
+The XIAO build retains:
+
+- safer low-voltage battery curve ending around 3.40 V;
+- nRF52 LPCOMP battery-rise wake configuration;
+- ability to wake from deep SYSTEM OFF after solar recharge reaches the configured recovery threshold.
+
+## RAK4631
+
+The RAK build retains:
+
+- existing RAK battery LPCOMP wake source;
+- safer low-voltage margin around 3.40 V;
+- the normal RAK recovery behavior.
+
+Distance development must not remove those protections.
+
+---
+
+# 23. Direct-message command reference
+
+## General sensor/application commands
 
 ```text
 HELP
 STATUS
 HEALTH
-VERSION
-POWER
-BATTERY
 SENSOR
+SENSOR AUTO
+SENSOR SEN0590
+SENSOR SEN0311
+SENSOR SEN0313
+MODE WATER
+MODE TRAIL
+MODE IDLE
 RAW
 READ
-STATS
+TELEMETRY NOW
+```
+
+## Calibration
+
+```text
+CAL STAGE 1.42FT
+CAL CLEAR
+CAL RESET
+```
+
+## Trail tuning
+
+```text
+TRIGGER 12IN
+CLEAR 6IN
+COUNT
+RESET DAILY
+RESET COUNT
+```
+
+## Reporting
+
+```text
+INTERVAL 30SEC
+INTERVAL 5MIN
+INTERVAL 1HR
+```
+
+## Recovery / power
+
+```text
+PING
+VERSION
+UPTIME
+POWER
+BATTERY
+WATCHDOG
 RECOVER
 REBOOT
 ```
 
-## Mode
+Commands are intended as direct Meshtastic messages to the field node.
+
+---
+
+# 24. Example water installation
+
+A field deployment can eventually look like this:
 
 ```text
-MODE
-MODE WATER
-MODE TRAIL
+1. Mount radio, antenna, solar, battery and distance sensor.
+2. Aim the sensor at a stable patch of water surface.
+3. Connect to the node through Meshtastic.
+4. Send SENSOR SEN0313.
+5. Send MODE WATER.
+6. Send RAW several times.
+7. Verify the readings match the approximate tape-measured sensor-to-water distance.
+8. Measure current stage with the trusted field reference.
+9. Send CAL STAGE 1.42FT.
+10. Send READ.
+11. Verify the returned stage matches the field measurement.
+12. Send POWER.
+13. Send WATCHDOG.
+14. Set INTERVAL to the desired reporting interval.
+15. Send TELEMETRY NOW and confirm the packet is heard elsewhere on the mesh.
 ```
 
-## Sensor
+Do not leave the site based only on one plausible number. Compare the sensor to a physical measurement.
 
-Possible configuration forms:
+---
 
-```text
-SENSOR
-SENSOR SEN0590
-SENSOR SEN0311
-SENSOR SEN0313
-```
-
-Automatic detection may be possible for some hardware, but explicit sensor selection must remain available when two models use similar interfaces/protocols.
-
-## Water
+# 25. Example trail installation
 
 ```text
-CAL
-CAL STAGE 1.42FT
-CAL STAGE 17IN
-CAL RESET
-STAGE
-INTERVAL 15MIN
-```
-
-## Trail
-
-```text
-CAL CLEAR
-BASELINE
-TRIGGER 12IN
-COUNT
-COUNT TODAY
-COUNT TOTAL
-RESET COUNT
+1. Mount sensor on one side of trail.
+2. Aim at a stable opposite target.
+3. Keep people out of the beam.
+4. Send SENSOR SEN0590 or the installed ultrasonic model.
+5. Send MODE TRAIL.
+6. Send RAW several times.
+7. Confirm the empty-trail distance is stable.
+8. Send CAL CLEAR.
+9. Send COUNT.
+10. Walk through once.
+11. Send COUNT and verify +1.
+12. Stand in the beam several seconds; verify it adds only one pass.
+13. Clear the beam and pass again quickly; verify it rearms.
+14. Test two people close together.
+15. Adjust TRIGGER/CLEAR only if bench/field evidence says the defaults are wrong.
+16. Send POWER and WATCHDOG.
+17. Set the summary INTERVAL.
 ```
 
 ---
 
-# 21. Unit handling
+# 26. What still needs physical validation
 
-Field users should be able to enter human-friendly units.
+The code now compiles, but the following must be bench-tested with the actual hardware before calling the firmware production-ready:
 
-Potential accepted forms:
+- SEN0590 I2C electrical wiring on Seeed;
+- SEN0590 I2C electrical wiring on RAK19007;
+- SEN0311 frame timing on Seeed;
+- SEN0311 frame timing on RAK4631;
+- SEN0313 frame timing on both boards;
+- sensor supply current from the intended field power rail;
+- exact behavior when target disappears;
+- sunlight/water-surface behavior for ultrasonic water deployment;
+- beam width and mounting-angle effects;
+- trail detection speed;
+- two people walking close together;
+- person standing in beam;
+- vegetation moving through the beam;
+- count persistence across sudden battery removal;
+- water calibration persistence across reboot;
+- watchdog recovery;
+- solar low-battery shutdown and automatic recharge wake;
+- `DS` packet reception through the actual mesh path.
 
-```text
-1.42FT
-1.42 FT
-17IN
-17 IN
-430MM
-43CM
-```
-
-Internally, the firmware should use one consistent unit, preferably integer millimeters where practical.
-
-Example:
-
-```text
-user enters: 1.42 ft
-parser converts to: 433 mm
-saved calibration uses: mm
-reply can display: ft + mm if desired
-```
-
-Using a single internal unit reduces floating-point and conversion mistakes.
+Compilation is milestone one. Hardware validation is milestone two.
 
 ---
 
-# 22. Persistent configuration
+# 27. Data-integrity rules
 
-Distance configuration should survive:
+The firmware follows these rules:
 
-```text
-normal reboot
-watchdog reset
-manual RECOVER
-battery disconnect
-low-battery SYSTEM OFF
-solar recharge wake
-normal firmware update
-```
-
-Potential saved structure includes:
-
-```text
-schema_version
-mode
-sensor_type
-water_reference_mm
-trail_baseline_mm
-trail_trigger_delta_mm
-trail_clear_delta_mm
-sample_confirmation_count
-count_today
-count_total
-last_reset_date/time if valid clock exists
-```
-
-A future versioned schema is strongly preferred so firmware updates can migrate old settings safely.
+1. **Keep raw distance.** Derived stage never replaces it.
+2. **Do not fabricate readings.** A timeout is a timeout.
+3. **Do not silently recalibrate.** Field calibration requires an explicit command.
+4. **Keep calibration persistent.** A watchdog reboot should not change station geometry.
+5. **Use hysteresis for trail detection.** One noisy threshold should not create repeated people.
+6. **Do not send every trail sample over LoRa.** Fast sampling stays local.
+7. **Version the telemetry packet.** Future gateway code can decode old/new packet formats safely.
+8. **Preserve Meshtastic configuration.** Recovery is not a factory reset.
 
 ---
 
-# 23. Data integrity
-
-## Preserve raw data
-
-Every derived water value should be traceable back to raw distance.
-
-## Do not fabricate missing values
-
-If the sensor fails:
+# 28. Source layout
 
 ```text
-sensor = failed
-```
-
-is better than copying the previous good value and pretending it is new.
-
-## Flag unusual values
-
-A flash flood can create a real extreme change.
-
-Do not automatically delete unusual hydrologic data just because it looks surprising.
-
-## Keep calibration visible
-
-Remote `STATUS` or `CAL` should be able to report the active calibration/reference so a field operator can audit what the node is doing.
-
----
-
-# 24. Telemetry examples
-
-## Water packet concept
-
-```text
-node: Creek A
-mode: water
-sensor: SEN0313
-raw_distance_mm: 1777
-stage_mm: 738
-reference_mm: 2515
-sensor_status: OK
-battery_mv: 3970
-battery_percent: 72
-observed_at: <timestamp>
-```
-
-## Trail packet concept
-
-```text
-node: Trail Counter 1
-mode: trail
-sensor: SEN0590
-count_today: 37
-count_total: 1842
-baseline_mm: 1577
-last_event_min_mm: 820
-sensor_status: OK
-battery_mv: 4010
-battery_percent: 78
-observed_at: <timestamp>
-```
-
-Exact protobuf/custom payload format will be decided during implementation.
-
----
-
-# 25. Recovery inheritance
-
-Distance firmware should reuse the parent branch's recovery behavior rather than implementing another watchdog or another solar system.
-
-Inherited concepts include:
-
-```text
-hardware watchdog
-safe reboot
-battery telemetry
-Seeed solar wake
-RAK comparator wake
-low-voltage safety margin
-persistent settings
-non-destructive update rules
-remote health diagnostics
-```
-
-If the distance module starts directly writing watchdog registers or erasing configuration, the layer separation has been violated.
-
----
-
-# 26. Bench-test plan
-
-A distance build should not be called field-ready until it passes real sensor tests.
-
-## Sensor basics
-
-```text
-sensor disconnected at boot
-sensor connected at boot
-sensor unplugged while running
-sensor plugged back in
-invalid frame/no echo
-maximum practical distance
-minimum practical distance
-```
-
-## Water calibration
-
-```text
-CAL STAGE with known distance
-reboot
-verify calibration retained
-change simulated water level
-verify stage math
-no echo
-noisy water surface
-extreme but valid stage change
-CAL RESET
-```
-
-## Trail counting
-
-```text
-one slow walker
-one fast walker
-two people close together
-person stops in beam
-person backs out
-small object/noise
-vegetation movement
-permanent obstruction
-reboot with saved count
-battery cycle with saved count
-```
-
-## Recovery
-
-```text
-manual RECOVER
-watchdog reset if safely testable
-battery removal
-low-voltage behavior
-solar recharge wake
-```
-
-## Network
-
-```text
-local sensor read
-Meshtastic transmission
-relay path
-gateway receipt
-cloud/database receipt when enabled
+src/modules/Telemetry/DistanceSensor/
+├── DistanceSensorDriver.h
+│   └── common sensor-driver contract
+│
+├── DistanceSensorDrivers.h
+├── DistanceSensorDrivers.cpp
+│   ├── SEN0590 I2C implementation
+│   └── DFRobot UART ultrasonic implementation
+│
+├── DistanceSensorModule.h
+├── DistanceSensorModule.cpp
+│   ├── commands
+│   ├── persistence
+│   ├── water calibration/stage
+│   ├── trail state machine
+│   ├── counters
+│   └── DS telemetry packets
+│
+├── DistanceSelfRecovery.h
+├── DistanceSelfRecovery.cpp
+│   └── watchdog/power/recovery commands without HOBO BLE logic
+│
+└── README.md
 ```
 
 ---
 
-# 27. Field installation examples
+# 29. Definition of field-ready
 
-## Water
+A distance firmware build should not be called field-ready merely because it compiles.
 
-```text
-1. Mount sensor securely above water.
-2. Confirm beam is not hitting bridge structure, branches, or bank.
-3. Power node.
-4. DM STATUS.
-5. DM SENSOR.
-6. DM MODE WATER.
-7. DM RAW.
-8. Measure true stage with tape/staff gauge.
-9. DM CAL STAGE <value>.
-10. DM READ.
-11. Compare returned stage with field measurement.
-12. Reboot/recover once.
-13. Verify calibration persisted.
-14. Verify remote telemetry path.
-```
-
-## Trail
+For a specific board + sensor combination, field-ready means:
 
 ```text
-1. Mount sensor at chosen height and angle.
-2. Make sure opposite side produces a stable clear return.
-3. Power node.
-4. DM STATUS.
-5. DM SENSOR.
-6. DM MODE TRAIL.
-7. Clear the trail.
-8. DM CAL CLEAR.
-9. Walk through the beam repeatedly.
-10. Verify one count per pass.
-11. Test two close passes.
-12. Stand in the beam and confirm only one count.
-13. Clear the beam and confirm quick rearm.
-14. Reboot.
-15. Confirm baseline and counts persisted.
-16. Verify remote telemetry path.
+build passes
+sensor communicates repeatedly
+RAW agrees with a tape-measured distance
+calibration survives reboot
+mode survives reboot
+battery telemetry works
+watchdog is active
+RECOVER preserves settings
+LoRa telemetry is received by another node
+solar recovery works on the intended power system
+application-specific test passes
 ```
 
----
+For trail mode, the application-specific test includes real people at realistic spacing.
 
-# 28. Design rule for future sensors
-
-When adding another distance sensor, the preferred question is:
-
-> **Can this new sensor be made to return the same normalized distance/error structure to the shared application?**
-
-If yes, add a new driver.
-
-Do not create a new copy of `WaterStage.cpp` or `TrailCounter.cpp` just because the wire protocol changed.
-
-That is the central maintainability goal of this subsystem.
+For water mode, it includes multiple known distances/stages over the useful range.
