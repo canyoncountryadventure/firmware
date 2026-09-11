@@ -53,6 +53,7 @@ class DistanceSensorModule : public SinglePortModule, private concurrency::OSThr
     DistanceSensorType activeType = DistanceSensorType::NONE;
     PersistentConfig cfg = {};
 
+    bool moduleInitialized = false;
     DistanceReading latestReading = {};
     int32_t latestStageMm = 0;
     bool latestStageValid = false;
@@ -64,6 +65,7 @@ class DistanceSensorModule : public SinglePortModule, private concurrency::OSThr
     uint32_t lastEventMinDistanceMm = 0;
     uint32_t lastReportMs = 0;
     uint32_t lastWaterReadMs = 0;
+    uint32_t lastSensorAttemptMs = 0;
     uint32_t sensorReadErrors = 0;
     uint32_t sensorReadSuccesses = 0;
     uint16_t telemetrySequence = 0;
