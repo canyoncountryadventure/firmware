@@ -45,9 +45,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
   public:
     HoboHttpGatewayModule();
 
-    // Local sensor modules use the same proven HTTP gateway as mesh-received data.
-    // Local environmental temperature is deliberately held until the next Hidden Valley
-    // environmental packet so both stations can be posted in one HTTPS batch / Neon wake window.
+    // Local BLE HOBO readers call these. Every reading is queued immediately.
     bool queueLocalEnvironment(float temperatureC, const char *loggerModel, const char *loggerMac,
                                int8_t bleRssi, uint16_t sequence);
     bool queueLocalMX2001(float waterLevelFt, float temperatureF, float temperatureC,
@@ -81,7 +79,6 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t from;
         uint32_t timestamp;
 
-        // HOBO / environmental temperature
         uint16_t sequence;
         uint16_t temperatureRaw;
         float waterLevelFt;
@@ -91,7 +88,6 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         char loggerModel[12];
         bool localBleSensor;
 
-        // Legacy RK wire packet: sandstone moisture + PIR
         uint16_t moistureAdc;
         uint16_t moistureSensorMv;
         uint32_t motionCount;
@@ -99,7 +95,6 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint8_t batteryPercent;
         bool motionDetected;
 
-        // Native Meshtastic device telemetry
         bool hasDeviceBatteryLevel;
         bool hasDeviceVoltage;
         bool hasChannelUtilization;
@@ -119,14 +114,11 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t id;
     };
 
-    static constexpr uint8_t UPLOAD_QUEUE_SIZE = 24;
-    static constexpr uint8_t LOCAL_HOLD_QUEUE_SIZE = 20;
-    static constexpr uint8_t SEEN_PACKET_SLOTS = 48;
-    static constexpr uint8_t MAX_RETRIES = 4;
-    static constexpr uint32_t HIDDEN_VALLEY_NODE_NUM = 1436900584UL; // !55a55ce8
+    static constexpr uint8_t UPLOAD_QUEUE_SIZE = 32;
+    static constexpr uint8_t SEEN_PACKET_SLOTS = 64;
+    static constexpr uint8_t MAX_RETRIES = 6;
 
     TypedQueue<UploadJob> uploadQueue;
-    TypedQueue<UploadJob> pendingLocalEnvironmentQueue;
     SeenPacket seenPackets[SEEN_PACKET_SLOTS] = {};
     uint8_t seenPacketIndex = 0;
     uint32_t localPacketCounter = 0;
@@ -139,11 +131,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     void fillCommon(UploadJob &job, const meshtastic_MeshPacket &mp);
     void fillLocalCommon(UploadJob &job, uint16_t sequence);
     void fillStationName(char *dest, size_t destSize, uint32_t from);
-    bool isHiddenValleyEnvironment(const UploadJob &job) const;
     String serializeJob(const UploadJob &job) const;
-    bool postBody(const String &body, uint32_t packetId, uint8_t readingCount);
     bool upload(const UploadJob &job);
-    bool uploadHiddenValleyBatch(const UploadJob &hiddenValleyJob);
 };
 
 extern HoboHttpGatewayModule *hoboHttpGatewayModule;
