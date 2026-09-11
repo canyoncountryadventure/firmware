@@ -4,11 +4,19 @@
 
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
 
-// Compatibility router for the existing Meshtastic module hook.
-// The production implementation for this branch lives under the correctly
-// named three-model folder below.
 #include "modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.h"
+#include "modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.h"
 
-using HOBOMX2201MX2001TelemetryModule = HOBOMX2001MX2201MX2203TelemetryModule;
+// Keep the proven universal HOBO reader as the primary module and attach a
+// separate non-destructive supervisor for watchdog, BLE power tuning, health
+// diagnostics and remote recovery commands.
+class HOBOMX2201MX2001TelemetryModule : public HOBOMX2001MX2201MX2203TelemetryModule
+{
+  public:
+    HOBOMX2201MX2001TelemetryModule() : HOBOMX2001MX2201MX2203TelemetryModule()
+    {
+        new HOBOSelfRecoveryModule();
+    }
+};
 
 #endif
