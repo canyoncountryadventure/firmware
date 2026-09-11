@@ -8,6 +8,10 @@ on:
 
 permissions: read-all
 
+concurrency:
+  group: field-self-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
