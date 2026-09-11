@@ -1,345 +1,156 @@
-# HOBO Peak Node — Seeed Self-Recovery Firmware
+# Meshtastic Field Self-Recovery Firmware
 
-![Board](https://img.shields.io/badge/board-Seeed%20XIAO%20nRF52840-0A7F5A)
-![Radio](https://img.shields.io/badge/radio-Wio--SX1262%20%2F%20Meshtastic-6A5ACD)
-![HOBO](https://img.shields.io/badge/HOBO-MX2001%20%7C%20MX2201%20%7C%20MX2203-1F6FEB)
-![Recovery](https://img.shields.io/badge/self--recovery-enabled-success)
-![Watchdog](https://img.shields.io/badge/watchdog-15%20minute%20nRF52-orange)
-![BLE](https://img.shields.io/badge/BLE%20scan-10%25%20duty-informational)
-
-> **Branch:** `hobo-self-recovery-seeed`
+> **Canonical development baseline:** `field-self-recovery`
 >
-> **Target:** Seeed XIAO nRF52840 Kit + Wio-SX1262
->
-> **Mission:** read an Onset HOBO logger, transmit every real logged record over Meshtastic, survive unattended operation, and give you enough remote commands to avoid hiking back to a peak for routine failures.
+> **Purpose:** unattended nRF52 field nodes that must survive solar/battery cycling, BLE failures, sensor failures, and long remote deployments without destructive resets.
 
-This branch is the hardened Seeed field-node build for remote environmental stations. It keeps the proven universal HOBO protocol implementation intact and adds a separate non-destructive recovery supervisor around it.
+This repository contains custom Meshtastic firmware for environmental monitoring, trail counters, and remote sensor nodes. The `field-self-recovery` branch is the common starting point for new field firmware.
 
-The design goal is simple:
+## Canonical hardware targets
 
-**If the logger, BLE stack, or firmware has a recoverable problem, the node should either fix itself or tell you enough over Meshtastic to fix it remotely.**
+- **Seeed XIAO nRF52840 + Wio-SX1262**
+- **RAK4631 on RAK19007** for new WisBlock field deployments
 
----
+Existing Meshtastic RAK4631 board support remains compatible with other supported WisBlock bases, but new distance-sensor work in this project is standardized on RAK19007.
 
-## Architecture
+## Recovery / solar baseline
+
+The canonical field baseline carries the protections validated in the September 2026 recovery builds:
+
+- nRF52840 hardware watchdog
+- non-destructive remote `RECOVER` / `REBOOT`
+- low-duty BLE disconnected-state recovery
+- automatic long-disconnect BLE-stack reboot
+- persistent field configuration
+- battery/device telemetry support
+- safer low-voltage margin for solar nodes
+- Seeed LPCOMP battery-rise wake from SYSTEM OFF after solar recharge
+- RAK LPCOMP wake retained with safer low-voltage handling
+- recovery actions preserve NVS, node identity, NodeDB, channels, keys, and saved sensor configuration
+
+The recovery supervisor is intentionally separated from sensor protocol code. A new sensor project should inherit this baseline instead of reimplementing recovery.
+
+See [`FIELD_SELF_RECOVERY.md`](FIELD_SELF_RECOVERY.md) for the canonical baseline details.
+
+## Current validated HOBO support
+
+The recovery baseline was developed around the existing universal HOBO reader and supports:
+
+- Onset MX2001
+- Onset MX2201
+- Onset MX2203
+
+Automatic HOBO telemetry follows the logger write pointer and `NEWREAD64` rather than pretending the radio interval is the logger interval. Manual `READ` does not consume the automatic pointer.
+
+### Existing production source lines
+
+- `hobo-self-recovery-seeed` — validated Seeed recovery + solar-wake build
+- `hobo-self-recovery-rak4631` — validated RAK4631 recovery + solar-safe build
+- `heltec-gateway-clean-rebuild` — Heltec V4 internet/cloud gateway
+
+These remain useful immutable reference/deployment lines. New field development should branch from `field-self-recovery`.
+
+## Distance-sensor development
+
+New distance work lives under:
 
 ```text
-┌───────────────────────────┐
-│ Onset HOBO logger         │
-│ MX2001 / MX2201 / MX2203 │
-└─────────────┬─────────────┘
-              │ BLE
-              │ STATUS + NEWREAD64
-              ▼
-┌───────────────────────────┐
-│ Seeed XIAO nRF52840       │
-│ + Wio-SX1262              │
-│                           │
-│ Universal HOBO reader     │
-│ Self-recovery supervisor  │
-│ DM diagnostics            │
-│ Persistent logger lock    │
-└─────────────┬─────────────┘
-              │ Meshtastic
-              ▼
-┌───────────────────────────┐
-│ Mesh / gateway / cloud    │
-└───────────────────────────┘
+src/modules/Telemetry/DistanceSensor/
 ```
 
-There is **no blind radio timer pretending to be the logger interval**. The node follows the HOBO itself.
+Development branches:
 
----
+- `distance-self-recovery-seeed`
+- `distance-self-recovery-rak4631`
 
-# Core guarantees
+Initial sensor support is planned for:
 
-This branch is intentionally conservative about the things that matter in the field.
+- DFRobot **SEN0590** — I2C
+- DFRobot **SEN0311 / A02YYUW** — UART
+- DFRobot **SEN0313 / A01NYUB** — UART
 
-- Supports **MX2001, MX2201, and MX2203**.
-- Uses the proven HOBO `NEWREAD64` path.
-- Uses HOBO `STATUS` to track the logger write pointer.
-- Learns and follows the logger's configured interval.
-- Sends one automatic packet only after a **real new logger record** appears.
-- A manual `READ` does **not** consume the automatic pointer.
-- Automatic telemetry pauses if pointer tracking becomes unreliable rather than fabricating records.
-- `LOCK` persists the intended HOBO assignment across reboot.
-- Recovery actions preserve Meshtastic configuration and logger assignment.
-- No recovery path erases NVS, NodeDB, channels, PSKs, node identity, or the saved HOBO lock.
-- The recovery supervisor is separate from the logger decoder so recovery changes do not rewrite the proven HOBO protocol logic.
-
----
-
-## Supported HOBO models
-
-| Logger | Automatic telemetry | Manual `READ` | Primary use |
-|---|---|---|---|
-| **MX2001** | Water level + temperature | Water level + temperature | Water-level stations |
-| **MX2201** | Temperature | Temperature | Air/water temperature |
-| **MX2203** | Temperature | Temperature | Temperature stations |
-
----
-
-# How automatic telemetry actually works
+The architecture separates sensor drivers from the application mode:
 
 ```text
-CONNECT TO LOCKED/VALID HOBO
-          │
-          ▼
-      HOBO STATUS
-          │
-          ├── learn logger interval
-          └── learn write pointer
-          │
-          ▼
-  wait for pointer advance
-          │
-          ▼
-     NEW RECORD EXISTS
-          │
-          ▼
-       NEWREAD64
-          │
-          ▼
- decode measurement
-          │
-          ▼
- queue Meshtastic packet
-          │
-          ▼
- consume pointer only after
- successful packet queue
+DistanceSensorModule
+├── persistent configuration / calibration
+├── MODE WATER
+│   ├── raw distance
+│   ├── CAL STAGE <known stage>
+│   └── derived stage
+├── MODE TRAIL
+│   ├── CAL CLEAR
+│   ├── persistent clear-path baseline
+│   ├── trigger / clear hysteresis
+│   ├── fast rearm
+│   └── daily + lifetime counts
+└── drivers
+    ├── SEN0590
+    ├── SEN0311_A02YYUW
+    └── SEN0313_A01NYUB
 ```
 
-This is important: **automatic telemetry follows recorded HOBO data, not radio uptime.**
+The same water/trail logic should work on either board and with any supported distance driver.
 
-If three consecutive `STATUS` attempts fail, automatic transmission pauses until pointer tracking recovers. Manual `READ` can still be useful for diagnostics because the manual path is intentionally independent of the automatic pointer.
+## Field configuration principles
 
----
-
-# Self-recovery system
-
-The supervisor handles failures outside the HOBO parser without destructively changing configuration.
-
-| Condition | Automatic behavior |
-|---|---|
-| Normal operation | Feed watchdog and leave healthy HOBO link alone |
-| Searching for HOBO | Passive low-duty BLE scanning |
-| Disconnected scanner running for 30 min | Refresh BLE scanner |
-| No HOBO link for 6 hours | Safe MCU reboot to rebuild BLE stack |
-| Main scheduler / firmware stalls | nRF52840 hardware watchdog resets node |
-| User sends `SCAN` | Refresh scanner only when disconnected |
-| User sends `RECONNECT` | Rebuild disconnected scanner |
-| User sends `RECOVER` or `REBOOT` | Safe reboot after reply is sent |
-
-### Hardware watchdog
-
-The nRF52840 watchdog is armed for approximately **15 minutes** and configured to continue running during CPU sleep.
-
-The supervisor will **not take ownership of the watchdog if another part of the board/core already owns it**.
-
-### BLE power discipline
-
-The original scanner configuration was comparatively aggressive. This branch uses:
+Water deployment should be configurable after physical installation. Example:
 
 ```text
-Interval: 320 units = 200 ms
-Window:    32 units =  20 ms
-Approximate receive duty: 10%
-Passive scan: enabled
-```
-
-That matters on solar/battery stations that may spend long periods searching for a logger.
-
-A healthy active HOBO connection is not periodically torn down just to satisfy the recovery supervisor.
-
----
-
-# Direct-message command center
-
-Send commands as a **direct Meshtastic text message to the node**. Commands are case-insensitive and a leading `/` is optional where supported by the parser.
-
-## Logger commands
-
-| Command | Result |
-|---|---|
-| `READ` | Fresh logger measurement without consuming the automatic pointer |
-| `LOGGER` | Model, logger MAC, BLE RSSI, interval, lock state, target logger |
-| `LOCK` | Persist the currently identified logger as this station's logger |
-| `UNLOCK` | Clear the persistent logger assignment and resume discovery |
-
-## Health and diagnostics
-
-| Command | Result |
-|---|---|
-| `STATUS` | Compact overall node health report |
-| `HEALTH` | Alias for `STATUS` |
-| `POWER` | Battery voltage, percentage, battery-present and charging status |
-| `BATTERY` | Alias for `POWER` |
-| `BLE` | BLE scanning/link state, disconnected age, low-duty state, restart count |
-| `AUTO` | Confirms pointer-gated automatic NEWREAD operation |
-| `STATS` | Recovery counts and boot reset reason |
-| `NODES` | Current Meshtastic NodeDB count |
-| `UPTIME` | Node uptime in seconds |
-| `VERSION` | Firmware identity and platform |
-| `WATCHDOG` | Watchdog running/ownership state |
-| `PING` | Fast end-to-end packet/liveness check |
-| `WAKE` | Alias for `PING` |
-| `HELP` | Core command summary |
-
-## Recovery commands
-
-| Command | Result |
-|---|---|
-| `SCAN` | Refresh disconnected BLE scanning without disturbing an apparent active link |
-| `RECONNECT` | Rebuild the scanner when disconnected |
-| `RECOVER` | Reply, then perform a safe non-destructive reboot |
-| `REBOOT` | Alias for `RECOVER` |
-
-## Scientific field-validation subsystem
-
-For extremely rigorous packet-return verification:
-
-| Command | Response |
-|---|---|
-| `AMY` | `is a little bitch` |
-| `CRESSTON` | `is a little bitch` |
-
-These two commands are deliberately implemented in a tiny isolated text-message module. They do not touch the HOBO state machine, automatic pointer, logger lock, watchdog, or BLE recovery logic.
-
----
-
-# Recommended field deployment sequence
-
-Before walking away from a station:
-
-1. Flash the **Seeed self-recovery** build.
-2. Confirm the node boots and appears in Meshtastic.
-3. DM `VERSION`.
-4. DM `STATUS`.
-5. DM `LOGGER` and verify the intended HOBO model/MAC.
-6. DM `READ` and compare the value with the HOBO app/logger.
-7. DM `LOCK` only after confirming the correct physical logger.
-8. Reboot the radio.
-9. DM `LOGGER` again and verify the lock persisted.
-10. Wait through at least one actual logger interval.
-11. Confirm one automatic packet appears after the HOBO creates its next record.
-12. DM `AUTO`.
-13. DM `BLE`.
-14. DM `WATCHDOG`.
-15. DM `POWER`.
-16. DM `PING` from the radio/gateway you expect to use remotely.
-17. If you want the unofficial test, DM `AMY` or `CRESSTON` and confirm the reply comes back.
-
-Do not call a deployment complete until the **automatic** record path has been observed. A successful manual `READ` proves BLE reading and decoding; it does not by itself prove automatic pointer tracking.
-
----
-
-# Remote troubleshooting ladder
-
-Use the least invasive tool first.
-
-```text
-PING
- ↓
-STATUS
- ↓
-LOGGER
- ↓
+MODE WATER
+CAL STAGE 1.42FT
 READ
- ↓
-BLE
- ↓
-SCAN             (only refresh disconnected scanner)
- ↓
-RECONNECT        (rebuild disconnected scanner)
- ↓
-RECOVER          (safe reboot)
+STATUS
 ```
 
-If `READ` works but automatic records stop, investigate `STATUS`/pointer tracking before assuming the logger decoder is broken.
-
-If the radio stops answering entirely, the hardware watchdog is the final automatic recovery layer.
-
----
-
-# Things this branch must never do
-
-Do **not** turn field recovery into destructive recovery.
-
-- Do not add automatic flash erasure.
-- Do not clear NVS as a recovery strategy.
-- Do not clear NodeDB.
-- Do not regenerate node identity.
-- Do not silently replace channel keys.
-- Do not silently change LoRa channel/slot/frequency settings.
-- Do not make manual `READ` advance the automatic pointer.
-- Do not replace HOBO write-pointer tracking with a blind timer.
-- Do not transmit invented measurements when logger status is uncertain.
-- Do not make the recovery supervisor routinely disconnect a healthy HOBO link.
-
----
-
-# Build target
-
-PlatformIO / Meshtastic environment:
+The node records the current raw sensor distance and derives the installed reference automatically. A later reading becomes:
 
 ```text
-seeed_xiao_nrf52840_kit
+stage = saved_reference - raw_distance
 ```
 
-GitHub Actions workflow:
+Raw distance is retained so derived stage remains auditable.
+
+Trail deployment should likewise be calibrated in place:
 
 ```text
-.github/workflows/build_hobo_self_recovery_seeed.yml
+MODE TRAIL
+CAL CLEAR
+TRIGGER 12IN
+COUNT
+STATUS
 ```
 
-Every push to this branch builds the Seeed target and uploads a firmware artifact. Treat a green workflow as the minimum software gate; bench testing with a real logger remains the hardware gate.
+`CAL CLEAR` should learn the actual clear-path sensor baseline rather than requiring a hard-coded trail width. Detection uses hysteresis and requires the beam to clear before another person is counted.
 
----
+## Data integrity rules
 
-# Code map
+- Preserve raw measurements.
+- Flag questionable records rather than silently replacing them.
+- Do not auto-recalibrate around obstructions without an explicit command.
+- Persist calibration and counters across reboot and battery loss.
+- Do not transmit high-rate raw trail samples over LoRa; transmit compact event/summary data.
+- Water telemetry should include raw distance, derived stage, sensor health, battery state, and timestamp.
 
-```text
-src/modules/Telemetry/
-│
-├── HOBOMX2001MX2201MX2203/
-│   └── universal HOBO STATUS / NEWREAD64 / decoding / AUTO logic
-│
-├── HOBOMX2201MX2001/
-│   └── Seeed Meshtastic compatibility hook
-│
-└── HOBOSelfRecovery/
-    ├── HOBOSelfRecovery.cpp
-    ├── HOBOSelfRecovery.h
-    ├── HOBOFieldCheck.cpp
-    └── HOBOFieldCheck.h
-```
+## Recovery safety rules
 
-The design deliberately separates **measurement correctness** from **node survivability**.
+Normal updates and recovery must **not** erase flash or NVS.
 
----
+Do not use destructive factory images or erase operations for ordinary firmware updates. Preserve:
 
-# Production philosophy
+- Meshtastic node identity
+- channels and PSKs
+- NodeDB
+- Wi-Fi / radio settings where applicable
+- sensor calibration
+- logger locks
+- persistent counters
 
-A remote monitoring radio is not useful because it worked on the bench once. It is useful because it can sit on a ridge, tower, drainage, or peak for months and continue doing the boring thing correctly.
+## CI
 
-This branch is built around that idea:
+`field-self-recovery` builds both canonical nRF52 targets on every push:
 
-> **Read the logger only when the logger has new data. Preserve the station's identity and configuration. Recover from transient failures automatically. Expose enough remote diagnostics that a mountain hike is the last troubleshooting step, not the first.**
+- `seeed_xiao_nrf52840_kit`
+- `rak4631`
 
----
-
-## Related branches
-
-| Branch | Purpose |
-|---|---|
-| `hobo-self-recovery-seeed` | **This build — hardened Seeed XIAO field node** |
-| `hobo-self-recovery-rak4631` | Hardened RAK4631 field node |
-| `hobo-mx2001-mx2201-mx2203` | Universal HOBO source branch from which these hardened builds were derived |
-| `cca-heltec-sensor-gateway` | Heltec V4 internet/cloud gateway |
-
-For the universal HOBO protocol details, see:
-
-- [`src/modules/Telemetry/HOBOMX2001MX2201MX2203/README.md`](src/modules/Telemetry/HOBOMX2001MX2201MX2203/README.md)
-- [`Meshtastic/SHARED-HOBO/README.md`](Meshtastic/SHARED-HOBO/README.md)
-- [`Meshtastic/SEEED-XIAO/README.md`](Meshtastic/SEEED-XIAO/README.md)
+A change to the common baseline is not considered ready until both board builds pass.
