@@ -1,0 +1,49 @@
+name: Build Canonical Field Self-Recovery
+
+on:
+  push:
+    branches:
+      - field-self-recovery
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: seeed
+            env: seeed_xiao_nrf52840_kit
+          - label: rak4631
+            env: rak4631
+    runs-on: ubuntu-latest
+    name: build-${{ matrix.label }}
+    steps:
+      - name: Checkout canonical field recovery branch
+        uses: actions/checkout@v7
+        with:
+          ref: field-self-recovery
+          submodules: recursive
+
+      - name: Build ${{ matrix.env }}
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: nrf52840
+          pio_env: ${{ matrix.env }}
+          pio_target: build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: field-self-recovery-${{ matrix.label }}-${{ github.run_number }}
+          overwrite: true
+          retention-days: 30
+          path: |
+            release/*.uf2
+            release/*.zip
+            release/*.bin
+            release/*.elf
+            release/*.map
+            release/*.mt.json
