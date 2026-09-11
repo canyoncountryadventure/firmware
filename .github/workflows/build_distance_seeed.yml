@@ -1,0 +1,44 @@
+name: Build Distance Self-Recovery Seeed
+
+on:
+  push:
+    branches:
+      - distance-self-recovery-seeed
+  workflow_dispatch:
+
+concurrency:
+  group: distance-self-recovery-seeed
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  build-seeed-distance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout distance Seeed branch
+        uses: actions/checkout@v7
+        with:
+          ref: distance-self-recovery-seeed
+          submodules: recursive
+
+      - name: Build Seeed XIAO nRF52840 Kit
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: nrf52840
+          pio_env: seeed_xiao_nrf52840_kit
+          pio_target: build
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: distance-self-recovery-seeed-${{ github.run_number }}
+          overwrite: true
+          retention-days: 30
+          path: |
+            release/*.uf2
+            release/*.zip
+            release/*.bin
+            release/*.elf
+            release/*.map
+            release/*.mt.json
