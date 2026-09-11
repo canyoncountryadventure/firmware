@@ -105,8 +105,9 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     constexpr uint32_t FISHLAKE_NODE = 1577197109UL;
     constexpr uint32_t SWELL_NODE = 1949224949UL;
     constexpr uint32_t HELTEC_HOME_NODE = 2740603892UL;
+    constexpr uint32_t MOAB_NODE = 2650172798UL;
     if (from != HIDDEN_VALLEY_NODE && from != FISHLAKE_NODE &&
-        from != SWELL_NODE && from != HELTEC_HOME_NODE)
+        from != SWELL_NODE && from != HELTEC_HOME_NODE && from != MOAB_NODE)
         return false;
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     if (!nodeDB->isFavorite(from))
