@@ -1,0 +1,35 @@
+name: Test Vercel ingest connectivity
+
+on:
+  push:
+    branches:
+      - heltec-gateway-2026-09-10
+    paths:
+      - '.github/workflows/test_vercel_ingest.yml'
+  workflow_dispatch:
+
+jobs:
+  test-ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test firmware secret against production ingest
+        env:
+          INGEST_KEY: ${{ secrets.HOBO_HTTP_GATEWAY_INGEST_KEY }}
+        run: |
+          if [ -z "$INGEST_KEY" ]; then
+            echo "Repository secret HOBO_HTTP_GATEWAY_INGEST_KEY is missing"
+            exit 2
+          fi
+          body='{"type":"telemetry","from":1,"timestamp":1,"payload":{"temperature":0}}'
+          response="$(curl -sS -w '\n%{http_code}' -X POST 'https://meshtastic-ecru.vercel.app/api/ingest' \
+            -H 'Content-Type: application/json' \
+            -H "X-Ingest-Key: $INGEST_KEY" \
+            --data "$body")"
+          code="$(printf '%s' "$response" | tail -n1)"
+          payload="$(printf '%s' "$response" | sed '$d')"
+          echo "HTTP $code"
+          echo "$payload"
+          # 202 means authentication succeeded and the deliberately fake node was safely rejected.
+          if [ "$code" != "202" ]; then
+            exit 1
+          fi
