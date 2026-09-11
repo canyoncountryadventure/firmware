@@ -98,6 +98,16 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     const uint32_t from = getFrom(p);
     if (nodeDB == nullptr || from == 0 || from == nodeDB->getNodeNum())
         return false;
+
+    // Drop unrelated mesh traffic before queueing or opening an HTTPS connection.
+    // Heltec Home is handled locally via queueLocal*(); its self packets are rejected above.
+    constexpr uint32_t HIDDEN_VALLEY_NODE = 3044869407UL;
+    constexpr uint32_t FISHLAKE_NODE = 1577197109UL;
+    constexpr uint32_t SWELL_NODE = 1949224949UL;
+    constexpr uint32_t HELTEC_HOME_NODE = 2740603892UL;
+    if (from != HIDDEN_VALLEY_NODE && from != FISHLAKE_NODE &&
+        from != SWELL_NODE && from != HELTEC_HOME_NODE)
+        return false;
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     if (!nodeDB->isFavorite(from))
         return false;
@@ -442,7 +452,7 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     WiFiClientSecure client;
     client.setInsecure();
     HTTPClient http;
-    http.setTimeout(10000);
+    http.setTimeout(4000);
     if (!http.begin(client, HOBO_HTTP_GATEWAY_URL)) {
         LOG_WARN("CCA clean gateway: could not initialize HTTPS request");
         return false;
