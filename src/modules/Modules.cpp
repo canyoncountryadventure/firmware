@@ -54,11 +54,16 @@
 #if HAS_TELEMETRY
 #include "modules/Telemetry/DeviceTelemetry.h"
 #endif
+#if defined(DISTANCE_SENSOR_NODE) && defined(ARCH_NRF52)
+#include "modules/Telemetry/DistanceSensor/DistanceSelfRecovery.h"
+#include "modules/Telemetry/DistanceSensor/DistanceSensorModule.h"
+#else
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
 #include "modules/Telemetry/HOBOMX2201MX2001/HOBOMX2201MX2001Telemetry.h"
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
 #include "modules/Telemetry/MX2001Diagnostic.h"
+#endif
 #endif
 #if HAS_SENSOR && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
 #include "main.h"
@@ -194,11 +199,16 @@ void setupModules()
 #if HAS_TELEMETRY
     new DeviceTelemetryModule();
 #endif
+#if defined(DISTANCE_SENSOR_NODE) && defined(ARCH_NRF52)
+    new DistanceSensorModule();
+    new DistanceSelfRecoveryModule();
+#else
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
     new HOBOMX2201MX2001TelemetryModule();
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
     new MX2001DiagnosticModule();
+#endif
 #endif
 #if HAS_TELEMETRY && HAS_SENSOR && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
     if (moduleConfig.has_telemetry &&
