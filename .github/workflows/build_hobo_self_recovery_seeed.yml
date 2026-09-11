@@ -33,6 +33,7 @@ jobs:
           retention-days: 30
           path: |
             release/*.uf2
+            release/*.zip
             release/*.bin
             release/*.elf
             release/*.map
