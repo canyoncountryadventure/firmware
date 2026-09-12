@@ -3,6 +3,7 @@
 #if defined(DISTANCE_SENSOR_NODE) && defined(ARCH_NRF52)
 
 #include "DistanceSensorDrivers.h"
+#include "Throttle.h"
 
 #include <Wire.h>
 
@@ -172,8 +173,8 @@ DistanceReading DFRobotUARTDistanceDriver::read()
     bool sawHeader = false;
     bool sawChecksumError = false;
 
-    while ((millis() - started) < UART_FRAME_TIMEOUT_MS) {
-        while (Serial1.available() > 0) {
+    while (Throttle::isWithinTimespanMs(started, UART_FRAME_TIMEOUT_MS)) {
+        while (Serial1.available() > 0 && Throttle::isWithinTimespanMs(started, UART_FRAME_TIMEOUT_MS)) {
             const uint8_t b = static_cast<uint8_t>(Serial1.read());
 
             if (index == 0) {

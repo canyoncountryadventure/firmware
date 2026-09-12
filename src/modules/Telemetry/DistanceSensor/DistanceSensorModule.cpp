@@ -52,7 +52,7 @@ void putLE32(uint8_t *p, uint32_t value)
 const char *platformName()
 {
 #if defined(RAK_4631)
-    return "RAK4631/RAK19007";
+    return "RAK4631/19003/19007";
 #else
     return "SEEED-XIAO";
 #endif
@@ -694,9 +694,22 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
     if (!normalizeCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, command, sizeof(command)))
         return ProcessMessage::CONTINUE;
 
+    // Shared names belong to the logger unless explicitly addressed to DIST.
+    if (strncmp(command, "DIST ", 5) == 0) {
+        memmove(command, command + 5, strlen(command + 5) + 1);
+    } else if (strcmp(command, "READ") == 0 || strcmp(command, "STATUS") == 0 ||
+               strcmp(command, "HEALTH") == 0) {
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (!moduleInitialized) {
+        sendTextReply(mp.from, mp.channel, "DIST: initializing; retry after 8 seconds of uptime.");
+        return ProcessMessage::CONTINUE;
+    }
+
     if (strcmp(command, "HELP") == 0) {
         sendTextReply(mp.from, mp.channel,
-                      "DIST CMDS: STATUS SENSOR [AUTO|SEN0590|SEN0311|SEN0313] MODE [WATER|TRAIL|IDLE] READ RAW CAL STAGE <v> CAL CLEAR CAL RESET TRIGGER <v> CLEAR <v> INTERVAL <v> COUNT RESET DAILY RESET COUNT TELEMETRY NOW | POWER WATCHDOG RECOVER");
+                      "DIST: HELP STATUS SENSOR MODE READ RAW CAL STAGE <v> CAL CLEAR CAL RESET TRIGGER <v> CLEAR <v> INTERVAL <v> COUNT RESET DAILY RESET COUNT TELEMETRY NOW. Prefix distance commands with DIST; bare READ reads logger.");
         return ProcessMessage::CONTINUE;
     }
 
@@ -721,9 +734,11 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
             requested = DistanceSensorType::SEN0311_A02YYUW;
         else if (strcmp(arg, "SEN0313") == 0 || strcmp(arg, "A01NYUB") == 0)
             requested = DistanceSensorType::SEN0313_A01NYUB;
+        else if (strcmp(arg, "UART") == 0 || strcmp(arg, "UART-GENERIC") == 0)
+            requested = DistanceSensorType::UART_GENERIC;
 
         if (requested == DistanceSensorType::NONE) {
-            sendTextReply(mp.from, mp.channel, "SENSOR options: AUTO, SEN0590, SEN0311/A02YYUW, SEN0313/A01NYUB");
+            sendTextReply(mp.from, mp.channel, "SENSOR options: AUTO, SEN0590, SEN0311/A02YYUW, SEN0313/A01NYUB, UART");
         } else {
             const bool online = configureSensor(requested, true);
             char reply[150] = {};

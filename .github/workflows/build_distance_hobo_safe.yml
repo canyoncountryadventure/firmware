@@ -1,0 +1,46 @@
+name: Build Distance HOBO Safe
+
+on:
+  push:
+    branches: [distance-hobo-safe]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distance-hobo-safe
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: rak4631
+            label: rak
+          - env: seeed_xiao_nrf52840_kit
+            label: seed
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Build merged firmware
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: nrf52840
+          pio_env: ${{ matrix.env }}
+          pio_target: build
+      - name: Name downloads and verify firmware
+        run: |
+          python3 bin/package-distance-hobo-safe.py --env '${{ matrix.env }}' --label '${{ matrix.label }}'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.label }}-distance-hobo-safe
+          retention-days: 30
+          path: |
+            downloads/*
+            release/*.elf
+            release/*.mt.json

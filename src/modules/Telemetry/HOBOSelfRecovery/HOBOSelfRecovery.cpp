@@ -26,7 +26,15 @@ static constexpr uint32_t WDT_TICKS_PER_SECOND = 32768UL;
 static constexpr uint32_t WDT_RELOAD_MAGIC = 0x6E524635UL;
 static constexpr uint16_t LOW_DUTY_SCAN_INTERVAL = 320; // 200 ms
 static constexpr uint16_t LOW_DUTY_SCAN_WINDOW = 32;    // 20 ms = 10% receive duty
+#if defined(DISTANCE_SENSOR_NODE)
+#if defined(RAK_4631)
+static constexpr char FIRMWARE_LABEL[] = "rak-distance-hobo-safe 1.0";
+#else
+static constexpr char FIRMWARE_LABEL[] = "seed-distance-hobo-safe 1.0";
+#endif
+#else
 static constexpr char FIRMWARE_LABEL[] = "HOBO SELF-RECOVERY 1.1";
+#endif
 
 bool watchdogOwned = false;
 bool watchdogChecked = false;
@@ -246,8 +254,8 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         snprintf(reply, sizeof(reply), "WATCHDOG: running=%s owner=%s timeout=%lus run-in-sleep=%s",
                  NRF_WDT->RUNSTATUS ? "YES" : "NO",
                  watchdogOwned ? "SELFRECOVERY" : "CORE/OTHER",
-                 static_cast<unsigned long>(WDT_TIMEOUT_SECONDS),
-                 watchdogOwned ? "YES" : "UNKNOWN");
+                 static_cast<unsigned long>((NRF_WDT->CRV + 1UL) / WDT_TICKS_PER_SECOND),
+                 (NRF_WDT->CONFIG & 1UL) ? "YES" : "NO");
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
