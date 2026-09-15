@@ -12,7 +12,7 @@ static constexpr uint8_t SEN0590_ADDRESS = 0x74;
 static constexpr uint8_t SEN0590_COMMAND_REGISTER = 0x10;
 static constexpr uint8_t SEN0590_MEASURE_COMMAND = 0xB0;
 static constexpr uint8_t SEN0590_DISTANCE_REGISTER = 0x02;
-static constexpr uint32_t UART_FRAME_TIMEOUT_MS = 180;
+static constexpr uint32_t UART_FRAME_TIMEOUT_MS = 450;
 
 DistanceReading makeReading(DistanceReadStatus status, uint32_t distanceMm = 0)
 {
@@ -163,9 +163,14 @@ DistanceReading DFRobotUARTDistanceDriver::read()
     if (!initialized)
         begin();
 
+    // These sensors stream continuously. Discard frames that accumulated while
+    // the node was idle so READ/CAL/scheduled WATER samples use a fresh frame.
+    while (Serial1.available() > 0)
+        Serial1.read();
+
     // The A02YYUW/A01NYUB family emits 4-byte frames continuously:
-    // FF, distance_hi, distance_lo, checksum.  Resynchronize on 0xFF and
-    // validate checksum before accepting the reading.
+    // FF, distance_hi, distance_lo, checksum. Resynchronize on 0xFF and
+    // validate checksum before accepting the first new frame after the flush.
     const uint32_t started = millis();
     uint8_t frame[4] = {};
     uint8_t index = 0;
