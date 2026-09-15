@@ -1,8 +1,8 @@
 # Meshtastic Field Sensor Firmware
 
-Custom Meshtastic firmware for unattended environmental monitoring and remote field nodes.
+Custom Meshtastic firmware for unattended environmental monitoring, water-level stations, trail sensors, and the Heltec gateway.
 
-The default branch, `field-self-recovery`, is the canonical recovery foundation. It contains the shared HOBO self-recovery/watchdog source used by the HOBO-safe builds, including `src/modules/Telemetry/HOBOSelfRecovery/`.
+The default branch, `field-self-recovery`, is the canonical recovery foundation and permanent-download branch. It also contains the shared HOBO self-recovery/watchdog source used by the HOBO-safe builds under `src/modules/Telemetry/HOBOSelfRecovery/`.
 
 ## Download firmware
 
@@ -23,32 +23,35 @@ For nRF52840 boards, **UF2** is for normal USB drag-and-drop flashing and **BLE 
 
 **[Download Heltec Gateway v1 full build ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Heltec-Gateway-v1.zip)**
 
-The download files are stored under `downloads/` on the default branch. Each production workflow refreshes its matching download after a successful build, so these front-page links stay stable.
+The download files are stored under `downloads/` on the default branch. Production workflows refresh their matching downloads after successful builds, so the links above remain stable.
 
-## Active production branches
+## Canonical branches
 
-| Branch | Purpose | Board | Validation |
-|---|---|---|---|
-| `field-self-recovery` | Canonical recovery/watchdog foundation and permanent downloads | Seeed + RAK nRF52840 | Shared foundation |
-| `Seeed-HOBO-Safe-v1` | HOBO BLE only + self-recovery/watchdog | Seeed XIAO nRF52840 + Wio-SX1262 | Based on latest successful HOBO self-recovery Seeed build |
-| `RAK-HOBO-Safe-v1` | HOBO BLE only + self-recovery/watchdog | RAK4631 + RAK19007 | Based on latest successful HOBO self-recovery RAK build |
-| `Heltec-Gateway-v1` | HOBO/mesh sensor gateway | Heltec V4 | Canonicalized from the latest clean Heltec gateway build |
-| `Seeed-Water-Distance-v1` | Water-level / stage only | Seeed XIAO nRF52840 + Wio-SX1262 | Hardware validated, including hard power-cycle persistence |
-| `RAK-Water-Distance-v1` | Water-level / stage only | RAK4631 + RAK19007 | Build validated; RAK field hardware validation remains separate |
-| `Seeed-Water-Distance-HOBO-v1` | Water-level / stage + HOBO BLE | Seeed XIAO nRF52840 + Wio-SX1262 | Combined build; validate assembled field hardware before deployment |
-| `RAK-Water-Distance-HOBO-v1` | Water-level / stage + HOBO BLE | RAK4631 + RAK19007 | Combined build; validate assembled field hardware before deployment |
+These are the branches intended to remain in the repository after cleanup.
+
+| Branch | Purpose | Board |
+|---|---|---|
+| `field-self-recovery` | Canonical recovery/watchdog foundation and permanent downloads | Seeed + RAK nRF52840 |
+| `Seeed-HOBO-Safe-v1` | HOBO BLE only + self-recovery/watchdog | Seeed XIAO nRF52840 + Wio-SX1262 |
+| `RAK-HOBO-Safe-v1` | HOBO BLE only + self-recovery/watchdog | RAK4631 + RAK19007 |
+| `Heltec-Gateway-v1` | HOBO/mesh sensor gateway | Heltec V4 |
+| `Seeed-Water-Distance-v1` | Water-level / stage only | Seeed XIAO nRF52840 + Wio-SX1262 |
+| `RAK-Water-Distance-v1` | Water-level / stage only | RAK4631 + RAK19007 |
+| `Seeed-Water-Distance-HOBO-v1` | Water-level / stage + HOBO BLE | Seeed XIAO nRF52840 + Wio-SX1262 |
+| `RAK-Water-Distance-HOBO-v1` | Water-level / stage + HOBO BLE | RAK4631 + RAK19007 |
+| `Trail-Sensors` | Consolidated PIR, rock telemetry, and SEN0171 trail-counter work | Seeed XIAO nRF52840 + Wio-SX1262 |
 
 ## HOBO Safe v1
 
 The HOBO-only builds are for remote HOBO MX telemetry without water-distance logic. They retain the self-recovery supervisor, BLE recovery behavior, watchdog handling, remote recovery commands, battery/device telemetry, and preservation of normal Meshtastic configuration.
 
-The shared recovery/watchdog source is maintained on the default branch under:
+Shared recovery/watchdog source:
 
 ```text
 src/modules/Telemetry/HOBOSelfRecovery/
 ```
 
-HOBO telemetry support lives under:
+HOBO telemetry source:
 
 ```text
 src/modules/Telemetry/HOBOMX2001MX2201MX2203/
@@ -65,27 +68,9 @@ Supported distance sensors:
 - DFRobot SEN0311 / A02YYUW
 - DFRobot SEN0590
 
-Core behavior:
+Core behavior includes fresh sensor reads, DM field setup, configurable report interval, field-stage calibration, calibration locking/reset, water telemetry, sensor-interface recovery, and redundant A/B persistent configuration with sequence, CRC32, exact-size validation, truncation-before-overwrite, and read-back verification.
 
-- fresh UART-frame reads
-- direct-message field setup
-- configurable report interval
-- stage calibration from an independently measured field stage
-- automatic calibration lock
-- calibration unlock/reset commands
-- compact Meshtastic water telemetry on channel 0
-- sensor-interface reinitialization after repeated read failures
-- redundant persistent A/B configuration with sequence, CRC32, exact-size validation, truncation-before-overwrite, and read-back verification
-
-## Combined Water + HOBO v1
-
-The combined branches start from the corresponding Water Distance v1 firmware and add the universal HOBO BLE reader for MX2001/MX2201/MX2203 plus HOBO field-check/self-recovery helpers.
-
-The combined builds use the **HOBO self-recovery module as the single recovery supervisor** rather than also instantiating the standalone distance recovery supervisor. This avoids duplicate watchdog/reboot handlers while retaining watchdog, BLE recovery, remote recovery commands, and water-config persistence.
-
-## Standard water field workflow
-
-Use a second Meshtastic node to DM the field node:
+### Standard field workflow
 
 ```text
 STATUS
@@ -97,9 +82,7 @@ CAL STATUS
 TELEMETRY NOW
 ```
 
-Replace `1.42FT` with the independently measured water stage at the installation site.
-
-After calibration, remove power completely, reconnect it, then verify:
+Replace `1.42FT` with the independently measured stage at installation. After calibration, remove power completely, reconnect, then verify:
 
 ```text
 STATUS
@@ -107,33 +90,30 @@ CAL STATUS
 READ
 ```
 
-The node is not deployment-ready until calibration and interval survive the hard power cycle.
-
 To discard a bench/test calibration before field deployment:
 
 ```text
 CAL RESET CONFIRM
 ```
 
-This clears only water calibration while preserving sensor selection and report interval.
+## Combined Water + HOBO v1
 
-## Persistent water configuration
+The combined branches start from the corresponding Water Distance v1 firmware and add the universal HOBO BLE reader plus HOBO field-check/self-recovery helpers. They use the HOBO self-recovery module as the single recovery supervisor so watchdog/reboot handlers are not duplicated.
 
-Water settings use redundant A/B flash records. The inactive record is rewound and truncated before writing, then re-opened and checked for exact size, sequence, CRC32, and valid contents before it becomes active. The previous valid slot remains the fallback until the new record passes verification.
+## Trail Sensors
 
-Saved water configuration is intended to survive battery removal, solar shutdown/recovery, reboot, watchdog reset, and normal non-destructive firmware updates.
+`Trail-Sensors` consolidates the old trail-specific development branches into one place. It contains:
 
-## A01NYUB power note
+- SEN0171 PIR/presence station logic
+- CCA rock telemetry
+- HOBO support used by the PIR/rock remote-station build
+- dedicated SEN0171 fast trail-counter firmware
 
-A01NYUB performs continuous ranging whenever powered, so its blue LED keeps blinking even when firmware records/transmits only once per hour.
-
-Actual sensor sleep between scheduled readings requires hardware power gating with a load switch or high-side MOSFET.
+The branch has separate PlatformIO targets for the PIR + Rock + HOBO station and the dedicated SEN0171 trail counter, so those implementations remain isolated at build time while sharing one maintained branch.
 
 ## Build policy
 
-The project remains pinned to the validated **Meshtastic 2.7.26** base unless an upgrade is explicitly tested and approved.
-
-A successful compile is required but does not replace real hardware validation of sensor reads, persistence, calibration, telemetry, BLE behavior, gateway behavior, and recovery.
+The project remains pinned to the validated **Meshtastic 2.7.26** base unless an upgrade is explicitly tested and approved. A successful compile is required but does not replace real hardware validation.
 
 ## Safe flashing
 
