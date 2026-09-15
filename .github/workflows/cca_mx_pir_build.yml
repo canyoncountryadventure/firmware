@@ -1,33 +1,42 @@
-name: CCA MX HOBO PIR ROCK Build
+name: Trail Sensors Build
 
 on:
   push:
     branches:
-      - CCA-MX-HOBO-PIR-ROCK-SEEED-v1
+      - Trail-Sensors
   pull_request:
     branches:
-      - CCA-MX-HOBO-PIR-ROCK-SEEED-v1
+      - Trail-Sensors
   workflow_dispatch:
 
 permissions: read-all
 
 jobs:
-  build-cca-seeeds:
+  build-pir-rock-hobo:
+    name: Build PIR + Rock + HOBO
     uses: ./.github/workflows/build_firmware.yml
     with:
-      version: CCA-MX-PIR-ROCK-1.0.7
+      version: TRAIL-PIR-ROCK-v1
       platform: nrf52840
       pio_env: seeed_xiao_nrf52840_cca_mx_pir
 
+  build-sen0171:
+    name: Build SEN0171 trail counter
+    uses: ./.github/workflows/build_firmware.yml
+    with:
+      version: TRAIL-SEN0171-v1
+      platform: nrf52840
+      pio_env: seeed_xiao_nrf52840_trail
+
   settings-safe-ota:
-    name: Package settings-safe OTA
-    needs: build-cca-seeeds
+    name: Package PIR/Rock settings-safe OTA
+    needs: build-pir-rock-hobo
     runs-on: ubuntu-latest
     steps:
-      - name: Download CCA firmware artifact
+      - name: Download PIR/Rock firmware artifact
         uses: actions/download-artifact@v7
         with:
-          name: firmware-nrf52840-seeed_xiao_nrf52840_cca_mx_pir-CCA-MX-PIR-ROCK-1.0.7
+          name: firmware-nrf52840-seeed_xiao_nrf52840_cca_mx_pir-TRAIL-PIR-ROCK-v1
           path: firmware
 
       - name: Extract application-only OTA package
@@ -41,15 +50,14 @@ jobs:
           fi
 
           mkdir -p safe-ota
-          cp "$OTA_FILE" safe-ota/CCA-CCS3-SETTINGS-SAFE-OTA-1.0.7.zip
+          cp "$OTA_FILE" safe-ota/Trail-PIR-Rock-HOBO-v1-OTA.zip
 
           python3 - <<'PY'
           import json, zipfile
-          path = 'safe-ota/CCA-CCS3-SETTINGS-SAFE-OTA-1.0.7.zip'
+          path = 'safe-ota/Trail-PIR-Rock-HOBO-v1-OTA.zip'
           with zipfile.ZipFile(path) as z:
               names = set(z.namelist())
-              required = {'manifest.json'}
-              if not required.issubset(names):
+              if 'manifest.json' not in names:
                   raise SystemExit('OTA package missing manifest.json')
               manifest = json.loads(z.read('manifest.json'))
               image = manifest.get('manifest', {})
@@ -66,6 +74,6 @@ jobs:
       - name: Upload normal-upgrade artifact
         uses: actions/upload-artifact@v7
         with:
-          name: CCA-CCS3-SETTINGS-SAFE-OTA-1.0.7
-          path: safe-ota/CCA-CCS3-SETTINGS-SAFE-OTA-1.0.7.zip
+          name: Trail-PIR-Rock-HOBO-v1-OTA
+          path: safe-ota/Trail-PIR-Rock-HOBO-v1-OTA.zip
           if-no-files-found: error
