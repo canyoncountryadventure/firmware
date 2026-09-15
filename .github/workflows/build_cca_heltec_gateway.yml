@@ -13,8 +13,7 @@ on:
       - '.github/workflows/build_cca_heltec_gateway.yml'
       - '.github/workflows/build_firmware.yml'
 
-permissions:
-  contents: write
+permissions: read-all
 
 jobs:
   build-heltec-v4:
@@ -28,6 +27,9 @@ jobs:
   publish-latest:
     needs: build-heltec-v4
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
     steps:
       - name: Download Heltec firmware artifact
         uses: actions/download-artifact@v4
