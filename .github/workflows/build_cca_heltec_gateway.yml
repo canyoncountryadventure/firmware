@@ -16,8 +16,6 @@ on:
 permissions:
   contents: write
 
-actions:
-
 jobs:
   build-heltec-v4:
     uses: ./.github/workflows/build_firmware.yml
