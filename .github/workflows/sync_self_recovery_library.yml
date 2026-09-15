@@ -1,0 +1,58 @@
+name: Sync Self-Recovery Firmware Library
+
+on:
+  push:
+    branches:
+      - field-self-recovery
+    paths:
+      - 'downloads/**'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v7
+        with:
+          ref: field-self-recovery
+          fetch-depth: 1
+
+      - name: Sync permanent downloads into user-facing folders
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sync_pair() {
+            src="$1"
+            dst_dir="$2"
+            test -f "$src" || { echo "Missing $src"; exit 1; }
+            mkdir -p "$dst_dir"
+            cp "$src" "$dst_dir/"
+          }
+
+          sync_pair downloads/Seeed-HOBO-Safe-v1.uf2 Self-Recovery-v1s/Seeed-HOBO-Safe-v1
+          sync_pair downloads/Seeed-HOBO-Safe-v1-OTA.zip Self-Recovery-v1s/Seeed-HOBO-Safe-v1
+          sync_pair downloads/RAK-HOBO-Safe-v1.uf2 Self-Recovery-v1s/RAK-HOBO-Safe-v1
+          sync_pair downloads/RAK-HOBO-Safe-v1-OTA.zip Self-Recovery-v1s/RAK-HOBO-Safe-v1
+          sync_pair downloads/Heltec-Gateway-v1.zip Self-Recovery-v1s/Heltec-Gateway-v1
+          sync_pair downloads/Seeed-Water-Distance-v1.uf2 Self-Recovery-v1s/Seeed-Water-Distance-v1
+          sync_pair downloads/Seeed-Water-Distance-v1-OTA.zip Self-Recovery-v1s/Seeed-Water-Distance-v1
+          sync_pair downloads/RAK-Water-Distance-v1.uf2 Self-Recovery-v1s/RAK-Water-Distance-v1
+          sync_pair downloads/RAK-Water-Distance-v1-OTA.zip Self-Recovery-v1s/RAK-Water-Distance-v1
+          sync_pair downloads/Seeed-Water-Distance-HOBO-v1.uf2 Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1
+          sync_pair downloads/Seeed-Water-Distance-HOBO-v1-OTA.zip Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1
+          sync_pair downloads/RAK-Water-Distance-HOBO-v1.uf2 Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1
+          sync_pair downloads/RAK-Water-Distance-HOBO-v1-OTA.zip Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Self-Recovery-v1s
+          if git diff --cached --quiet; then
+            echo "User-facing Self-Recovery folders already current"
+            exit 0
+          fi
+          git commit -m "Sync Self-Recovery firmware library"
+          git push origin HEAD:field-self-recovery
