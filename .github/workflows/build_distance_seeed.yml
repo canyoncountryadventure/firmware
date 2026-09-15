@@ -1,25 +1,25 @@
-name: Build Seeed Water Distance v1
+name: Build Seeed Water Distance HOBO v1
 
 on:
   push:
     branches:
-      - Seeed-Water-Distance-v1
+      - Seeed-Water-Distance-HOBO-v1
   workflow_dispatch:
 
 concurrency:
-  group: Seeed-Water-Distance-v1
+  group: Seeed-Water-Distance-HOBO-v1
   cancel-in-progress: true
 
 permissions: read-all
 
 jobs:
-  build-seeed-water-distance:
+  build-seeed-water-distance-hobo:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Seeed Water Distance v1 branch
+      - name: Checkout Seeed Water Distance HOBO v1 branch
         uses: actions/checkout@v7
         with:
-          ref: Seeed-Water-Distance-v1
+          ref: Seeed-Water-Distance-HOBO-v1
           submodules: recursive
 
       - name: Build Seeed XIAO nRF52840 Kit
@@ -32,7 +32,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: Seeed-Water-Distance-v1-${{ github.run_number }}
+          name: Seeed-Water-Distance-HOBO-v1-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
