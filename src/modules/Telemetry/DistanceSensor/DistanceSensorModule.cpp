@@ -147,6 +147,10 @@ bool DistanceSensorModule::readConfigSlot(const char *path, PersistentConfig &ou
         File file = FSCom.open(path, FILE_O_READ);
         if (!file)
             return false;
+        if (file.size() != sizeof(out)) {
+            file.close();
+            return false;
+        }
         readLength = file.read(reinterpret_cast<uint8_t *>(&out), sizeof(out));
         file.close();
     }
@@ -174,6 +178,16 @@ bool DistanceSensorModule::saveConfig()
             LOG_WARN("WaterDistance: failed to open config slot %c", targetSlot == 0 ? 'A' : 'B');
             return false;
         }
+
+        // Adafruit LittleFS FILE_O_WRITE opens at EOF rather than truncating.
+        // This is the inactive A/B slot, so reset it to exactly one record before writing.
+        // The currently active slot remains untouched until this new record verifies.
+        if (!file.seek(0) || !file.truncate()) {
+            LOG_WARN("WaterDistance: failed to truncate config slot %c", targetSlot == 0 ? 'A' : 'B');
+            file.close();
+            return false;
+        }
+
         written = file.write(reinterpret_cast<const uint8_t *>(&candidate), sizeof(candidate));
         file.flush();
         file.close();
