@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Heltec firmware artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           pattern: firmware-esp32s3-heltec-v4-cca-v1-*
           path: heltec-firmware
