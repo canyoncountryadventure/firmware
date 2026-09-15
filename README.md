@@ -1,34 +1,48 @@
-# Meshtastic Water-Distance Firmware — RAK4631
+# RAK Water Distance v1
 
-Production-oriented **water-level / stage firmware** for:
+Production water-level / stage firmware for **RAK4631 + RAK19007** Meshtastic field nodes.
 
-- RAK4631
-- RAK19007 WisBlock baseboard
-- DFRobot SEN0313 / A01NYUB as the default sensor
-- DFRobot SEN0311 / A02YYUW and SEN0590 also supported
+**Branch:** `RAK-Water-Distance-v1`
 
-This branch is **water-only**. Trail-counter logic is intentionally excluded and will be maintained separately.
+**Status:** Builds successfully on the RAK4631 target and carries the same water-only persistence, calibration, telemetry, and recovery design as the validated Seeed build. Full field hardware validation on RAK remains separate from the Seeed validation.
 
-## Branch
+This branch is intentionally **water-only**. Trail-counter firmware belongs in a separate branch.
 
-`water-distance-rak4631`
+## Hardware
 
-Base Meshtastic version remains pinned to the project's validated 2.7.26 baseline. Do not upgrade the Meshtastic base casually.
+Default sensor:
 
-## Field behavior
+- DFRobot SEN0313 / A01NYUB ultrasonic distance sensor
 
-On a fresh configuration the node defaults to:
+Also supported:
 
-- A01NYUB sensor
+- DFRobot SEN0311 / A02YYUW
+- DFRobot SEN0590
+
+RAK UART mapping used by the water sensor code:
+
+```text
+UART1 RX -> logical pin 15
+UART1 TX -> logical pin 16
+```
+
+For a streaming A01NYUB, sensor TX goes to the node UART RX.
+
+## Default behavior
+
+Fresh water configuration defaults to:
+
+- A01NYUB
 - 1-hour report interval
-- uncalibrated stage
+- no stage calibration
 - automatic water telemetry on Meshtastic channel 0
+- permanent water mode; no `MODE WATER` command is needed
 
-The node does not require a `MODE WATER` command. Water mode is permanent in this branch.
+Base Meshtastic remains pinned to the project's validated **2.7.26** baseline.
 
-## Field DM workflow
+## Field installation workflow
 
-Use a second Meshtastic node to DM the sensor node. Custom water commands are intentionally ignored when they originate from the sensor node itself.
+Use a second Meshtastic node to DM the sensor node.
 
 ```text
 STATUS
@@ -40,11 +54,41 @@ CAL STATUS
 TELEMETRY NOW
 ```
 
-Replace `1.42FT` with the independently measured stage at the site.
+Replace `1.42FT` with the independently measured water stage at the site.
 
-`CAL STAGE` takes multiple fresh ultrasonic readings, uses the median, calculates the stage reference, writes the calibration to persistent storage, verifies the saved record, and locks calibration automatically.
+`CAL STAGE` takes multiple fresh ultrasonic samples, uses the median, calculates the stage reference, writes the result to persistent flash, verifies the saved record, and locks calibration automatically.
 
-## Calibration safety
+After calibration, hard power-cycle the node and verify:
+
+```text
+STATUS
+CAL STATUS
+READ
+```
+
+For a test calibration that should be discarded before deployment:
+
+```text
+CAL RESET CONFIRM
+```
+
+That clears only calibration and preserves the selected sensor and interval.
+
+## Persistent configuration
+
+Water settings use redundant **A/B flash records** with:
+
+- sequence numbers
+- CRC32 validation
+- exact record-size validation
+- write/read-back verification
+- inactive-slot overwrite before the active slot changes
+
+On nRF52 Adafruit LittleFS, `FILE_O_WRITE` opens an existing file at EOF. This firmware explicitly seeks to offset 0 and truncates the inactive slot before writing. The previous valid slot remains untouched until the new record verifies.
+
+Normal power loss, reboot, watchdog reset, or non-destructive firmware update does not intentionally erase calibration, interval, channels, keys, identity, or NodeDB.
+
+## Calibration safety commands
 
 ```text
 CAL STATUS
@@ -55,72 +99,35 @@ CAL RESET
 CAL RESET CONFIRM
 ```
 
-Changing a calibrated sensor is blocked while calibration is locked.
+Sensor changes are blocked while calibration is locked.
 
-`CAL RESET CONFIRM` clears only the water calibration. It preserves the selected sensor and report interval.
-
-## Water-subsystem reset
+Full water-subsystem reset:
 
 ```text
 RESET WATER
 RESET WATER CONFIRM
 ```
 
-The confirmed reset returns the water subsystem to A01NYUB, 1-hour reporting, and no calibration. It does **not** erase Meshtastic node identity, channels, keys, or NodeDB.
+The confirmed reset returns the water subsystem to A01NYUB, 1-hour reporting, and no calibration. It does **not** factory-reset Meshtastic.
 
-## Persistence design
+## Sensor reads and recovery
 
-Water configuration is stored in redundant A/B records with:
+UART distance reads discard queued stale frames before each requested or scheduled sample. `VERIFY` takes multiple fresh readings and reports median/spread. Three consecutive sensor read failures trigger sensor-interface reinitialization.
 
-- monotonically increasing sequence numbers
-- CRC32 validation
-- exact record-size validation
-- write/read-back verification
-- inactive-slot overwrite before the active slot is changed
-
-On nRF52, Adafruit LittleFS `FILE_O_WRITE` opens an existing file at EOF. This branch explicitly seeks to offset 0 and truncates the inactive config slot before writing, preventing multiple config records from being appended into one slot.
-
-A failed save is rejected and the prior valid active slot remains authoritative.
-
-## Sensor reads
-
-UART sensors use fresh-frame reads. Queued stale A01NYUB/A02YYUW frames are discarded before a requested or scheduled reading so the reported distance represents the current target.
-
-`VERIFY` takes multiple fresh readings and reports the median and spread.
-
-Three consecutive sensor errors trigger a sensor-interface reinitialization attempt.
-
-## A01NYUB LED / power behavior
-
-The A01NYUB performs continuous ranging whenever it is powered, so its blue activity LED continues blinking even when this firmware only records/transmits hourly. The current hardware wiring does not power-gate the sensor.
-
-Reducing the sensor LED/ranging to the reporting interval requires a hardware load switch or high-side MOSFET so firmware can remove sensor power between measurements.
-
-## Recovery
-
-This branch retains the field self-recovery foundation, including:
+The inherited field-recovery foundation retains:
 
 - nRF52840 watchdog protection
-- remote recovery/reboot support
+- remote reboot/recovery support
 - battery/device telemetry
-- low-voltage / solar recovery behavior
-- persistent Meshtastic identity and radio configuration
-- non-destructive normal firmware updates
+- low-voltage and solar recovery behavior
+- persistent Meshtastic identity/configuration
+- non-destructive routine recovery
 
-Routine recovery must never factory-reset the node.
+## A01NYUB LED / power note
 
-## RAK wiring — UART distance sensor
+The A01NYUB ranges continuously whenever powered, so its blue LED continues blinking even if firmware reports only once per hour. Reducing sensor activity to the reporting interval requires hardware power gating with a load switch or high-side MOSFET.
 
-For RAK4631 + RAK19007, the water UART uses:
-
-```text
-UART1 RX -> logical pin 15
-UART1 TX -> logical pin 16
-```
-
-For a streaming A01NYUB, the critical signal is sensor TX to the node's UART RX. Use the board's correct 3.3 V / GND supply arrangement for the installed sensor interface.
-
-## Useful commands
+## Useful DM commands
 
 ```text
 HELP
@@ -145,8 +152,8 @@ TELEMETRY NOW
 RESET WATER CONFIRM
 ```
 
-Recovery commands such as `POWER`, `WATCHDOG`, `REBOOT`, and `RECOVER` are provided by the retained recovery subsystem.
+Recovery commands include `POWER`, `WATCHDOG`, `REBOOT`, and `RECOVER`.
 
 ## Safe flashing
 
-Use the normal board-specific firmware/UF2 or BLE DFU package. Do not use factory-erase images for normal upgrades. Normal updates are expected to preserve Meshtastic configuration and saved water settings.
+Use the normal RAK4631 UF2 or BLE DFU package for routine updates. **Do not use factory-erase images for normal upgrades.**
