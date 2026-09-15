@@ -27,7 +27,7 @@ The download files are stored under `downloads/` on the default branch. Producti
 
 ## Canonical branches
 
-These are the branches intended to remain in the repository after cleanup.
+The repository is intentionally limited to these maintained branches:
 
 | Branch | Purpose | Board |
 |---|---|---|
