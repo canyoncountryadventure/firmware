@@ -1,25 +1,25 @@
-name: Build Distance Self-Recovery Seeed
+name: Build Water Distance Seeed
 
 on:
   push:
     branches:
-      - distance-self-recovery-seeed
+      - water-distance-seeed
   workflow_dispatch:
 
 concurrency:
-  group: distance-self-recovery-seeed
+  group: water-distance-seeed
   cancel-in-progress: true
 
 permissions: read-all
 
 jobs:
-  build-seeed-distance:
+  build-seeed-water-distance:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout distance Seeed branch
+      - name: Checkout water distance Seeed branch
         uses: actions/checkout@v7
         with:
-          ref: distance-self-recovery-seeed
+          ref: water-distance-seeed
           submodules: recursive
 
       - name: Build Seeed XIAO nRF52840 Kit
@@ -32,7 +32,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: distance-self-recovery-seeed-${{ github.run_number }}
+          name: water-distance-seeed-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
