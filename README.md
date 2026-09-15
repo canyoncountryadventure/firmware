@@ -51,6 +51,44 @@ Behavior:
 
 The HOBO BLE module is intentionally not instantiated in the dedicated SEN0171 counter build so the branch can hold both implementations without forcing both sensor systems into the same firmware image.
 
+## Useful DM commands
+
+### PIR + Rock + HOBO build
+
+| Command | What it does |
+|---|---|
+| `VERSION` | Reports the CCA station firmware/version and Meshtastic base. |
+| `STATUS` | Shows uptime, battery, charging state, PIR state/counts, alert destination, and HOBO hint. |
+| `ALERTS HERE` | Saves the radio sending the command as the private destination for PIR/power/boot alerts. |
+| `ALERTS STATUS` | Shows the currently saved private alert destination. |
+| `ALERTS CLEAR` | Clears the private alert destination; only the current destination can clear it. |
+| `PIR` or `PIR STATUS` | Shows PIR enabled state, live motion state, counts, last detection, and TX-alert state. |
+| `PIR COUNT` | Shows cumulative and since-boot PIR detections. |
+| `PIR LAST` | Shows how long ago the last PIR detection occurred. |
+| `PIR RESET` | Resets the stored PIR counts to zero. |
+| `PIR ON` | Enables PIR monitoring and saves the setting. |
+| `PIR OFF` | Disables PIR monitoring and saves the setting. |
+| `PIR TX ON` | Enables private PIR detection alerts. |
+| `PIR TX OFF` | Stops PIR alert transmissions while continuing to count locally. |
+| `POWER` or `POWER STATUS` | Shows battery voltage/percent, charging state, trend, min/max, and sample count. |
+| `POWER VOLTAGE` | Shows current battery voltage, percentage, and charging state. |
+| `POWER MINMAX` | Shows minimum, maximum, and current battery voltage since boot. |
+| `POWER TREND` | Shows current voltage plus approximate 1 h, 6 h, and 24 h trend references. |
+| `POWER HISTORY` | Shows the stored battery-history checkpoints and min/max. |
+| `POWER RESET` | Clears battery-history statistics and starts them again from the current voltage. |
+| `UPTIME` | Shows node uptime and boot count. |
+| `BOOT` | Shows boot count and firmware version. |
+| `LOGGER` | Shows the connected/discovered HOBO logger identity and state. |
+| `READ` | Requests a fresh HOBO reading without consuming the automatic record pointer. |
+| `LOCK` | Saves the identified HOBO logger as the station's assigned logger. |
+| `UNLOCK` | Clears the saved HOBO assignment and resumes discovery. |
+| `DEBUG ON` | Enables verbose CCA serial diagnostics until reboot. |
+| `DEBUG OFF` | Disables verbose CCA serial diagnostics. |
+
+### Dedicated SEN0171 trail-counter build
+
+The dedicated `seeed_xiao_nrf52840_trail` build currently has **no custom plain-text DM command parser**. It automatically counts distinct PIR events and sends `PERSON WALKED BY #...` messages. Normal Meshtastic messaging/admin functions still work, but commands such as `PIR STATUS` above belong to the PIR + Rock + HOBO build, not the dedicated counter build.
+
 ## Key source files
 
 ```text
