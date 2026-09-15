@@ -26,6 +26,9 @@
 #include "modules/CCAStationModule.h"
 #include "modules/CCARockTelemetryModule.h"
 #endif
+#if defined(TRAIL_COUNTER_SEN0171)
+#include "modules/TrailCounterModule.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_NEIGHBORINFO
 #include "modules/NeighborInfoModule.h"
 #endif
@@ -58,7 +61,7 @@
 #if HAS_TELEMETRY
 #include "modules/Telemetry/DeviceTelemetry.h"
 #endif
-#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT) && !defined(TRAIL_COUNTER_SEN0171)
 #include "modules/Telemetry/HOBOMX2201MX2001/HOBOMX2201MX2001Telemetry.h"
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
@@ -114,9 +117,7 @@
 #if defined(HAS_HARDWARE_WATCHDOG)
 #include "watchdog/watchdogThread.h"
 #endif
-/**
- * Create module instances here.  If you are adding a new module, you must 'new' it here (or somewhere else)
- */
+
 void setupModules()
 {
 #if (HAS_BUTTON || ARCH_PORTDUINO) && !MESHTASTIC_EXCLUDE_INPUTBROKER
@@ -162,6 +163,9 @@ void setupModules()
     ccaStationModule = new CCAStationModule();
     ccaRockTelemetryModule = new CCARockTelemetryModule();
 #endif
+#if defined(TRAIL_COUNTER_SEN0171)
+    trailCounterModule = new TrailCounterModule();
+#endif
 #if !MESHTASTIC_EXCLUDE_ATAK
     if (config.device.role == meshtastic_Config_DeviceConfig_Role_TAK ||
         config.device.role == meshtastic_Config_DeviceConfig_Role_TAK_TRACKER) {
@@ -180,8 +184,6 @@ void setupModules()
 #if !MESHTASTIC_EXCLUDE_GENERIC_THREAD_MODULE
     new GenericThreadModule();
 #endif
-    // Note: if the rest of meshtastic doesn't need to explicitly use your module, you do not need to assign the instance
-    // to a global variable.
 
 #if !MESHTASTIC_EXCLUDE_REMOTEHARDWARE
     new RemoteHardwareModule();
@@ -189,8 +191,6 @@ void setupModules()
 #if !MESHTASTIC_EXCLUDE_POWERSTRESS
     new PowerStressModule();
 #endif
-    // Example: Put your module here
-    // new ReplyModule();
 #if HAS_SCREEN && !MESHTASTIC_EXCLUDE_CANNEDMESSAGES
     if (config.display.displaymode != meshtastic_Config_DisplayConfig_DisplayMode_COLOR) {
         cannedMessageModule = new CannedMessageModule();
@@ -202,7 +202,7 @@ void setupModules()
 #if HAS_TELEMETRY
     new DeviceTelemetryModule();
 #endif
-#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT) && !defined(TRAIL_COUNTER_SEN0171)
     new HOBOMX2201MX2001TelemetryModule();
 #endif
 #if defined(ARCH_NRF52) && defined(RAK_4631)
@@ -242,7 +242,6 @@ void setupModules()
 #endif
 #endif
 #ifdef ARCH_ESP32
-    // Only run on an esp32 based device.
 #if defined(USE_SX1280) && !MESHTASTIC_EXCLUDE_AUDIO
     audioModule = new AudioModule();
 #endif
@@ -269,7 +268,5 @@ void setupModules()
 #if defined(HAS_HARDWARE_WATCHDOG)
     watchdogThread = new WatchdogThread();
 #endif
-    // NOTE! This module must be added LAST because it likes to check for replies from other modules and avoid sending extra
-    // acks
     routingModule = new RoutingModule();
 }
