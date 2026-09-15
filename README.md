@@ -1,76 +1,44 @@
-# Meshtastic Field Sensor Firmware
+# Meshtastic Field Firmware
 
-Custom Meshtastic firmware for unattended environmental monitoring, water-level stations, trail sensors, and the Heltec gateway.
+If you just want firmware, use **these two folders**:
 
-The default branch, `field-self-recovery`, is the canonical recovery foundation and permanent-download branch. It also contains the shared HOBO self-recovery/watchdog source used by the HOBO-safe builds under `src/modules/Telemetry/HOBOSelfRecovery/`.
+1. **[`Self-Recovery-v1s/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Self-Recovery-v1s)** — HOBO, water-distance, combined water + HOBO, and Heltec gateway firmware.
+2. **[`Trail-Sensors/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Trail-Sensors)** — trail-counter, PIR, rock telemetry, and trail HOBO firmware.
 
-## Download firmware
+Everything else in the repository is source code or build infrastructure.
 
-These are the production firmware packages intended to remain on the front page.
+## Self-Recovery-v1s
 
-For nRF52840 boards, **UF2** is for normal USB drag-and-drop flashing and **BLE / OTA ZIP** is for nRF Connect / BLE DFU. These are normal update images; do **not** use factory-erase firmware for routine updates.
+| Firmware | Board | USB | BLE / OTA |
+|---|---|---|---|
+| **Seeed HOBO Safe v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-HOBO-Safe-v1/Seeed-HOBO-Safe-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-HOBO-Safe-v1/Seeed-HOBO-Safe-v1-OTA.zip) |
+| **RAK HOBO Safe v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-HOBO-Safe-v1/RAK-HOBO-Safe-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-HOBO-Safe-v1/RAK-HOBO-Safe-v1-OTA.zip) |
+| **Seeed Water Distance v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-v1/Seeed-Water-Distance-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-v1/Seeed-Water-Distance-v1-OTA.zip) |
+| **RAK Water Distance v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-v1/RAK-Water-Distance-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-v1/RAK-Water-Distance-v1-OTA.zip) |
+| **Seeed Water Distance + HOBO v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1-OTA.zip) |
+| **RAK Water Distance + HOBO v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1-OTA.zip) |
+| **Heltec Gateway v1** | Heltec V4 | [Full build ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Heltec-Gateway-v1/Heltec-Gateway-v1.zip) | — |
 
-| Firmware | USB UF2 | BLE / OTA ZIP |
-|---|---|---|
-| **Seeed HOBO Safe v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v1-OTA.zip) |
-| **RAK HOBO Safe v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-HOBO-Safe-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-HOBO-Safe-v1-OTA.zip) |
-| **Seeed Water Distance v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-v1-OTA.zip) |
-| **RAK Water Distance v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-v1-OTA.zip) |
-| **Seeed Water Distance + HOBO v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v1-OTA.zip) |
-| **RAK Water Distance + HOBO v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v1-OTA.zip) |
+### Seeed Water Distance + HOBO v1
 
-### Heltec V4 gateway
+This combined firmware is present and maintained in:
 
-**[Download Heltec Gateway v1 full build ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Heltec-Gateway-v1.zip)**
+[`Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1)
 
-The download files are stored under `downloads/` on the default branch. Production workflows refresh their matching downloads after successful builds, so the links above remain stable.
+It combines the current Water Distance v1 logic with HOBO MX BLE telemetry and uses the HOBO self-recovery/watchdog supervisor. The water calibration persistence fix is retained.
 
-## Canonical branches
+## Trail-Sensors
 
-The repository is intentionally limited to these maintained branches:
+| Firmware | Purpose | USB | BLE / OTA |
+|---|---|---|---|
+| **SEN0171 v1** | Dedicated fast trail counter | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/SEN0171/Trail-SEN0171-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/SEN0171/Trail-SEN0171-v1-OTA.zip) |
+| **PIR + Rock + HOBO v1** | PIR / presence + rock telemetry + HOBO | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1-OTA.zip) |
 
-| Branch | Purpose | Board |
-|---|---|---|
-| `field-self-recovery` | Canonical recovery/watchdog foundation and permanent downloads | Seeed + RAK nRF52840 |
-| `Seeed-HOBO-Safe-v1` | HOBO BLE only + self-recovery/watchdog | Seeed XIAO nRF52840 + Wio-SX1262 |
-| `RAK-HOBO-Safe-v1` | HOBO BLE only + self-recovery/watchdog | RAK4631 + RAK19007 |
-| `Heltec-Gateway-v1` | HOBO/mesh sensor gateway | Heltec V4 |
-| `Seeed-Water-Distance-v1` | Water-level / stage only | Seeed XIAO nRF52840 + Wio-SX1262 |
-| `RAK-Water-Distance-v1` | Water-level / stage only | RAK4631 + RAK19007 |
-| `Seeed-Water-Distance-HOBO-v1` | Water-level / stage + HOBO BLE | Seeed XIAO nRF52840 + Wio-SX1262 |
-| `RAK-Water-Distance-HOBO-v1` | Water-level / stage + HOBO BLE | RAK4631 + RAK19007 |
-| `Trail-Sensors` | Consolidated PIR, rock telemetry, and SEN0171 trail-counter work | Seeed XIAO nRF52840 + Wio-SX1262 |
+Both consolidated Trail-Sensors targets were compile-validated before the old standalone trail branches were removed.
 
-## HOBO Safe v1
+## Water-distance field setup
 
-The HOBO-only builds are for remote HOBO MX telemetry without water-distance logic. They retain the self-recovery supervisor, BLE recovery behavior, watchdog handling, remote recovery commands, battery/device telemetry, and preservation of normal Meshtastic configuration.
-
-Shared recovery/watchdog source:
-
-```text
-src/modules/Telemetry/HOBOSelfRecovery/
-```
-
-HOBO telemetry source:
-
-```text
-src/modules/Telemetry/HOBOMX2001MX2201MX2203/
-src/modules/Telemetry/HOBOMX2201MX2001/
-```
-
-## Water Distance v1
-
-The production water firmware is permanently water-only; `MODE WATER` is not required.
-
-Supported distance sensors:
-
-- DFRobot SEN0313 / A01NYUB — default
-- DFRobot SEN0311 / A02YYUW
-- DFRobot SEN0590
-
-Core behavior includes fresh sensor reads, DM field setup, configurable report interval, field-stage calibration, calibration locking/reset, water telemetry, sensor-interface recovery, and redundant A/B persistent configuration with sequence, CRC32, exact-size validation, truncation-before-overwrite, and read-back verification.
-
-### Standard field workflow
+The water builds support A01NYUB / SEN0313 by default, plus A02YYUW / SEN0311 and SEN0590. Typical field setup by Meshtastic DM:
 
 ```text
 STATUS
@@ -82,41 +50,22 @@ CAL STATUS
 TELEMETRY NOW
 ```
 
-Replace `1.42FT` with the independently measured stage at installation. After calibration, remove power completely, reconnect, then verify:
+Replace `1.42FT` with the independently measured stage. After calibration, fully remove power, reconnect, then verify `STATUS`, `CAL STATUS`, and `READ`.
 
-```text
-STATUS
-CAL STATUS
-READ
-```
-
-To discard a bench/test calibration before field deployment:
+To discard a bench calibration without changing the saved interval:
 
 ```text
 CAL RESET CONFIRM
 ```
 
-## Combined Water + HOBO v1
-
-The combined branches start from the corresponding Water Distance v1 firmware and add the universal HOBO BLE reader plus HOBO field-check/self-recovery helpers. They use the HOBO self-recovery module as the single recovery supervisor so watchdog/reboot handlers are not duplicated.
-
-## Trail Sensors
-
-`Trail-Sensors` consolidates the old trail-specific development branches into one place. It contains:
-
-- SEN0171 PIR/presence station logic
-- CCA rock telemetry
-- HOBO support used by the PIR/rock remote-station build
-- dedicated SEN0171 fast trail-counter firmware
-
-The branch has separate PlatformIO targets for the PIR + Rock + HOBO station and the dedicated SEN0171 trail counter, so those implementations remain isolated at build time while sharing one maintained branch.
-
-## Build policy
-
-The project remains pinned to the validated **Meshtastic 2.7.26** base unless an upgrade is explicitly tested and approved. A successful compile is required but does not replace real hardware validation.
-
 ## Safe flashing
 
-Use the board-specific UF2 or BLE DFU packages above for routine nRF52840 updates.
+For nRF52840 boards:
 
-**Do not use factory-erase images for ordinary upgrades.** Normal updates are expected to preserve Meshtastic identity, channels, keys, NodeDB, and saved application settings.
+- **UF2** = normal USB drag-and-drop firmware update.
+- **BLE / OTA ZIP** = nRF Connect / BLE DFU update.
+- **Do not use factory-erase images for routine upgrades.**
+
+Normal updates are intended to preserve Meshtastic identity, channels, keys, NodeDB, and saved application settings.
+
+The project remains pinned to the validated **Meshtastic 2.7.26** base unless an upgrade is explicitly tested and approved.
