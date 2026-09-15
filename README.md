@@ -4,6 +4,19 @@ Custom Meshtastic firmware for unattended environmental monitoring and remote fi
 
 The repository is organized around a **self-recovery foundation** plus narrow, board-specific production branches. New applications should inherit the recovery foundation instead of duplicating watchdog, battery, solar, persistence, and remote diagnostics.
 
+## Download firmware
+
+These are the current production download files. **UF2** is for normal USB drag-and-drop flashing. **BLE / OTA ZIP** is for nRF Connect / BLE DFU. These are normal update images; do **not** use factory-erase firmware for routine updates.
+
+| Firmware | USB UF2 | BLE / OTA ZIP |
+|---|---|---|
+| **Seeed Water Distance v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-v1-OTA.zip) |
+| **RAK Water Distance v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-v1-OTA.zip) |
+| **Seeed Water Distance + HOBO v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v1-OTA.zip) |
+| **RAK Water Distance + HOBO v1** | [Download UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v1.uf2) | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v1-OTA.zip) |
+
+The download files above are stored under `downloads/` on the default branch. Each production firmware workflow refreshes its matching UF2 and OTA ZIP after a successful build, so the front-page links remain stable when the firmware is rebuilt.
+
 ## Active production branches
 
 | Branch | Purpose | Board | Validation |
