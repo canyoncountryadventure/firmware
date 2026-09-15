@@ -1,21 +1,26 @@
-name: Build HOBO Self-Recovery RAK4631
+name: Build RAK HOBO Safe v1
 
 on:
   push:
     branches:
-      - hobo-self-recovery-rak4631
+      - RAK-HOBO-Safe-v1
   workflow_dispatch:
 
-permissions: read-all
+concurrency:
+  group: RAK-HOBO-Safe-v1
+  cancel-in-progress: true
+
+permissions:
+  contents: write
 
 jobs:
-  build-rak-self-recovery:
+  build-rak-hobo-safe:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout RAK self-recovery branch
+      - name: Checkout RAK HOBO Safe v1 branch
         uses: actions/checkout@v7
         with:
-          ref: hobo-self-recovery-rak4631
+          ref: RAK-HOBO-Safe-v1
           submodules: recursive
 
       - name: Build RAK4631
@@ -25,10 +30,10 @@ jobs:
           pio_env: rak4631
           pio_target: build
 
-      - name: Upload RAK self-recovery artifact
+      - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: hobo-self-recovery-rak4631-${{ github.run_number }}
+          name: RAK-HOBO-Safe-v1-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
@@ -38,3 +43,49 @@ jobs:
             release/*.elf
             release/*.map
             release/*.mt.json
+
+      - name: Prepare permanent downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          UF2="$(find release -maxdepth 1 -type f -name 'firmware-rak4631-*.uf2' | head -n 1)"
+          OTA="$(find release -maxdepth 1 -type f -name 'firmware-rak4631-*-ota.zip' | head -n 1)"
+          test -n "$UF2"
+          test -n "$OTA"
+          mkdir -p export
+          cp "$UF2" export/RAK-HOBO-Safe-v1.uf2
+          cp "$OTA" export/RAK-HOBO-Safe-v1-OTA.zip
+
+      - name: Checkout firmware download branch
+        uses: actions/checkout@v7
+        with:
+          ref: field-self-recovery
+          path: publish
+          fetch-depth: 0
+
+      - name: Publish permanent downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin field-self-recovery
+            git reset --hard origin/field-self-recovery
+            mkdir -p downloads
+            cp ../export/RAK-HOBO-Safe-v1.uf2 downloads/
+            cp ../export/RAK-HOBO-Safe-v1-OTA.zip downloads/
+            git add downloads/RAK-HOBO-Safe-v1.uf2 downloads/RAK-HOBO-Safe-v1-OTA.zip
+            if git diff --cached --quiet; then
+              echo "Downloads already current"
+              exit 0
+            fi
+            git commit -m "Publish RAK HOBO Safe v1 downloads"
+            if git push origin HEAD:field-self-recovery; then
+              exit 0
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "Failed to publish downloads after retries" >&2
+          exit 1
