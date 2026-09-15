@@ -9,8 +9,7 @@ on:
       - Trail-Sensors
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: read-all
 
 jobs:
   build-pir-rock-hobo:
@@ -78,69 +77,3 @@ jobs:
           name: Trail-PIR-Rock-HOBO-v1-OTA
           path: safe-ota/Trail-PIR-Rock-HOBO-v1-OTA.zip
           if-no-files-found: error
-
-  retire-obsolete-branches:
-    name: Retire superseded branches
-    needs:
-      - build-pir-rock-hobo
-      - build-sen0171
-      - settings-safe-ota
-    if: github.event_name == 'push' && github.ref == 'refs/heads/Trail-Sensors'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout with authenticated origin
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 1
-
-      - name: Delete only explicitly superseded branches
-        shell: bash
-        run: |
-          set -euo pipefail
-          obsolete=(
-            'CCA-MX-HOBO-PIR-ROCK-SEEED-v1'
-            'CCA-MX-HOBO-PIR-SEEED-v1'
-            'archive/cca-heltec-before-restore-2026-09-10'
-            'archive/cca-heltec-sensor-gateway-final-2026-09-10'
-            'archive/fucking-around-heltec-final-2026-09-10'
-            'archive/heltec-gateway-2026-09-10-before-restore'
-            'archive/heltec-gateway-2026-09-10-final'
-            'cca-heltec-sensor-gateway'
-            'fucking-around'
-            'fucking-around-heltec'
-            'heltec-gateway-2026-09-10'
-            'heltec-gateway-clean-rebuild'
-            'hobo-mx2001-mx2201-mx2203'
-            'hobo-self-recovery-do-not-use'
-            'hobo-self-recovery-final'
-            'hobo-self-recovery-rak4631-v2'
-            'hobo-self-recovery-rak4631'
-            'hobo-self-recovery-seeed'
-            'hobo-self-recovery-seeed-prod'
-            'hobo-self-recovery-seeed-v2'
-            'hobo-self-recovery-shared'
-            'hobo-self-recovery-test'
-            'hobo-self-recovery-working'
-            'trail-sen0171'
-          )
-
-          echo 'Keeping canonical branches:'
-          printf '%s\n' \
-            field-self-recovery \
-            Seeed-HOBO-Safe-v1 \
-            RAK-HOBO-Safe-v1 \
-            Heltec-Gateway-v1 \
-            Seeed-Water-Distance-v1 \
-            RAK-Water-Distance-v1 \
-            Seeed-Water-Distance-HOBO-v1 \
-            RAK-Water-Distance-HOBO-v1 \
-            Trail-Sensors
-
-          for branch in "${obsolete[@]}"; do
-            if git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null 2>&1; then
-              echo "Deleting $branch"
-              git push origin --delete "$branch"
-            else
-              echo "Already absent: $branch"
-            fi
-          done
