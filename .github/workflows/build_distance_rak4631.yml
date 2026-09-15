@@ -73,12 +73,18 @@ jobs:
           for attempt in 1 2 3 4 5; do
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
-            mkdir -p downloads
+            mkdir -p downloads Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1
             cp ../export/RAK-Water-Distance-HOBO-v1.uf2 downloads/
             cp ../export/RAK-Water-Distance-HOBO-v1-OTA.zip downloads/
-            git add downloads/RAK-Water-Distance-HOBO-v1.uf2 downloads/RAK-Water-Distance-HOBO-v1-OTA.zip
+            cp ../export/RAK-Water-Distance-HOBO-v1.uf2 Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/
+            cp ../export/RAK-Water-Distance-HOBO-v1-OTA.zip Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/
+            git add \
+              downloads/RAK-Water-Distance-HOBO-v1.uf2 \
+              downloads/RAK-Water-Distance-HOBO-v1-OTA.zip \
+              Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1.uf2 \
+              Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1-OTA.zip
             if git diff --cached --quiet; then
-              echo "Downloads already current"
+              echo "Downloads and user-facing folder already current"
               exit 0
             fi
             git commit -m "Publish RAK Water Distance HOBO v1 downloads"
