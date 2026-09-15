@@ -1,25 +1,25 @@
-name: Build RAK Water Distance v1
+name: Build RAK Water Distance HOBO v1
 
 on:
   push:
     branches:
-      - RAK-Water-Distance-v1
+      - RAK-Water-Distance-HOBO-v1
   workflow_dispatch:
 
 concurrency:
-  group: RAK-Water-Distance-v1
+  group: RAK-Water-Distance-HOBO-v1
   cancel-in-progress: true
 
 permissions: read-all
 
 jobs:
-  build-rak-water-distance:
+  build-rak-water-distance-hobo:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout RAK Water Distance v1 branch
+      - name: Checkout RAK Water Distance HOBO v1 branch
         uses: actions/checkout@v7
         with:
-          ref: RAK-Water-Distance-v1
+          ref: RAK-Water-Distance-HOBO-v1
           submodules: recursive
 
       - name: Build RAK4631
@@ -32,7 +32,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: RAK-Water-Distance-v1-${{ github.run_number }}
+          name: RAK-Water-Distance-HOBO-v1-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
