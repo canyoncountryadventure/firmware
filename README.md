@@ -1,50 +1,47 @@
-# Seeed Water Distance v1
+# Seeed Water Distance + HOBO v1
 
-Production water-level / stage firmware for **Seeed XIAO nRF52840 + Wio-SX1262** Meshtastic field nodes.
+Production combined firmware for **Seeed XIAO nRF52840 + Wio-SX1262** field nodes that must do both:
 
-**Branch:** `Seeed-Water-Distance-v1`
+- ultrasonic water-level / stage monitoring, and
+- BLE collection from supported HOBO MX loggers.
 
-**Status:** Seeed hardware validated through fresh sensor reads, calibration, persistent A/B config saves, hard power-cycle restore, interval changes, mesh telemetry, and remote DM commands.
+**Branch:** `Seeed-Water-Distance-HOBO-v1`
 
-This branch is intentionally **water-only**. Trail-counter firmware belongs in a separate branch.
+This branch is built from the current **Seeed Water Distance v1** firmware and then adds the proven HOBO reader/recovery stack. It replaces the older `distance-hobo-safe` combined build.
 
-## Hardware
+## Scope
 
-Default sensor:
+Water side:
 
-- DFRobot SEN0313 / A01NYUB ultrasonic distance sensor
-
-Also supported:
-
+- DFRobot SEN0313 / A01NYUB — default
 - DFRobot SEN0311 / A02YYUW
 - DFRobot SEN0590
+- permanent water mode
+- fresh-frame distance reads
+- stage calibration with automatic lock
+- configurable report interval
+- redundant A/B persistent config with sequence, CRC32, exact-size checking, truncation before overwrite, and read-back verification
+- water telemetry on Meshtastic channel 0
 
-Seeed A01NYUB wiring:
+HOBO side:
 
-```text
-A01NYUB red   -> 3V3
-A01NYUB black -> GND
-A01NYUB green -> XIAO D7 / UART RX
-A01NYUB blue  -> leave floating for stabilized output
-```
+- MX2001
+- MX2201
+- MX2203
+- BLE scanning/collection using the existing universal HOBO reader
+- HOBO field check and self-recovery helpers
 
-Wio-SX1262 uses D4/D5. The water UART remains on D6/D7, with sensor TX connected to D7.
+Trail-counter logic is intentionally excluded.
 
-## Default behavior
+## Recovery ownership
 
-Fresh water configuration defaults to:
+The combined build uses **one recovery supervisor**: the HOBO self-recovery module. The standalone distance recovery supervisor is not instantiated in this combined build. This avoids duplicate watchdog/reboot command handlers while retaining watchdog, BLE recovery, remote recovery commands, and field diagnostics.
 
-- A01NYUB
-- 1-hour report interval
-- no stage calibration
-- automatic water telemetry on Meshtastic channel 0
-- permanent water mode; no `MODE WATER` command is needed
+Water configuration persistence remains handled by the Water Distance v1 module.
 
-Base Meshtastic remains pinned to the project's validated **2.7.26** baseline.
+## Water field setup
 
-## Field installation workflow
-
-Use a second Meshtastic node to DM the sensor node.
+Use a second Meshtastic node to DM the field node:
 
 ```text
 STATUS
@@ -56,11 +53,9 @@ CAL STATUS
 TELEMETRY NOW
 ```
 
-Replace `1.42FT` with the independently measured water stage at the site.
+Replace `1.42FT` with the independently measured stage at the site.
 
-`CAL STAGE` takes multiple fresh ultrasonic samples, uses the median, calculates the stage reference, writes the result to persistent flash, verifies the saved record, and locks calibration automatically.
-
-After calibration, hard power-cycle the node and verify:
+After calibration, completely remove power, reconnect it, then verify:
 
 ```text
 STATUS
@@ -68,68 +63,36 @@ CAL STATUS
 READ
 ```
 
-For a test calibration that should be discarded before deployment:
+To discard a bench/test calibration before deployment:
 
 ```text
 CAL RESET CONFIRM
 ```
 
-That clears only calibration and preserves the selected sensor and interval.
+This clears only water calibration; sensor selection and reporting interval are preserved.
 
-## Persistent configuration
-
-Water settings use redundant **A/B flash records** with:
-
-- sequence numbers
-- CRC32 validation
-- exact record-size validation
-- write/read-back verification
-- inactive-slot overwrite before the active slot changes
-
-On nRF52 Adafruit LittleFS, `FILE_O_WRITE` opens an existing file at EOF. This firmware explicitly seeks to offset 0 and truncates the inactive slot before writing. The previous valid slot remains untouched until the new record verifies.
-
-Normal power loss, reboot, watchdog reset, or non-destructive firmware update does not intentionally erase calibration, interval, channels, keys, identity, or NodeDB.
-
-## Calibration safety commands
+## Seeed A01NYUB wiring
 
 ```text
-CAL STATUS
-CAL LOCK
-CAL UNLOCK
-CAL UNLOCK CONFIRM
-CAL RESET
-CAL RESET CONFIRM
+A01NYUB red   -> 3V3
+A01NYUB black -> GND
+A01NYUB green -> XIAO D7 / UART RX
+A01NYUB blue  -> leave floating for stabilized output
 ```
 
-Sensor changes are blocked while calibration is locked.
+Wio-SX1262 uses D4/D5. Water UART remains on D6/D7 with sensor TX connected to D7.
 
-Full water-subsystem reset:
+## Water persistence
 
-```text
-RESET WATER
-RESET WATER CONFIRM
-```
+Water settings are stored in redundant A/B flash records. The inactive slot is rewound and truncated before each write, then the complete record is re-opened and verified before it becomes active. The previous valid slot remains the fallback until verification succeeds.
 
-The confirmed reset returns the water subsystem to A01NYUB, 1-hour reporting, and no calibration. It does **not** factory-reset Meshtastic.
+Normal battery loss, solar shutdown, reboot, watchdog reset, or ordinary non-destructive firmware updates do not intentionally erase water calibration, interval, Meshtastic identity, channels, keys, or NodeDB.
 
-## Sensor reads and recovery
+## A01NYUB power note
 
-UART distance reads discard queued stale frames before each requested or scheduled sample. `VERIFY` takes multiple fresh readings and reports median/spread. Three consecutive sensor read failures trigger sensor-interface reinitialization.
+A01NYUB ranges continuously while powered, so its blue LED keeps blinking even when water telemetry is hourly. Actual sensor sleep requires hardware power gating with a load switch or high-side MOSFET.
 
-The inherited field-recovery foundation retains:
-
-- nRF52840 watchdog protection
-- remote reboot/recovery support
-- battery/device telemetry
-- low-voltage and solar recovery behavior
-- persistent Meshtastic identity/configuration
-- non-destructive routine recovery
-
-## A01NYUB LED / power note
-
-The A01NYUB ranges continuously whenever powered, so its blue LED continues blinking even if firmware reports only once per hour. Reducing sensor activity to the reporting interval requires hardware power gating with a load switch or high-side MOSFET.
-
-## Useful DM commands
+## Useful water commands
 
 ```text
 HELP
@@ -154,8 +117,12 @@ TELEMETRY NOW
 RESET WATER CONFIRM
 ```
 
-Recovery commands include `POWER`, `WATCHDOG`, `REBOOT`, and `RECOVER`.
+Recovery commands such as `POWER`, `WATCHDOG`, `REBOOT`, and `RECOVER` are supplied by the HOBO self-recovery layer in this combined build.
 
-## Safe flashing
+## Build and flashing
 
-Use the normal Seeed UF2 or BLE DFU package for routine updates. **Do not use factory-erase images for normal upgrades.**
+Meshtastic base remains pinned to the validated **2.7.26** baseline.
+
+Use normal Seeed UF2 or BLE DFU packages for routine updates. **Do not use factory-erase images for normal upgrades.**
+
+A successful compile is required, but field deployment still requires real sensor, HOBO BLE, calibration-persistence, telemetry, and recovery testing on the actual assembled node.
