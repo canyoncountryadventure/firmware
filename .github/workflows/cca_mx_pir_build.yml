@@ -9,7 +9,8 @@ on:
       - Trail-Sensors
   workflow_dispatch:
 
-permissions: read-all
+permissions:
+  contents: write
 
 jobs:
   build-pir-rock-hobo:
@@ -77,3 +78,84 @@ jobs:
           name: Trail-PIR-Rock-HOBO-v1-OTA
           path: safe-ota/Trail-PIR-Rock-HOBO-v1-OTA.zip
           if-no-files-found: error
+
+  publish-trail-library:
+    name: Publish Trail-Sensors firmware library
+    needs:
+      - build-pir-rock-hobo
+      - build-sen0171
+      - settings-safe-ota
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download SEN0171 build
+        uses: actions/download-artifact@v7
+        with:
+          name: firmware-nrf52840-seeed_xiao_nrf52840_trail-TRAIL-SEN0171-v1
+          path: sen0171
+
+      - name: Download PIR/Rock/HOBO build
+        uses: actions/download-artifact@v7
+        with:
+          name: firmware-nrf52840-seeed_xiao_nrf52840_cca_mx_pir-TRAIL-PIR-ROCK-v1
+          path: pirrock
+
+      - name: Download settings-safe PIR/Rock OTA
+        uses: actions/download-artifact@v7
+        with:
+          name: Trail-PIR-Rock-HOBO-v1-OTA
+          path: pirrock-safe
+
+      - name: Prepare safe firmware files
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEN_UF2="$(find sen0171 -type f -name '*.uf2' ! -iname '*factory*' -print -quit)"
+          SEN_OTA="$(find sen0171 -type f -name '*-ota.zip' -print -quit)"
+          PIR_UF2="$(find pirrock -type f -name '*.uf2' ! -iname '*factory*' -print -quit)"
+          PIR_OTA="$(find pirrock-safe -type f -name '*.zip' -print -quit)"
+          test -n "$SEN_UF2" && test -f "$SEN_UF2"
+          test -n "$SEN_OTA" && test -f "$SEN_OTA"
+          test -n "$PIR_UF2" && test -f "$PIR_UF2"
+          test -n "$PIR_OTA" && test -f "$PIR_OTA"
+          mkdir -p export/SEN0171 export/PIR-Rock-HOBO
+          cp "$SEN_UF2" export/SEN0171/Trail-SEN0171-v1.uf2
+          cp "$SEN_OTA" export/SEN0171/Trail-SEN0171-v1-OTA.zip
+          cp "$PIR_UF2" export/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1.uf2
+          cp "$PIR_OTA" export/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1-OTA.zip
+
+      - name: Checkout default firmware-library branch
+        uses: actions/checkout@v7
+        with:
+          ref: field-self-recovery
+          path: publish
+          fetch-depth: 0
+
+      - name: Publish Trail-Sensors files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin field-self-recovery
+            git reset --hard origin/field-self-recovery
+            mkdir -p Trail-Sensors/SEN0171 Trail-Sensors/PIR-Rock-HOBO
+            cp ../export/SEN0171/Trail-SEN0171-v1.uf2 Trail-Sensors/SEN0171/
+            cp ../export/SEN0171/Trail-SEN0171-v1-OTA.zip Trail-Sensors/SEN0171/
+            cp ../export/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1.uf2 Trail-Sensors/PIR-Rock-HOBO/
+            cp ../export/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1-OTA.zip Trail-Sensors/PIR-Rock-HOBO/
+            git add Trail-Sensors/SEN0171 Trail-Sensors/PIR-Rock-HOBO
+            if git diff --cached --quiet; then
+              echo "Trail-Sensors library already current"
+              exit 0
+            fi
+            git commit -m "Publish Trail-Sensors firmware library"
+            if git push origin HEAD:field-self-recovery; then
+              exit 0
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "Failed to publish Trail-Sensors library after retries" >&2
+          exit 1
