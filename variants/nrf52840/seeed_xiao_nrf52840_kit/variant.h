@@ -36,8 +36,8 @@ Xiao pin assignments
 | D30   |          |      |      |       |     | D31   |         |      |      |       |
 |       |          |      |      |       |     |       |         |      |      |       |
 |       | Internal |      |      |       |     |       |         |      |      |       |
-| D16   | SCL1     | SCL1 | SCL1 | SCL1  |     |       |         |      |      |       |
-| D17   | SDA1     | SDA1 | SDA1 | SDA1  |     |       |         |      |      |       |
+| D16   | SCL1     | SCL1 | SCL1 | SCL1  |     |       |        |      |      |       |
+| D17   | SDA1     | SDA1 | SDA1 | SDA1  |     |       |        |      |      |       |
 
 The default column shows the pin assignments for the Wio-SX1262 for XIAO
 (standalone SKU 113010003 or nRF52840 kit SKU 102010710).
@@ -131,17 +131,12 @@ static const uint8_t A5 = PIN_A5;
 #define SX126X_RXEN D7
 #else
 #if defined(SEEED_XIAO_NRF_WIO_BTB)
-// Wio-SX1262 for XIAO with 30-pin board-to-board connector
-// https://files.seeedstudio.com/products/SenseCAP/Wio_SX1262/Schematic_Diagram_Wio-SX1262_for_XIAO.pdf
 #define SX126X_CS D3
 #define SX126X_DIO1 D0
 #define SX126X_BUSY D1
 #define SX126X_RESET D2
 #define SX126X_RXEN D4
 #else
-// Wio-SX1262 for XIAO (standalone SKU 113010003 or nRF52840 kit SKU 102010710)
-// Same for both default and I2C pinouts
-// https://files.seeedstudio.com/products/SenseCAP/Wio_SX1262/Wio-SX1262%20for%20XIAO%20V1.0_SCH.pdf
 #define SX126X_CS D4
 #define SX126X_DIO1 D1
 #define SX126X_BUSY D3
@@ -150,17 +145,11 @@ static const uint8_t A5 = PIN_A5;
 #endif // defined(SEEED_XIAO_NRF_WIO_BTB)
 #endif // defined(XIAO_BLE_LEGACY_PINOUT)
 
-// Common pinouts for all SX126x pinouts above
 #define SX126X_TXEN RADIOLIB_NC
-#define SX126X_DIO2_AS_RF_SWITCH // DIO2 is used to control the TX side of the RF switch
+#define SX126X_DIO2_AS_RF_SWITCH
 #define SX126X_DIO3_TCXO_VOLTAGE 1.8
 
-/*
- * SPI Interfaces
- * Defined after pinout for SX1262x to factor in CS pinout variations
- */
 #define SPI_INTERFACES_COUNT 1
-
 #define PIN_SPI_MISO D9
 #define PIN_SPI_MOSI D10
 #define PIN_SPI_SCK D8
@@ -170,94 +159,62 @@ static const uint8_t MOSI = PIN_SPI_MOSI;
 static const uint8_t MISO = PIN_SPI_MISO;
 static const uint8_t SCK = PIN_SPI_SCK;
 
-/*
- * GPS
- */
-// GPS L76K
-
-// Default GPS L76K
+/* GPS */
+#if defined(TRAIL_COUNTER_SEN0171)
+#define GPS_TX_PIN D6
+#define GPS_RX_PIN D7
+#define HAS_GPS 0
+#else
 #if defined(SEEED_XIAO_NRF_KIT_DEFAULT) || defined(SEEED_XIAO_NRF_WIO_BTB)
 #define GPS_L76K
-#define GPS_TX_PIN D6 // This is data from the MCU
-#define GPS_RX_PIN D7 // This is data from the GNSS module
+#define GPS_TX_PIN D6
+#define GPS_RX_PIN D7
 #if defined(SEEED_XIAO_NRF_KIT_DEFAULT)
-#define PIN_GPS_STANDBY D0 // this is where the conflicting pinouts come from
+#define PIN_GPS_STANDBY D0
 #endif
-// I2C and BLE-Legacy put them on the NFC pins
 #else
 #define GPS_TX_PIN (30)
 #define GPS_RX_PIN (31)
 #endif
-
 #define HAS_GPS 1
+#endif // defined(TRAIL_COUNTER_SEN0171)
+
 #define GPS_BAUDRATE 9600
 #define GPS_THREAD_INTERVAL 50
 #define PIN_SERIAL1_TX GPS_TX_PIN
 #define PIN_SERIAL1_RX GPS_RX_PIN
 
-/*
- * Battery
- */
-#define BATTERY_PIN PIN_VBAT      // P0.31: VBAT voltage divider
-#define ADC_MULTIPLIER (3)        // ... R17=1M, R18=510k
-#define ADC_CTRL VBAT_ENABLE      // P0.14: VBAT voltage divider
-#define ADC_CTRL_ENABLED LOW      // ... sink
-#define EXT_CHRG_DETECT (23)      // P0.17: Charge LED
-#define EXT_CHRG_DETECT_VALUE LOW // ... BQ25101 ~CHG indicates charging
-#define HICHG (22)                // P0.13: BQ25101 ISET 100mA instead of 50mA
-
+/* Battery */
+#define BATTERY_PIN PIN_VBAT
+#define ADC_MULTIPLIER (3)
+#define ADC_CTRL VBAT_ENABLE
+#define ADC_CTRL_ENABLED LOW
+#define EXT_CHRG_DETECT (23)
+#define EXT_CHRG_DETECT_VALUE LOW
+#define HICHG (22)
 #define BATTERY_SENSE_RESOLUTION_BITS (10)
 
-/*
- * Wire Interfaces
- * Keep this section after potentially conflicting pin definitions
- */
-#define I2C_NO_RESCAN           // I2C is a bit finicky, don't scan too much
-#define WIRE_INTERFACES_COUNT 1 // changed to 1 for now, as LSM6DS3TR has issues.
+/* Wire Interfaces */
+#define I2C_NO_RESCAN
+#define WIRE_INTERFACES_COUNT 1
 
 #if defined(XIAO_BLE_LEGACY_PINOUT)
-// Used for I2C by DIY xiao_ble variant
 #define PIN_WIRE_SDA D4
 #define PIN_WIRE_SCL D5
 #else
-// Put the I2C pins on the NFC pins by default
 #if defined(SEEED_XIAO_NRF_KIT_DEFAULT) || defined(SEEED_XIAO_NRF_WIO_BTB)
 #define PIN_WIRE_SDA 30
 #define PIN_WIRE_SCL 31
 #else
-// If not on legacy or defauly, we're wanting I2C on the back pins
 #define PIN_WIRE_SDA D6
 #define PIN_WIRE_SCL D7
-#endif // defined(SEEED_XIAO_NRF_KIT_DEFAULT) || defined(SEEED_XIAO_NRF_WIO_BTB)
-#endif // defined(XIAO_BLE_LEGACY_PINOUT)
+#endif
+#endif
 
-// // Internal LSM6DS3TR on XIAO nRF52840 Series - put it on wire1
-// // Note: disabled for now, as there are some issues with the LSM.
-// #define PIN_WIRE1_SDA (17)
-// #define PIN_WIRE1_SCL (16)
+static const uint8_t SDA = PIN_WIRE_SDA;
+static const uint8_t SCL = PIN_WIRE_SCL;
 
-static const uint8_t SDA = PIN_WIRE_SDA; // Not sure if this is needed
-static const uint8_t SCL = PIN_WIRE_SCL; // Not sure if this is needed
-
-// // QSPI Pins
-// // ---------
-// #define PIN_QSPI_SCK (24)
-// #define PIN_QSPI_CS (25)
-// #define PIN_QSPI_IO0 (26)
-// #define PIN_QSPI_IO1 (27)
-// #define PIN_QSPI_IO2 (28)
-// #define PIN_QSPI_IO3 (29)
-
-// // On-board QSPI Flash
-// // -------------------
-// #define EXTERNAL_FLASH_DEVICES P25Q16H
-// #define EXTERNAL_FLASH_USE_QSPI
-
-/*
- * Buttons
- * Keep this section after potentially conflicting pin definitions
- * because D0 has multiple possible conflicts with various XIAO modules:
- */
+/* Buttons */
 #if defined(SEEED_XIAO_NRF_KIT_I2C)
 #define BUTTON_PIN D0
 #endif
@@ -269,9 +226,5 @@ static const uint8_t SCL = PIN_WIRE_SCL; // Not sure if this is needed
 #ifdef __cplusplus
 }
 #endif
-
-/*----------------------------------------------------------------------------
- *        Arduino objects - C++ only
- *----------------------------------------------------------------------------*/
 
 #endif
