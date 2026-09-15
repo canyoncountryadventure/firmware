@@ -10,7 +10,8 @@ concurrency:
   group: RAK-Water-Distance-v1
   cancel-in-progress: true
 
-permissions: read-all
+permissions:
+  contents: write
 
 jobs:
   build-rak-water-distance:
@@ -42,3 +43,49 @@ jobs:
             release/*.elf
             release/*.map
             release/*.mt.json
+
+      - name: Prepare permanent downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          UF2="$(find release -maxdepth 1 -type f -name 'firmware-rak4631-*.uf2' | head -n 1)"
+          OTA="$(find release -maxdepth 1 -type f -name 'firmware-rak4631-*-ota.zip' | head -n 1)"
+          test -n "$UF2"
+          test -n "$OTA"
+          mkdir -p export
+          cp "$UF2" export/RAK-Water-Distance-v1.uf2
+          cp "$OTA" export/RAK-Water-Distance-v1-OTA.zip
+
+      - name: Checkout firmware download branch
+        uses: actions/checkout@v7
+        with:
+          ref: field-self-recovery
+          path: publish
+          fetch-depth: 0
+
+      - name: Publish permanent downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin field-self-recovery
+            git reset --hard origin/field-self-recovery
+            mkdir -p downloads
+            cp ../export/RAK-Water-Distance-v1.uf2 downloads/
+            cp ../export/RAK-Water-Distance-v1-OTA.zip downloads/
+            git add downloads/RAK-Water-Distance-v1.uf2 downloads/RAK-Water-Distance-v1-OTA.zip
+            if git diff --cached --quiet; then
+              echo "Downloads already current"
+              exit 0
+            fi
+            git commit -m "Publish RAK Water Distance v1 downloads"
+            if git push origin HEAD:field-self-recovery; then
+              exit 0
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "Failed to publish downloads after retries" >&2
+          exit 1
