@@ -1,6 +1,6 @@
 # CCA Heltec Sensor Gateway
 
-**Canonical Heltec branch:** `cca-heltec-sensor-gateway`  
+**Canonical Heltec branch:** `Heltec-Gateway-v1`  
 **Gateway hardware:** Heltec WiFi LoRa 32 V4 OLED  
 **PlatformIO target:** `heltec-v4`  
 **Cloud path:** Heltec -> Vercel ingest -> Neon PostgreSQL -> dashboard
@@ -21,6 +21,21 @@ The gateway currently preserves the working paths for:
 
 Existing wire/database schemas are kept backward-compatible so the current dashboard and Neon ingestion do not break while names and modules are cleaned up.
 
+## Useful DM commands
+
+The current Heltec gateway build does **not yet expose custom gateway-control commands through ordinary Meshtastic text DMs**. It receives/forwards sensor traffic and uploads data, but the direct local HOBO BLE control feature is still pending.
+
+These commands are reserved for that direct-HOBO feature once it is merged:
+
+| Command | What it will do when direct HOBO BLE support is active |
+|---|---|
+| `LOGGER` | Show the selected/discovered HOBO model, MAC, BLE RSSI, interval, and lock state. |
+| `READ` | Request an immediate fresh HOBO reading without disturbing the automatic record schedule. |
+| `LOCK` | Save the currently selected HOBO BLE MAC so the gateway reconnects to that logger after reboot. |
+| `UNLOCK` | Clear the saved HOBO assignment and return to logger discovery. |
+
+Do not rely on those four custom text commands on the current Heltec build until direct HOBO BLE support has actually been merged and validated.
+
 ## Required next Heltec feature
 
 The next Heltec firmware integration must add direct HOBO BLE support without removing any gateway behavior above:
@@ -32,8 +47,6 @@ The next Heltec firmware integration must add direct HOBO BLE support without re
 5. transmit the resulting reading over Meshtastic and upload it to Neon through the existing gateway path;
 6. preserve direct-message commands including `READ` and `LOGGER`;
 7. preserve the proven lock/unlock behavior from the universal HOBO field-node firmware.
-
-The proven HOBO behavior currently lives on the `hobo-mx2001-mx2201-mx2203` production branch and is the reference implementation for that port.
 
 ## Architecture
 
@@ -93,12 +106,11 @@ The Heltec V4 uses the Meshtastic Unified OTA flow. Do not erase flash for routi
 
 ## Repository rules
 
-1. `cca-heltec-sensor-gateway` is the only current Heltec gateway development branch.
+1. `Heltec-Gateway-v1` is the current Heltec gateway development branch.
 2. Do not create location-specific gateway branches such as Hidden Valley or sensor-specific gateway branches.
 3. Location, logger identity, and sensor assignments belong in configuration/data, not branch names.
 4. Keep existing sensor parsers working when adding a new one.
 5. Do not rename or remove a wire/database schema until the ingest API and Neon migration are ready.
 6. GitHub Actions is the normal build path; Wi-Fi OTA is the normal Heltec flash path.
-7. Old experiment branches are historical references only and must not be treated as current production branches.
 
 See [`docs/CCA_HELTEC_SENSOR_GATEWAY.md`](docs/CCA_HELTEC_SENSOR_GATEWAY.md) for the operational specification and [`docs/BRANCH_MAP.md`](docs/BRANCH_MAP.md) for branch status.
