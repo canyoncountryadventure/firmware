@@ -1,0 +1,46 @@
+name: One-Time Combined Water HOBO Folder Sync
+
+on:
+  push:
+    branches:
+      - field-self-recovery
+    paths:
+      - '.github/workflows/sync_combined_water_hobo_once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v7
+        with:
+          ref: field-self-recovery
+          fetch-depth: 0
+
+      - name: Sync latest validated combined binaries into user folders
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1
+          mkdir -p Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1
+          cp downloads/Seeed-Water-Distance-HOBO-v1.uf2 Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/
+          cp downloads/Seeed-Water-Distance-HOBO-v1-OTA.zip Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/
+          cp downloads/RAK-Water-Distance-HOBO-v1.uf2 Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/
+          cp downloads/RAK-Water-Distance-HOBO-v1-OTA.zip Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/
+
+      - name: Commit synchronized files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1 Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1
+          if git diff --cached --quiet; then
+            echo "Combined folders already current"
+            exit 0
+          fi
+          git commit -m "Sync combined Water HOBO firmware folders"
+          git push origin HEAD:field-self-recovery
