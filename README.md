@@ -90,25 +90,7 @@ Normal power loss, reboot, watchdog reset, or non-destructive firmware update do
 
 ## Calibration safety commands
 
-```text
-CAL STATUS
-CAL LOCK
-CAL UNLOCK
-CAL UNLOCK CONFIRM
-CAL RESET
-CAL RESET CONFIRM
-```
-
-Sensor changes are blocked while calibration is locked.
-
-Full water-subsystem reset:
-
-```text
-RESET WATER
-RESET WATER CONFIRM
-```
-
-The confirmed reset returns the water subsystem to A01NYUB, 1-hour reporting, and no calibration. It does **not** factory-reset Meshtastic.
+Sensor changes are blocked while calibration is locked. `RESET WATER CONFIRM` resets only the water subsystem to A01NYUB, 1-hour reporting, and no calibration; it does **not** factory-reset Meshtastic.
 
 ## Sensor reads and recovery
 
@@ -129,30 +111,34 @@ The A01NYUB ranges continuously whenever powered, so its blue LED continues blin
 
 ## Useful DM commands
 
-```text
-HELP
-STATUS
-CHECK
-SENSOR
-SENSOR A01NYUB
-SENSOR A02YYUW
-SENSOR SEN0590
-SENSOR AUTO
-READ
-RAW
-VERIFY
-INTERVAL 15MIN
-INTERVAL 1H
-CAL STAGE 1.42FT
-CAL STATUS
-CAL LOCK
-CAL UNLOCK CONFIRM
-CAL RESET CONFIRM
-TELEMETRY NOW
-RESET WATER CONFIRM
-```
+| Command | What it does |
+|---|---|
+| `HELP` | Shows the water command summary. |
+| `STATUS` | Reports water-sensor state, calibration state, interval, and readiness. |
+| `CHECK` | Performs a fresh sensor check and reports whether the station is ready. |
+| `SENSOR` | Shows the currently selected distance-sensor driver. |
+| `SENSOR A01NYUB` | Selects the SEN0313/A01NYUB UART sensor. |
+| `SENSOR A02YYUW` | Selects the SEN0311/A02YYUW UART sensor. |
+| `SENSOR SEN0590` | Selects the SEN0590 I2C sensor. |
+| `SENSOR AUTO` | Tries the supported sensor drivers automatically. |
+| `READ` | Takes a fresh distance reading and reports calculated stage if calibrated. |
+| `RAW` | Returns the fresh raw sensor distance without stage conversion. |
+| `VERIFY` | Takes multiple fresh readings and reports median/range/spread for installation checks. |
+| `INTERVAL 15MIN` | Saves a 15-minute automatic water-report interval. |
+| `INTERVAL 1H` | Saves a 1-hour automatic water-report interval. |
+| `CAL STAGE 1.42FT` | Calibrates using the independently measured stage and locks the calibration. |
+| `CAL STATUS` | Shows calibration value, reference, lock state, and saved status. |
+| `CAL LOCK` | Locks the current calibration against accidental replacement. |
+| `CAL UNLOCK CONFIRM` | Unlocks calibration but keeps the existing calibration values. |
+| `CAL RESET CONFIRM` | Clears only the water calibration; sensor choice and interval stay saved. |
+| `TELEMETRY NOW` | Immediately sends a fresh water telemetry packet. |
+| `RESET WATER CONFIRM` | Resets only the water subsystem to defaults; Meshtastic settings are preserved. |
+| `POWER` | Reports battery/power status. |
+| `WATCHDOG` | Reports watchdog state/ownership. |
+| `REBOOT` | Performs a safe non-destructive reboot after replying. |
+| `RECOVER` | Alias for the safe recovery reboot. |
 
-Recovery commands include `POWER`, `WATCHDOG`, `REBOOT`, and `RECOVER`.
+Commands are case-insensitive. A leading `/` is optional where supported.
 
 ## Safe flashing
 
