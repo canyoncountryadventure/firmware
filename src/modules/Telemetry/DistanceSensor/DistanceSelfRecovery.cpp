@@ -21,7 +21,7 @@ static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
 static constexpr uint32_t WDT_TIMEOUT_SECONDS = 15UL * 60UL;
 static constexpr uint32_t WDT_TICKS_PER_SECOND = 32768UL;
 static constexpr uint32_t WDT_RELOAD_MAGIC = 0x6E524635UL;
-static constexpr char FIRMWARE_LABEL[] = "DISTANCE SELF-RECOVERY 1.0";
+static constexpr char FIRMWARE_LABEL[] = "WATER DISTANCE 2.0";
 
 bool watchdogOwned = false;
 bool watchdogChecked = false;
@@ -35,36 +35,43 @@ bool reached(uint32_t now, uint32_t target)
     return static_cast<int32_t>(now - target) >= 0;
 }
 
-bool isCommand(const uint8_t *bytes, size_t size, const char *expected)
+bool normalizeRecoveryCommand(const uint8_t *bytes, size_t size, char *out, size_t outSize)
 {
-    if (bytes == nullptr || size == 0 || expected == nullptr)
+    if (bytes == nullptr || size == 0 || out == nullptr || outSize < 2)
         return false;
 
-    char command[40] = {};
     size_t n = size;
-    if (n > sizeof(command) - 1)
-        n = sizeof(command) - 1;
-    memcpy(command, bytes, n);
+    if (n >= outSize)
+        n = outSize - 1;
+    memcpy(out, bytes, n);
+    out[n] = '\0';
 
-    char *p = command;
+    char *p = out;
     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
         ++p;
     if (*p == '/')
         ++p;
+    if (p != out)
+        memmove(out, p, strlen(p) + 1);
 
-    const size_t expectedLength = strlen(expected);
-    for (size_t i = 0; i < expectedLength; ++i) {
-        if (p[i] == '\0')
-            return false;
-        if (std::toupper(static_cast<unsigned char>(p[i])) !=
-            std::toupper(static_cast<unsigned char>(expected[i])))
-            return false;
-    }
+    size_t len = strlen(out);
+    while (len > 0 && (out[len - 1] == ' ' || out[len - 1] == '\t' || out[len - 1] == '\r' || out[len - 1] == '\n'))
+        out[--len] = '\0';
 
-    p += expectedLength;
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
-        ++p;
-    return *p == '\0';
+    for (size_t i = 0; i < len; ++i)
+        out[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[i])));
+
+    if (strncmp(out, "DIST ", 5) == 0)
+        memmove(out, out + 5, strlen(out + 5) + 1);
+    else if (strncmp(out, "WATER ", 6) == 0)
+        memmove(out, out + 6, strlen(out + 6) + 1);
+
+    return out[0] != '\0';
+}
+
+bool isCommand(const char *command, const char *expected)
+{
+    return command != nullptr && expected != nullptr && strcmp(command, expected) == 0;
 }
 
 const char *platformName()
@@ -89,17 +96,17 @@ void initializeWatchdog()
     watchdogChecked = true;
 
     if (NRF_WDT->RUNSTATUS != 0) {
-        LOG_INFO("Distance recovery: on-chip watchdog already running; leaving ownership unchanged");
+        LOG_INFO("Water recovery: on-chip watchdog already running; leaving ownership unchanged");
         return;
     }
 
-    NRF_WDT->CONFIG = 1UL; // run while CPU sleeps
+    NRF_WDT->CONFIG = 1UL;
     NRF_WDT->CRV = WDT_TICKS_PER_SECOND * WDT_TIMEOUT_SECONDS;
     NRF_WDT->RREN = 1UL;
     NRF_WDT->TASKS_START = 1UL;
     watchdogOwned = true;
     feedWatchdog();
-    LOG_INFO("Distance recovery: watchdog armed for %lu sec", static_cast<unsigned long>(WDT_TIMEOUT_SECONDS));
+    LOG_INFO("Water recovery: watchdog armed for %lu sec", static_cast<unsigned long>(WDT_TIMEOUT_SECONDS));
 }
 } // namespace
 
@@ -126,57 +133,62 @@ ProcessMessage DistanceSelfRecoveryModule::handleReceived(const meshtastic_MeshP
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
 
+    char command[64] = {};
+    if (!normalizeRecoveryCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, command, sizeof(command)))
+        return ProcessMessage::CONTINUE;
+
     char reply[220] = {};
 
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "PING") ||
-        isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "WAKE")) {
+    if (isCommand(command, "PING") || isCommand(command, "WAKE")) {
         snprintf(reply, sizeof(reply), "PONG %s uptime=%lus", platformName(), static_cast<unsigned long>(millis() / 1000UL));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "VERSION")) {
-        snprintf(reply, sizeof(reply), "%s\nPlatform: %s\nDistance sensor field firmware", FIRMWARE_LABEL, platformName());
+    if (isCommand(command, "VERSION")) {
+        snprintf(reply, sizeof(reply), "%s\nPlatform:%s\nWater-only ultrasonic field firmware", FIRMWARE_LABEL, platformName());
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "UPTIME")) {
-        snprintf(reply, sizeof(reply), "UPTIME: %lu sec", static_cast<unsigned long>(millis() / 1000UL));
+    if (isCommand(command, "UPTIME")) {
+        snprintf(reply, sizeof(reply), "UPTIME:%lu sec", static_cast<unsigned long>(millis() / 1000UL));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "POWER") ||
-        isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "BATTERY")) {
+    if (isCommand(command, "POWER") || isCommand(command, "BATTERY")) {
         if (powerStatus != nullptr) {
-            snprintf(reply, sizeof(reply), "POWER: %umV %u%% battery=%s charging=%s",
+            snprintf(reply, sizeof(reply), "POWER:%umV %u%% battery=%s charging=%s",
                      static_cast<unsigned int>(powerStatus->getBatteryVoltageMv()),
                      static_cast<unsigned int>(powerStatus->getBatteryChargePercent()),
                      powerStatus->getHasBattery() ? "YES" : "NO", powerStatus->getIsCharging() ? "YES" : "NO");
         } else {
-            snprintf(reply, sizeof(reply), "POWER: status unavailable");
+            snprintf(reply, sizeof(reply), "POWER:status unavailable");
         }
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "WATCHDOG")) {
-        snprintf(reply, sizeof(reply), "WATCHDOG: running=%s owner=%s timeout=%lus reset=0x%08lX",
-                 NRF_WDT->RUNSTATUS ? "YES" : "NO", watchdogOwned ? "DISTANCE" : "CORE/OTHER",
-                 static_cast<unsigned long>(WDT_TIMEOUT_SECONDS), static_cast<unsigned long>(resetReasonAtBoot));
+    if (isCommand(command, "WATCHDOG")) {
+        if (watchdogOwned) {
+            snprintf(reply, sizeof(reply), "WATCHDOG:running=YES owner=WATER timeout=%lus reset=0x%08lX",
+                     static_cast<unsigned long>(WDT_TIMEOUT_SECONDS), static_cast<unsigned long>(resetReasonAtBoot));
+        } else {
+            snprintf(reply, sizeof(reply), "WATCHDOG:running=%s owner=CORE/OTHER custom_timeout=N/A reset=0x%08lX",
+                     NRF_WDT->RUNSTATUS ? "YES" : "NO", static_cast<unsigned long>(resetReasonAtBoot));
+        }
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "RECOVER") ||
-        isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "REBOOT")) {
+    if (isCommand(command, "RECOVER") || isCommand(command, "REBOOT")) {
         commandRecoveryCount++;
         rebootPending = true;
         rebootDueMs = millis() + 2000UL;
         feedWatchdog();
         sendTextReply(mp.from, mp.channel,
-                      "RECOVERY: safe reboot in 2 sec. NVS, node identity, channels, keys, calibration and counts are preserved.");
+                      "RECOVERY:safe reboot in 2 sec. Meshtastic identity/keys/channels and WATER calibration/settings are preserved.");
         setIntervalFromNow(100);
         return ProcessMessage::CONTINUE;
     }
@@ -213,7 +225,7 @@ int32_t DistanceSelfRecoveryModule::runOnce()
     const uint32_t now = millis();
 
     if (rebootPending && reached(now, rebootDueMs)) {
-        LOG_WARN("Distance recovery: executing safe reboot after command #%lu", static_cast<unsigned long>(commandRecoveryCount));
+        LOG_WARN("Water recovery: executing safe reboot after command #%lu", static_cast<unsigned long>(commandRecoveryCount));
         feedWatchdog();
         delay(20);
         NVIC_SystemReset();

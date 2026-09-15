@@ -1,25 +1,25 @@
-name: Build Distance Self-Recovery RAK4631
+name: Build Water Distance RAK4631
 
 on:
   push:
     branches:
-      - distance-self-recovery-rak4631
+      - water-distance-rak4631
   workflow_dispatch:
 
 concurrency:
-  group: distance-self-recovery-rak4631
+  group: water-distance-rak4631
   cancel-in-progress: true
 
 permissions: read-all
 
 jobs:
-  build-rak-distance:
+  build-rak-water-distance:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout distance RAK4631 branch
+      - name: Checkout water distance RAK4631 branch
         uses: actions/checkout@v7
         with:
-          ref: distance-self-recovery-rak4631
+          ref: water-distance-rak4631
           submodules: recursive
 
       - name: Build RAK4631
@@ -32,7 +32,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: distance-self-recovery-rak4631-${{ github.run_number }}
+          name: water-distance-rak4631-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
