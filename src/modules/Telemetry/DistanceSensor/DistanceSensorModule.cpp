@@ -606,7 +606,16 @@ bool DistanceSensorModule::normalizeCommand(const uint8_t *bytes, size_t size, c
 
     for (size_t i = 0; i < len; ++i)
         out[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[i])));
-    return len > 0;
+
+    // Field documentation and operator workflow use the DIST prefix to keep
+    // distance commands distinct from logger/recovery commands. Accept both
+    // prefixed and legacy bare distance commands.
+    if (strncmp(out, "DIST ", 5) == 0)
+        memmove(out, out + 5, strlen(out + 5) + 1);
+    else if (strcmp(out, "DIST") == 0)
+        strcpy(out, "HELP");
+
+    return out[0] != '\0';
 }
 
 bool DistanceSensorModule::parseDistanceMm(const char *text, int32_t &valueMm)
