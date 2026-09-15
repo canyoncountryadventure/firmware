@@ -1,10 +1,10 @@
-name: Build CCA Heltec Sensor Gateway
+name: Build Heltec Gateway v1
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - heltec-gateway-clean-rebuild
+      - Heltec-Gateway-v1
     paths:
       - 'src/**'
       - 'variants/**'
@@ -13,15 +13,69 @@ on:
       - '.github/workflows/build_cca_heltec_gateway.yml'
       - '.github/workflows/build_firmware.yml'
 
-permissions: read-all
+permissions:
+  contents: write
+
+actions:
 
 jobs:
   build-heltec-v4:
     uses: ./.github/workflows/build_firmware.yml
     secrets: inherit
     with:
-      version: cca-clean-${{ github.run_number }}
+      version: cca-v1-${{ github.run_number }}
       pio_env: heltec-v4
       platform: esp32s3
 
-# Clean Heltec V4 gateway: direct HOBO BLE + immediate independent mesh telemetry forwarding.
+  publish-latest:
+    needs: build-heltec-v4
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Heltec firmware artifact
+        uses: actions/download-artifact@v7
+        with:
+          pattern: firmware-esp32s3-heltec-v4-cca-v1-*
+          path: heltec-firmware
+          merge-multiple: true
+
+      - name: Package latest Heltec build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(find heltec-firmware -type f -print -quit)"
+          zip -j -r Heltec-Gateway-v1.zip heltec-firmware/*
+
+      - name: Checkout firmware download branch
+        uses: actions/checkout@v7
+        with:
+          ref: field-self-recovery
+          path: publish
+          fetch-depth: 0
+
+      - name: Publish permanent Heltec download
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin field-self-recovery
+            git reset --hard origin/field-self-recovery
+            mkdir -p downloads
+            cp ../Heltec-Gateway-v1.zip downloads/
+            git add downloads/Heltec-Gateway-v1.zip
+            if git diff --cached --quiet; then
+              echo "Download already current"
+              exit 0
+            fi
+            git commit -m "Publish Heltec Gateway v1 download"
+            if git push origin HEAD:field-self-recovery; then
+              exit 0
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "Failed to publish Heltec download after retries" >&2
+          exit 1
+
+# Heltec V4 gateway: direct HOBO BLE plus independent mesh telemetry forwarding.
