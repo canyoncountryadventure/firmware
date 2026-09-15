@@ -7,7 +7,7 @@ Production combined firmware for **RAK4631 + RAK19007** field nodes that must do
 
 **Branch:** `RAK-Water-Distance-HOBO-v1`
 
-This branch is built from the current **RAK Water Distance v1** firmware and then adds the proven HOBO reader/recovery stack. It replaces the older `distance-hobo-safe` combined build.
+This branch is built from the current **RAK Water Distance v1** firmware and then adds the proven HOBO reader/recovery stack. It replaces the older combined distance/HOBO builds.
 
 ## Scope
 
@@ -44,29 +44,29 @@ Water configuration persistence remains handled by the Water Distance v1 module.
 Use a second Meshtastic node to DM the field node:
 
 ```text
-STATUS
-RAW
-VERIFY
-INTERVAL 1H
-CAL STAGE 1.42FT
-CAL STATUS
-TELEMETRY NOW
+WATER STATUS
+WATER RAW
+WATER VERIFY
+WATER INTERVAL 1H
+WATER CAL STAGE 1.42FT
+WATER CAL STATUS
+WATER TELEMETRY NOW
 ```
 
-Replace `1.42FT` with the independently measured stage at the site.
+Replace `1.42FT` with the independently measured stage at the site. The explicit `WATER` prefix is recommended in this combined build so water commands are unmistakable.
 
 After calibration, completely remove power, reconnect it, then verify:
 
 ```text
-STATUS
-CAL STATUS
-READ
+WATER STATUS
+WATER CAL STATUS
+WATER READ
 ```
 
 To discard a bench/test calibration before deployment:
 
 ```text
-CAL RESET CONFIRM
+WATER CAL RESET CONFIRM
 ```
 
 This clears only water calibration; sensor selection and reporting interval are preserved.
@@ -90,32 +90,50 @@ Normal battery loss, solar shutdown, reboot, watchdog reset, or ordinary non-des
 
 A01NYUB ranges continuously while powered, so its blue LED keeps blinking even when water telemetry is hourly. Actual sensor sleep requires hardware power gating with a load switch or high-side MOSFET.
 
-## Useful water commands
+## Useful DM commands
 
-```text
-HELP
-STATUS
-CHECK
-SENSOR
-SENSOR A01NYUB
-SENSOR A02YYUW
-SENSOR SEN0590
-SENSOR AUTO
-READ
-RAW
-VERIFY
-INTERVAL 15MIN
-INTERVAL 1H
-CAL STAGE 1.42FT
-CAL STATUS
-CAL LOCK
-CAL UNLOCK CONFIRM
-CAL RESET CONFIRM
-TELEMETRY NOW
-RESET WATER CONFIRM
-```
+### Water side
 
-Recovery commands such as `POWER`, `WATCHDOG`, `REBOOT`, and `RECOVER` are supplied by the HOBO self-recovery layer in this combined build.
+| Command | What it does |
+|---|---|
+| `WATER HELP` | Shows the water command summary. |
+| `WATER STATUS` | Reports water sensor, interval, calibration, and readiness. |
+| `WATER CHECK` | Performs a fresh water-sensor check. |
+| `WATER SENSOR` | Shows the selected distance-sensor driver. |
+| `WATER SENSOR A01NYUB` | Selects the SEN0313/A01NYUB sensor. |
+| `WATER SENSOR A02YYUW` | Selects the SEN0311/A02YYUW sensor. |
+| `WATER SENSOR SEN0590` | Selects the SEN0590 sensor. |
+| `WATER SENSOR AUTO` | Automatically tries supported distance-sensor drivers. |
+| `WATER READ` | Takes a fresh water-distance reading and reports stage if calibrated. |
+| `WATER RAW` | Returns raw distance without stage conversion. |
+| `WATER VERIFY` | Takes multiple fresh readings and reports median/range/spread. |
+| `WATER INTERVAL 1H` | Saves a 1-hour automatic water-report interval. |
+| `WATER CAL STAGE 1.42FT` | Calibrates water stage from an independent field measurement and locks it. |
+| `WATER CAL STATUS` | Shows saved water calibration and lock state. |
+| `WATER CAL UNLOCK CONFIRM` | Unlocks the calibration without erasing it. |
+| `WATER CAL RESET CONFIRM` | Clears only the water calibration. |
+| `WATER TELEMETRY NOW` | Immediately sends a fresh water telemetry packet. |
+| `WATER RESET WATER CONFIRM` | Resets the water subsystem to defaults without factory-resetting Meshtastic. |
+
+### HOBO / recovery side
+
+| Command | What it does |
+|---|---|
+| `LOGGER` | Shows HOBO model, MAC, BLE RSSI, logging interval, and lock state. |
+| `READ` | Requests an immediate fresh HOBO reading without consuming the automatic pointer. |
+| `LOCK` | Saves the currently identified HOBO as this station's logger. |
+| `UNLOCK` | Clears the saved HOBO assignment and resumes discovery. |
+| `BLE` | Reports BLE link/scanning state and recovery information. |
+| `AUTO` | Reports the HOBO automatic-record / pointer-gated state. |
+| `SCAN` | Refreshes BLE scanning when disconnected. |
+| `RECONNECT` | Rebuilds the disconnected BLE scanner/link. |
+| `POWER` | Reports battery/power status. |
+| `WATCHDOG` | Reports watchdog state/ownership. |
+| `PING` | Quick end-to-end DM/liveness test. |
+| `REBOOT` | Performs a safe non-destructive reboot after replying. |
+| `RECOVER` | Alias for the safe recovery reboot. |
+
+Commands are case-insensitive. A leading `/` is optional where supported.
 
 ## Build and flashing
 
