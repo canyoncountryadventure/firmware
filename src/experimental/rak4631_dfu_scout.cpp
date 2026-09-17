@@ -1,6 +1,23 @@
 #include <Arduino.h>
 #include <bluefruit.h>
 
+// The Meshtastic nRF52 build globally overrides LittleFS logging/assert hooks.
+// This standalone scout does not use the Meshtastic logging layer, so provide
+// tiny local implementations to satisfy the bundled Adafruit libraries.
+extern "C" void logLegacy(const char *level, const char *fmt, ...)
+{
+    (void)level;
+    (void)fmt;
+}
+
+extern "C" void lfs_assert(const char *reason)
+{
+    (void)reason;
+    for (;;) {
+        delay(1000);
+    }
+}
+
 // Phase 1 bench-test build for the drone flasher proof of concept.
 //
 // This firmware turns a spare RAK4631 into a BLE Central-only DFU scout.
