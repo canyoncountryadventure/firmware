@@ -180,6 +180,12 @@ uint32_t lastAutomaticTxMs = 0;
 uint32_t automaticTxCount = 0;
 uint16_t measurementSequence = 0;
 
+#if defined(RAK_4631)
+bool otaDfuRebootPending = false;
+uint32_t otaDfuRebootAtMs = 0;
+static constexpr uint32_t OTA_DFU_REBOOT_DELAY_MS = 3000;
+#endif
+
 bool readRequestPending = false;
 bool readRequestInProgress = false;
 bool readFailureReplyPending = false;
@@ -997,6 +1003,26 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
 
+#if defined(RAK_4631)
+    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "DFU")) {
+        if (otaDfuRebootPending) {
+            sendTextReply(mp.from, mp.channel, "BLE OTA DFU already armed");
+            return ProcessMessage::CONTINUE;
+        }
+
+        sendTextReply(
+            mp.from,
+            mp.channel,
+            "BLE OTA DFU armed\nRebooting into OTA bootloader in 3 seconds");
+
+        otaDfuRebootPending = true;
+        otaDfuRebootAtMs = millis() + OTA_DFU_REBOOT_DELAY_MS;
+        setIntervalFromNow(10);
+        LOG_WARN("RAK DFU: OTA reboot armed by direct mesh command");
+        return ProcessMessage::CONTINUE;
+    }
+#endif
+
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOGGER")) {
         char reply[220] = {};
         uint8_t targetHuman[6] = {};
@@ -1169,6 +1195,20 @@ bool HOBOMX2001MX2201MX2203TelemetryModule::sendTextReply(
 int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 {
     const uint32_t now = millis();
+
+#if defined(RAK_4631)
+    if (otaDfuRebootPending && reached(now, otaDfuRebootAtMs)) {
+        otaDfuRebootPending = false;
+        LOG_WARN("RAK DFU: rebooting into BLE OTA bootloader (GPREGRET=0xA8)");
+        delay(100);
+        NRF_POWER->GPREGRET = 0xA8;
+        __DSB();
+        NVIC_SystemReset();
+        while (true) {
+            delay(1000);
+        }
+    }
+#endif
 
     auto sendTemperatureTelemetry = [&](float temperatureC) -> bool {
         meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
