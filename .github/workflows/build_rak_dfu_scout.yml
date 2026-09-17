@@ -40,6 +40,18 @@ jobs:
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           exit "$status"
 
+      - name: Prepare visible scout artifacts
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          UF2="$(find .pio/build/rak4631_dfu_scout -maxdepth 1 -type f -name '*.uf2' | head -n 1)"
+          OTA="$(find .pio/build/rak4631_dfu_scout -maxdepth 1 -type f -name '*-ota.zip' | head -n 1)"
+          test -n "$UF2"
+          cp "$UF2" export/RAK4631-DFU-Scout-USB.uf2
+          if [ -n "$OTA" ]; then cp "$OTA" export/RAK4631-DFU-Scout-USB-OTA.zip; fi
+
       - name: Upload DFU scout outputs and build log
         if: always()
         uses: actions/upload-artifact@v7
@@ -50,16 +62,4 @@ jobs:
           if-no-files-found: warn
           path: |
             rak-dfu-scout-build.log
-            .pio/build/rak4631_dfu_scout/*.uf2
-            .pio/build/rak4631_dfu_scout/*.zip
-            .pio/build/rak4631_dfu_scout/*.bin
-            .pio/build/rak4631_dfu_scout/*.hex
-            .pio/build/rak4631_dfu_scout/*.elf
-            .pio/build/rak4631_dfu_scout/*.map
-            release/*.uf2
-            release/*.zip
-            release/*.bin
-            release/*.hex
-            release/*.elf
-            release/*.map
-            release/*.mt.json
+            export/*
