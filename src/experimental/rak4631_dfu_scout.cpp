@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <bluefruit.h>
 
-// Phase 1 of the drone flasher proof of concept.
+// Phase 1 bench-test build for the drone flasher proof of concept.
 //
 // This firmware turns a spare RAK4631 into a BLE Central-only DFU scout.
 // It does NOT transmit a firmware image yet. It proves that a nearby RAK4631
