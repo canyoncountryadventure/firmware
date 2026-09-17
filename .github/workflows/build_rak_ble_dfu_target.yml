@@ -7,6 +7,7 @@ on:
     paths:
       - 'src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp'
       - 'src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203TelemetryRAK.cpp'
+      - 'variants/nrf52840/rak4631/platformio.ini'
       - '.github/workflows/build_rak_ble_dfu_target.yml'
   workflow_dispatch:
 
