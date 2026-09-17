@@ -10,6 +10,11 @@
 class SEN0308SoilMoistureModule : public SinglePortModule, private concurrency::OSThread
 {
   public:
+    struct Reading {
+        uint16_t adc10;
+        uint8_t moisturePercent;
+    };
+
     SEN0308SoilMoistureModule();
 
   protected:
@@ -18,11 +23,6 @@ class SEN0308SoilMoistureModule : public SinglePortModule, private concurrency::
     ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
 
   private:
-    struct Reading {
-        uint16_t adc10;
-        uint8_t moisturePercent;
-    };
-
     Reading sample();
     bool sendTextReply(uint32_t destination, uint8_t channel, const char *text);
     bool sendTelemetry(const Reading &reading);
