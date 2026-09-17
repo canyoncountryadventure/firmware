@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <Adafruit_TinyUSB.h>
 #include <bluefruit.h>
 
 // The Meshtastic nRF52 build globally overrides LittleFS logging/assert hooks.
