@@ -1,0 +1,52 @@
+name: Build RAK4631 DFU Scout
+
+on:
+  push:
+    branches:
+      - esp-32-testing
+    paths:
+      - 'src/experimental/rak4631_dfu_scout.cpp'
+      - 'variants/nrf52840/rak4631/platformio.ini'
+      - '.github/workflows/build_rak_dfu_scout.yml'
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: rak-dfu-scout-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: build-rak4631-dfu-scout
+    steps:
+      - name: Checkout ESP32 testing branch
+        uses: actions/checkout@v7
+        with:
+          ref: esp-32-testing
+          submodules: recursive
+
+      - name: Build RAK4631 DFU scout
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: nrf52840
+          pio_env: rak4631_dfu_scout
+          pio_target: build
+
+      - name: Upload DFU scout artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: rak4631-dfu-scout-${{ github.run_number }}
+          overwrite: true
+          retention-days: 30
+          path: |
+            release/*.uf2
+            release/*.zip
+            release/*.bin
+            release/*.hex
+            release/*.elf
+            release/*.map
+            release/*.mt.json
+            .pio/build/rak4631_dfu_scout/firmware.bin
+            .pio/build/rak4631_dfu_scout/firmware.hex
