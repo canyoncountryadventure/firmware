@@ -50,6 +50,12 @@ jobs:
           if-no-files-found: warn
           path: |
             rak-dfu-scout-build.log
+            .pio/build/rak4631_dfu_scout/*.uf2
+            .pio/build/rak4631_dfu_scout/*.zip
+            .pio/build/rak4631_dfu_scout/*.bin
+            .pio/build/rak4631_dfu_scout/*.hex
+            .pio/build/rak4631_dfu_scout/*.elf
+            .pio/build/rak4631_dfu_scout/*.map
             release/*.uf2
             release/*.zip
             release/*.bin
@@ -57,7 +63,3 @@ jobs:
             release/*.elf
             release/*.map
             release/*.mt.json
-            .pio/build/rak4631_dfu_scout/firmware.bin
-            .pio/build/rak4631_dfu_scout/firmware.hex
-            .pio/build/rak4631_dfu_scout/firmware.elf
-            .pio/build/rak4631_dfu_scout/output.map
