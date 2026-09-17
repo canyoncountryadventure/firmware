@@ -26,9 +26,26 @@ extern "C" void lfs_assert(const char *reason)
 // can detect a target node after that target has been told (locally or by
 // Meshtastic remote-admin) to reboot into Nordic Secure DFU mode.
 //
-// Nordic Secure DFU service UUID: 0xFE59.
-static BLEClientService dfuService(0xFE59);
+// Support both Nordic Secure DFU and the Adafruit bootloader's Nordic
+// legacy DFU service. The RAK4631 target used here advertises as "AdaDFU"
+// with legacy service 00001530-1212-EFDE-1523-785FEABCD123.
+static BLEClientService secureDfuService(0xFE59);
+
+static const uint8_t legacyDfuServiceUuid128[16] = {
+    0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15,
+    0xDE, 0xEF, 0x12, 0x12, 0x30, 0x15, 0x00, 0x00
+};
+static BLEUuid legacyDfuUuid(legacyDfuServiceUuid128);
+static BLEClientService legacyDfuService(legacyDfuUuid);
+
+enum class DfuKind : uint8_t {
+    None = 0,
+    SecureFe59,
+    Legacy1530,
+};
+
 static volatile bool connecting = false;
+static DfuKind connectingKind = DfuKind::None;
 static uint32_t lastHeartbeatMs = 0;
 static uint32_t heartbeatCount = 0;
 static uint32_t advCount = 0;
@@ -54,7 +71,7 @@ void setup()
     Serial.println();
     Serial.println("========================================");
     Serial.println("RAK4631 Nordic DFU Scout - Phase 1");
-    Serial.println("Looking for Secure DFU service 0xFE59");
+    Serial.println("Looking for AdaDFU legacy 0x1530 or Secure DFU 0xFE59");
     Serial.println("========================================");
     Serial.flush();
 
@@ -64,9 +81,10 @@ void setup()
     Bluefruit.setName("RAK_DFU_SCOUT");
     Bluefruit.setConnLedInterval(250);
 
-    // Register the client-side Secure DFU service so we can perform a real
-    // GATT discovery after connecting, rather than trusting the advertisement.
-    dfuService.begin();
+    // Register both client-side DFU services so we can perform real GATT
+    // discovery after connecting, rather than trusting advertisements.
+    secureDfuService.begin();
+    legacyDfuService.begin();
 
     Bluefruit.Central.setConnectCallback(connectCallback);
     Bluefruit.Central.setDisconnectCallback(disconnectCallback);
@@ -87,7 +105,7 @@ void loop()
         Serial.print(heartbeatCount);
         Serial.print("  uptime=");
         Serial.print(now / 1000);
-        Serial.println("s  scanning for 0xFE59");
+        Serial.println("s  scanning for AdaDFU/0x1530 + 0xFE59");
         Serial.flush();
 
         digitalWrite(PIN_LED1, HIGH);
@@ -101,6 +119,7 @@ void loop()
 static void startScan()
 {
     connecting = false;
+    connectingKind = DfuKind::None;
 
     Bluefruit.Scanner.setRxCallback(scanCallback);
     Bluefruit.Scanner.restartOnDisconnect(true);
@@ -109,7 +128,7 @@ static void startScan()
     Bluefruit.Scanner.start(0); // scan indefinitely
 
     Serial.println("SCANNING: raw BLE diagnostics enabled (RSSI >= -75 dBm)");
-    Serial.println("Any 0xFE59 target will still be detected and connected automatically.");
+    Serial.println("Auto-connect: AdaDFU legacy 0x1530 and Nordic Secure DFU 0xFE59.");
 }
 
 static void scanCallback(ble_gap_evt_adv_report_t *report)
@@ -151,11 +170,12 @@ static void scanCallback(ble_gap_evt_adv_report_t *report)
         Serial.flush();
     }
 
-    const bool hasDfuService = Bluefruit.Scanner.checkReportForService(report, dfuService);
+    const bool hasSecureDfu = Bluefruit.Scanner.checkReportForService(report, secureDfuService);
+    const bool hasLegacyDfu = Bluefruit.Scanner.checkReportForUuid(report, legacyDfuUuid);
 
     // SoftDevice pauses scanning while this callback runs. Resume it whenever
     // we decide not to connect.
-    if (!hasDfuService) {
+    if (!hasSecureDfu && !hasLegacyDfu) {
         Bluefruit.Scanner.resume();
         return;
     }
@@ -168,8 +188,14 @@ static void scanCallback(ble_gap_evt_adv_report_t *report)
     uint8_t name[32] = {0};
     Bluefruit.Scanner.parseReportByType(report, BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME, name, sizeof(name) - 1);
 
+    connectingKind = hasLegacyDfu ? DfuKind::Legacy1530 : DfuKind::SecureFe59;
+
     Serial.println();
-    Serial.println("*** DFU ADVERTISEMENT 0xFE59 FOUND ***");
+    if (connectingKind == DfuKind::Legacy1530) {
+        Serial.println("*** ADAFRUIT / NORDIC LEGACY DFU 0x1530 FOUND ***");
+    } else {
+        Serial.println("*** NORDIC SECURE DFU 0xFE59 FOUND ***");
+    }
     Serial.print("  address: ");
     Serial.printBufferReverse(report->peer_addr.addr, 6, ':');
     Serial.println();
@@ -180,12 +206,16 @@ static void scanCallback(ble_gap_evt_adv_report_t *report)
         Serial.print("  name: ");
         Serial.println(reinterpret_cast<char *>(name));
     }
-    Serial.println("  advertised service: 0xFE59");
+    Serial.print("  protocol: ");
+    Serial.println(connectingKind == DfuKind::Legacy1530
+                       ? "Legacy DFU 00001530-1212-EFDE-1523-785FEABCD123"
+                       : "Secure DFU 0xFE59");
     Serial.println("CONNECTING...");
 
     connecting = true;
     if (!Bluefruit.Central.connect(report)) {
         connecting = false;
+        connectingKind = DfuKind::None;
         Serial.println("CONNECT FAILED; resuming scan");
         Bluefruit.Scanner.resume();
     }
@@ -195,16 +225,32 @@ static void connectCallback(uint16_t connHandle)
 {
     connecting = false;
     Serial.println("BLE CONNECTED");
-    Serial.println("DISCOVERING Secure DFU service over GATT...");
 
-    if (!dfuService.discover(connHandle)) {
-        Serial.println("PHASE 1 FAIL: connected, but Secure DFU service was not discoverable");
-        Bluefruit.disconnect(connHandle);
-        return;
+    if (connectingKind == DfuKind::Legacy1530) {
+        Serial.println("DISCOVERING AdaDFU legacy 0x1530 service over GATT...");
+
+        if (!legacyDfuService.discover(connHandle)) {
+            Serial.println("PHASE 1 FAIL: connected, but legacy DFU 0x1530 service was not discoverable");
+            Bluefruit.disconnect(connHandle);
+            return;
+        }
+
+        Serial.println("PHASE 1 PASS: AdaDFU legacy service 0x1530 discovered");
+        Serial.println("Target is in BLE OTA bootloader and reachable from this RAK.");
+        Serial.println("Next phase is legacy DFU Control Point 0x1531 + Packet 0x1532 transfer.");
+    } else {
+        Serial.println("DISCOVERING Secure DFU service 0xFE59 over GATT...");
+
+        if (!secureDfuService.discover(connHandle)) {
+            Serial.println("PHASE 1 FAIL: connected, but Secure DFU service was not discoverable");
+            Bluefruit.disconnect(connHandle);
+            return;
+        }
+
+        Serial.println("PHASE 1 PASS: Secure DFU service 0xFE59 discovered");
+        Serial.println("Target is in the correct bootloader and reachable from this RAK.");
     }
 
-    Serial.println("PHASE 1 PASS: Secure DFU service 0xFE59 discovered");
-    Serial.println("Target is in the correct bootloader and reachable from this RAK.");
     Serial.println("No firmware bytes will be written in this build.");
     Serial.println("Leave connected for inspection; power-cycle/reset the target when finished.");
 }
@@ -213,6 +259,7 @@ static void disconnectCallback(uint16_t connHandle, uint8_t reason)
 {
     (void)connHandle;
     connecting = false;
+    connectingKind = DfuKind::None;
 
     Serial.print("DISCONNECTED, reason 0x");
     Serial.println(reason, HEX);
