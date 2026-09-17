@@ -1,0 +1,60 @@
+name: Build RAK4631 BLE DFU Target
+
+on:
+  push:
+    branches:
+      - esp-32-testing
+    paths:
+      - 'src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp'
+      - 'src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203TelemetryRAK.cpp'
+      - '.github/workflows/build_rak_ble_dfu_target.yml'
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: rak-ble-dfu-target-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: build-rak4631-ble-dfu-target
+    steps:
+      - name: Checkout ESP32 testing branch
+        uses: actions/checkout@v7
+        with:
+          ref: esp-32-testing
+          submodules: recursive
+
+      - name: Build normal RAK4631 Meshtastic target
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: nrf52840
+          pio_env: rak4631
+          pio_target: build
+
+      - name: Prepare visible target artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          UF2="$(find release .pio/build/rak4631 -type f -name '*.uf2' 2>/dev/null | head -n 1)"
+          test -n "$UF2"
+          cp "$UF2" export/RAK4631-Meshtastic-HOBO-BLE-DFU-Target.uf2
+
+          OTA="$(find release .pio/build/rak4631 -type f -name '*ota*.zip' 2>/dev/null | head -n 1 || true)"
+          if [ -n "$OTA" ]; then
+            cp "$OTA" export/RAK4631-Meshtastic-HOBO-BLE-DFU-Target-OTA.zip
+          fi
+
+      - name: Upload target firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: rak4631-ble-dfu-target-${{ github.run_number }}
+          overwrite: true
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            export/*
+            release/*.mt.json
