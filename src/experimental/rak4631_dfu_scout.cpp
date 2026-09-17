@@ -29,6 +29,8 @@ extern "C" void lfs_assert(const char *reason)
 // Nordic Secure DFU service UUID: 0xFE59.
 static BLEClientService dfuService(0xFE59);
 static volatile bool connecting = false;
+static uint32_t lastHeartbeatMs = 0;
+static uint32_t heartbeatCount = 0;
 
 static void startScan();
 static void scanCallback(ble_gap_evt_adv_report_t *report);
@@ -37,6 +39,9 @@ static void disconnectCallback(uint16_t connHandle, uint8_t reason);
 
 void setup()
 {
+    pinMode(PIN_LED1, OUTPUT);
+    digitalWrite(PIN_LED1, LOW);
+
     Serial.begin(115200);
 
     // Do not block forever when this eventually flies without a USB cable.
@@ -50,6 +55,7 @@ void setup()
     Serial.println("RAK4631 Nordic DFU Scout - Phase 1");
     Serial.println("Looking for Secure DFU service 0xFE59");
     Serial.println("========================================");
+    Serial.flush();
 
     // RAK is the BLE Central only: 0 peripheral links, 1 central link.
     Bluefruit.begin(0, 1);
@@ -69,8 +75,26 @@ void setup()
 
 void loop()
 {
-    // Phase 1 is callback driven. Nothing is sent to the target.
-    delay(100);
+    // Keep an obvious runtime heartbeat so bench testing never depends on
+    // catching the one-time startup banner.
+    const uint32_t now = millis();
+    if (now - lastHeartbeatMs >= 2000) {
+        lastHeartbeatMs = now;
+        heartbeatCount++;
+
+        Serial.print("SCOUT ALIVE #");
+        Serial.print(heartbeatCount);
+        Serial.print("  uptime=");
+        Serial.print(now / 1000);
+        Serial.println("s  scanning for 0xFE59");
+        Serial.flush();
+
+        digitalWrite(PIN_LED1, HIGH);
+        delay(80);
+        digitalWrite(PIN_LED1, LOW);
+    }
+
+    delay(20);
 }
 
 static void startScan()
