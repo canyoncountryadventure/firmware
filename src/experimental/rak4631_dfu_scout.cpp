@@ -31,6 +31,7 @@ static BLEClientService dfuService(0xFE59);
 static volatile bool connecting = false;
 static uint32_t lastHeartbeatMs = 0;
 static uint32_t heartbeatCount = 0;
+static uint32_t advCount = 0;
 
 static void startScan();
 static void scanCallback(ble_gap_evt_adv_report_t *report);
@@ -107,14 +108,54 @@ static void startScan()
     Bluefruit.Scanner.useActiveScan(true);
     Bluefruit.Scanner.start(0); // scan indefinitely
 
-    Serial.println("SCANNING: waiting for a Nordic Secure DFU target...");
+    Serial.println("SCANNING: raw BLE diagnostics enabled (RSSI >= -75 dBm)");
+    Serial.println("Any 0xFE59 target will still be detected and connected automatically.");
 }
 
 static void scanCallback(ble_gap_evt_adv_report_t *report)
 {
+    // Diagnostic mode: print all reasonably nearby BLE advertisements so we
+    // can identify what a target actually emits in normal vs bootloader mode.
+    // At ~5 ft a target should normally be far stronger than -75 dBm.
+    if (report->rssi >= -75) {
+        advCount++;
+
+        uint8_t name[32] = {0};
+        Bluefruit.Scanner.parseReportByType(report, BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME, name, sizeof(name) - 1);
+        if (name[0] == '\0') {
+            Bluefruit.Scanner.parseReportByType(report, BLE_GAP_AD_TYPE_SHORT_LOCAL_NAME, name, sizeof(name) - 1);
+        }
+
+        Serial.println();
+        Serial.print("ADV #");
+        Serial.print(advCount);
+        Serial.print("  RSSI=");
+        Serial.print(report->rssi);
+        Serial.print(" dBm  addr=");
+        Serial.printBufferReverse(report->peer_addr.addr, 6, ':');
+        if (name[0] != '\0') {
+            Serial.print("  name=");
+            Serial.print(reinterpret_cast<char *>(name));
+        }
+        Serial.println();
+
+        Serial.print("  RAW:");
+        for (uint16_t i = 0; i < report->data.len; i++) {
+            Serial.print(' ');
+            if (report->data.p_data[i] < 0x10) {
+                Serial.print('0');
+            }
+            Serial.print(report->data.p_data[i], HEX);
+        }
+        Serial.println();
+        Serial.flush();
+    }
+
+    const bool hasDfuService = Bluefruit.Scanner.checkReportForService(report, dfuService);
+
     // SoftDevice pauses scanning while this callback runs. Resume it whenever
     // we decide not to connect.
-    if (!Bluefruit.Scanner.checkReportForService(report, dfuService)) {
+    if (!hasDfuService) {
         Bluefruit.Scanner.resume();
         return;
     }
@@ -128,7 +169,7 @@ static void scanCallback(ble_gap_evt_adv_report_t *report)
     Bluefruit.Scanner.parseReportByType(report, BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME, name, sizeof(name) - 1);
 
     Serial.println();
-    Serial.println("DFU ADVERTISEMENT FOUND");
+    Serial.println("*** DFU ADVERTISEMENT 0xFE59 FOUND ***");
     Serial.print("  address: ");
     Serial.printBufferReverse(report->peer_addr.addr, 6, ':');
     Serial.println();
