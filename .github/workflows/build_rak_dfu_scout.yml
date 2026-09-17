@@ -27,20 +27,29 @@ jobs:
           ref: esp-32-testing
           submodules: recursive
 
-      - name: Build RAK4631 DFU scout
-        uses: meshtastic/gh-action-firmware@main
-        with:
-          pio_platform: nrf52840
-          pio_env: rak4631_dfu_scout
-          pio_target: build
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
 
-      - name: Upload DFU scout artifact
+      - name: Build RAK4631 DFU scout
+        id: build
+        shell: bash
+        run: |
+          set +e
+          pio run -e rak4631_dfu_scout 2>&1 | tee rak-dfu-scout-build.log
+          status=${PIPESTATUS[0]}
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload DFU scout outputs and build log
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: rak4631-dfu-scout-${{ github.run_number }}
           overwrite: true
           retention-days: 30
+          if-no-files-found: warn
           path: |
+            rak-dfu-scout-build.log
             release/*.uf2
             release/*.zip
             release/*.bin
@@ -50,3 +59,5 @@ jobs:
             release/*.mt.json
             .pio/build/rak4631_dfu_scout/firmware.bin
             .pio/build/rak4631_dfu_scout/firmware.hex
+            .pio/build/rak4631_dfu_scout/firmware.elf
+            .pio/build/rak4631_dfu_scout/output.map
