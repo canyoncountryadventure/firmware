@@ -81,5 +81,10 @@ template <class T> class SX126xInterface : public RadioLibInterface
   private:
     /** Some boards require GPIO control of tx vs rx paths */
     void setTransmitEnable(bool txon);
+
+    int16_t trySetStandby();
+    int16_t programModemParams();
+    bool reinitChip(bool powerCycle);
+    bool recoverChipStateLoss() override;
 };
 #endif

@@ -1,4 +1,4 @@
-# Meshtastic Field Firmware
+> **Canonical Field-Recovery v2 source branch.** This branch is the common RAK4631 / Seeed XIAO nRF52840 reliability baseline used by the v2 sensor products.\n\n# Meshtastic Field Firmware
 
 If you just want firmware, start here:
 

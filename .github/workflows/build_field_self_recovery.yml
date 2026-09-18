@@ -3,13 +3,13 @@ name: Build Canonical Field Self-Recovery
 on:
   push:
     branches:
-      - field-self-recovery
+      - field-self-recovery-v2
   workflow_dispatch:
 
 permissions: read-all
 
 concurrency:
-  group: field-self-recovery-${{ github.ref }}
+  group: field-self-recovery-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,11 +28,11 @@ jobs:
       - name: Checkout canonical field recovery branch
         uses: actions/checkout@v7
         with:
-          ref: field-self-recovery
+          ref: field-self-recovery-v2
           submodules: recursive
 
       - name: Build ${{ matrix.env }}
-        uses: meshtastic/gh-action-firmware@main
+        uses: meshtastic/gh-action-firmware@39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
         with:
           pio_platform: nrf52840
           pio_env: ${{ matrix.env }}
@@ -41,7 +41,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: field-self-recovery-${{ matrix.label }}-${{ github.run_number }}
+          name: field-self-recovery-v2-${{ matrix.label }}-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
@@ -51,3 +51,46 @@ jobs:
             release/*.elf
             release/*.map
             release/*.mt.json
+
+      - name: Prepare stable canonical downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          UF2="$(find release -maxdepth 1 -type f -name '*.uf2' | head -n1)"
+          OTA="$(find release -maxdepth 1 -type f -name '*-ota.zip' | head -n1)"
+          test -n "$UF2"; test -n "$OTA"
+          if [[ "${{ matrix.label }}" == "rak4631" ]]; then
+            cp "$UF2" export/Field-Self-Recovery-v2-RAK4631.uf2
+            cp "$OTA" export/Field-Self-Recovery-v2-RAK4631-OTA.zip
+          else
+            cp "$UF2" export/Field-Self-Recovery-v2-Seeed.uf2
+            cp "$OTA" export/Field-Self-Recovery-v2-Seeed-OTA.zip
+          fi
+
+      - name: Checkout permanent download branch
+        uses: actions/checkout@v7
+        with:
+          ref: field-self-recovery
+          path: publish
+          fetch-depth: 0
+
+      - name: Publish stable canonical downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin field-self-recovery
+            git reset --hard origin/field-self-recovery
+            mkdir -p downloads
+            cp ../export/* downloads/
+            git add downloads/Field-Self-Recovery-v2-*
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Publish canonical Field Self-Recovery v2 ${{ matrix.label }}"
+            if git push origin HEAD:field-self-recovery; then exit 0; fi
+            sleep $((attempt * 3))
+          done
+          exit 1
