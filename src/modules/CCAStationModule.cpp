@@ -574,6 +574,24 @@ ProcessMessage CCAStationModule::handleReceived(const meshtastic_MeshPacket &mp)
     } else if (strcmp(command, "PIR TX OFF") == 0) {
         setPirTxEnabled(false);
         snprintf(reply, sizeof(reply), "PIR TX OFF\nDetections still count locally; alerts are silent");
+    } else if (strcmp(command, "PING") == 0) {
+        snprintf(reply, sizeof(reply), "PONG %s uptime=%lus",
+                 CCA_FW_NAME, static_cast<unsigned long>(uptimeSeconds()));
+    } else if (strcmp(command, "WATCHDOG") == 0) {
+#if defined(FIELD_RECOVERY_V2)
+        snprintf(reply, sizeof(reply), "WATCHDOG: core=90s field-channel=%s run-in-sleep=YES",
+                 nrf52FieldWatchdogIsArmed() ? "ARMED" : "OFF");
+#else
+        snprintf(reply, sizeof(reply), "WATCHDOG: legacy build");
+#endif
+    } else if (strcmp(command, "RECOVER") == 0 || strcmp(command, "REBOOT") == 0) {
+#if defined(FIELD_RECOVERY_V2)
+        if (rebootAtMsec == 0)
+            rebootAtMsec = millis() + 2000UL;
+        snprintf(reply, sizeof(reply), "RECOVERY: flash-safe reboot in 2 sec; CCA/HOBO settings are preserved");
+#else
+        snprintf(reply, sizeof(reply), "RECOVERY: unavailable on legacy build");
+#endif
     } else if (strcmp(command, "POWER") == 0 || strcmp(command, "POWER STATUS") == 0) {
         uint16_t sixHour = 0;
         const bool haveSix = voltageAtAge(now, 6UL * 60UL * 60UL * 1000UL, sixHour);
