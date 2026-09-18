@@ -139,29 +139,76 @@ bool alertDestinationRecordValid(const AlertDestinationRecord &record)
            checksumBytes(reinterpret_cast<const uint8_t *>(&record), sizeof(record) - 1);
 }
 
+bool writeExactPersistentFile(const char *path, const uint8_t *data, size_t length, const char *label)
+{
+    if (path == nullptr || data == nullptr || length == 0)
+        return false;
+
+    size_t written = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(path, FILE_O_WRITE);
+        if (!file) {
+            LOG_WARN("CCA: failed to open %s for write", label);
+            return false;
+        }
+
+        // Adafruit LittleFS FILE_O_WRITE opens an existing file at EOF.
+        // Replace the fixed-size record instead of appending stale versions.
+        if (!file.seek(0) || !file.truncate()) {
+            LOG_WARN("CCA: failed to truncate %s", label);
+            file.close();
+            return false;
+        }
+
+        written = file.write(data, length);
+        file.flush();
+        file.close();
+    }
+
+    if (written != length) {
+        LOG_WARN("CCA: %s short write", label);
+        return false;
+    }
+
+    uint8_t verify[sizeof(PersistentState)] = {};
+    if (length > sizeof(verify)) {
+        LOG_WARN("CCA: %s verify buffer too small", label);
+        return false;
+    }
+
+    size_t readLength = 0;
+    bool extraData = false;
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(path, FILE_O_READ);
+        if (!file) {
+            LOG_WARN("CCA: failed to reopen %s", label);
+            return false;
+        }
+        readLength = file.read(verify, length);
+        extraData = file.available();
+        file.close();
+    }
+
+    if (readLength != length || extraData || memcmp(verify, data, length) != 0) {
+        LOG_WARN("CCA: %s read-back verification failed", label);
+        return false;
+    }
+
+    return true;
+}
+
 bool savePersistentState()
 {
     persisted.checksum =
         checksumBytes(reinterpret_cast<const uint8_t *>(&persisted), sizeof(persisted) - 1);
 
-    concurrency::LockGuard g(spiLock);
-    File file = FSCom.open(STATE_FILE_PATH, FILE_O_WRITE);
-    if (!file) {
-        LOG_WARN("CCA: failed to open persistent state for write");
-        return false;
-    }
-
-    const size_t written = file.write(
-        reinterpret_cast<const uint8_t *>(&persisted), sizeof(persisted));
-    file.flush();
-    file.close();
-
-    if (written != sizeof(persisted)) {
-        LOG_WARN("CCA: persistent state short write");
-        return false;
-    }
-
-    return true;
+    return writeExactPersistentFile(
+        STATE_FILE_PATH,
+        reinterpret_cast<const uint8_t *>(&persisted),
+        sizeof(persisted),
+        "persistent state");
 }
 
 bool saveAlertDestination()
@@ -169,23 +216,11 @@ bool saveAlertDestination()
     AlertDestinationRecord record = {{'C', 'C', 'A', 'D'}, 1, alertDestinationNode, 0};
     record.checksum = checksumBytes(reinterpret_cast<const uint8_t *>(&record), sizeof(record) - 1);
 
-    concurrency::LockGuard g(spiLock);
-    File file = FSCom.open(ALERT_DEST_FILE_PATH, FILE_O_WRITE);
-    if (!file) {
-        LOG_WARN("CCA: failed to open alert destination for write");
-        return false;
-    }
-
-    const size_t written = file.write(reinterpret_cast<const uint8_t *>(&record), sizeof(record));
-    file.flush();
-    file.close();
-
-    if (written != sizeof(record)) {
-        LOG_WARN("CCA: alert destination short write");
-        return false;
-    }
-
-    return true;
+    return writeExactPersistentFile(
+        ALERT_DEST_FILE_PATH,
+        reinterpret_cast<const uint8_t *>(&record),
+        sizeof(record),
+        "alert destination");
 }
 
 void loadPersistentState()
