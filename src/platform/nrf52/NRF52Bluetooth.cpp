@@ -263,35 +263,41 @@ void NRF52Bluetooth::setup()
     // Initialise the Bluefruit module
     LOG_INFO("Init the Bluefruit nRF52 module");
     Bluefruit.autoConnLed(false);
+bool bluefruitReady = false;
+#if defined(HOBO_BLE_CENTRAL_ONLY)
+    // The XIAO/S140 combination resets inside Bluefruit.begin(1, 1), even with
+    // LOW bandwidth and additional SoftDevice RAM.  Give the field logger one
+    // central link for HOBO and omit the phone peripheral.  LoRa administration,
+    // the mesh DFU hook, wired sensors, and bootloader drone DFU remain available.
+    Bluefruit.configCentralBandwidth(BANDWIDTH_LOW);
+    LOG_INFO("Starting Bluefruit HOBO central-only (0 peripheral, 1 central)");
+    bluefruitReady = Bluefruit.begin(0, 1);
+#elif defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631)
 #if defined(SEEED_XIAO_NRF52840_KIT)
-    // Dual-role sensor nodes favor reliability over BLE throughput.  LOW bandwidth
-    // minimizes the S140 RAM reservation while retaining both the phone peripheral
-    // connection and the central HOBO logger connection.
     Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
 #else
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
 #endif
-
-    bool bluefruitReady = false;
-#if defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631)
-    // HOBO integrations: keep one BLE peripheral link for the Meshtastic phone
-    // connection and add one BLE central link for the HOBO logger.
     Bluefruit.configCentralBandwidth(BANDWIDTH_LOW);
     LOG_INFO("Starting Bluefruit dual-role (1 peripheral, 1 central)");
     bluefruitReady = Bluefruit.begin(1, 1);
 #else
+    Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
     bluefruitReady = Bluefruit.begin();
 #endif
     if (!bluefruitReady) {
-        // Do not proceed into service setup with a disabled SoftDevice.  That path
-        // asserts and produces a permanent software-reset loop.  LoRa and wired
-        // sensors can continue operating, and the error remains visible in logs.
         LOG_ERROR("Bluefruit initialization failed; continuing without Bluetooth");
         delay(250);
         return;
     }
+#if defined(HOBO_BLE_CENTRAL_ONLY)
+    LOG_INFO("Bluefruit initialized for HOBO; phone Bluetooth intentionally disabled");
+    delay(50);
+    return;
+#else
     LOG_INFO("Bluefruit initialized");
     delay(50);
+#endif
 
     // Clear existing data.
     Bluefruit.Advertising.stop();
