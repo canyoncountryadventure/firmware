@@ -19,16 +19,17 @@ extern "C" void lfs_assert(const char *reason)
     }
 }
 
-// Phase 1 bench-test build for the drone flasher proof of concept.
+// Phase 2 bench build for the RAK4631 remote-DFU / drone-flasher project.
 //
 // This firmware turns a spare RAK4631 into a BLE Central-only DFU scout.
-// It does NOT transmit a firmware image yet. It proves that a nearby RAK4631
-// can detect a target node after that target has been told (locally or by
-// Meshtastic remote-admin) to reboot into Nordic Secure DFU mode.
+// For the tested RAK4631 target it discovers the Adafruit/Nordic Legacy DFU
+// bootloader ("AdaDFU"), then performs a complete application-only Legacy DFU
+// transfer using firmware bytes supplied over USB serial by the companion
+// Python uploader. Secure DFU 0xFE59 discovery remains as a compatibility
+// fallback, but firmware transfer is currently implemented for Legacy DFU.
 //
-// Support both Nordic Secure DFU and the Adafruit bootloader's Nordic
-// legacy DFU service. The RAK4631 target used here advertises as "AdaDFU"
-// with legacy service 00001530-1212-EFDE-1523-785FEABCD123.
+// The tested RAK4631 target advertises legacy DFU service
+// 00001530-1212-EFDE-1523-785FEABCD123.
 static BLEClientService secureDfuService(0xFE59);
 
 static const uint8_t legacyDfuServiceUuid128[16] = {
@@ -117,7 +118,7 @@ void setup()
 
     Serial.println();
     Serial.println("========================================");
-    Serial.println("RAK4631 Nordic DFU Scout - Phase 1");
+    Serial.println("RAK4631 Remote DFU Scout - Phase 2 Serial Bridge");
     Serial.println("Looking for AdaDFU legacy 0x1530 or Secure DFU 0xFE59");
     Serial.println("========================================");
     Serial.flush();
@@ -285,7 +286,7 @@ static void connectCallback(uint16_t connHandle)
         Serial.println("DISCOVERING AdaDFU legacy 0x1530 service over GATT...");
 
         if (!legacyDfuService.discover(connHandle)) {
-            Serial.println("PHASE 1 FAIL: connected, but legacy DFU 0x1530 service was not discoverable");
+            Serial.println("DFU DISCOVERY FAIL: connected, but legacy DFU 0x1530 service was not discoverable");
             Bluefruit.disconnect(connHandle);
             return;
         }
@@ -302,7 +303,7 @@ static void connectCallback(uint16_t connHandle)
         Serial.println(versionOk ? "YES" : "NO");
 
         if (!ctrlOk || !packetOk) {
-            Serial.println("PHASE 1 FAIL: required legacy DFU characteristics missing");
+            Serial.println("DFU DISCOVERY FAIL: required legacy DFU characteristics missing");
             Bluefruit.disconnect(connHandle);
             return;
         }
@@ -317,7 +318,7 @@ static void connectCallback(uint16_t connHandle)
         }
 
         if (!legacyCtrl.enableNotify()) {
-            Serial.println("PHASE 1 FAIL: could not enable Control Point notifications");
+            Serial.println("DFU DISCOVERY FAIL: could not enable Control Point notifications");
             Bluefruit.disconnect(connHandle);
             return;
         }
@@ -326,26 +327,25 @@ static void connectCallback(uint16_t connHandle)
         legacyConnected = true;
         legacyReady = true;
 
-        Serial.println("PHASE 1 PASS: AdaDFU legacy service 0x1530 discovered");
+        Serial.println("DFU DISCOVERY PASS: AdaDFU legacy service 0x1530 discovered");
         Serial.print("DFU version raw=0x");
         Serial.println(version, HEX);
         Serial.println("Target is in BLE OTA bootloader and reachable from this RAK.");
-        Serial.println("PHASE 2 READY: run tools/rak_dfu_serial_upload.py against this COM port.");
+        Serial.println("TRANSFER READY: run tools/rak_dfu_serial_upload.py against this COM port.");
     } else {
         Serial.println("DISCOVERING Secure DFU service 0xFE59 over GATT...");
 
         if (!secureDfuService.discover(connHandle)) {
-            Serial.println("PHASE 1 FAIL: connected, but Secure DFU service was not discoverable");
+            Serial.println("DFU DISCOVERY FAIL: connected, but Secure DFU service was not discoverable");
             Bluefruit.disconnect(connHandle);
             return;
         }
 
-        Serial.println("PHASE 1 PASS: Secure DFU service 0xFE59 discovered");
+        Serial.println("DFU DISCOVERY PASS: Secure DFU service 0xFE59 discovered");
         Serial.println("Target is in the correct bootloader and reachable from this RAK.");
+        Serial.println("Secure DFU transfer is not implemented in this Scout build.");
+        Serial.println("Disconnect/reset the target or use a compatible Secure DFU client.");
     }
-
-    Serial.println("No firmware bytes will be written in this build.");
-    Serial.println("Leave connected for inspection; power-cycle/reset the target when finished.");
 }
 
 static void disconnectCallback(uint16_t connHandle, uint8_t reason)
