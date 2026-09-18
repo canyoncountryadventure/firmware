@@ -11,6 +11,8 @@ on:
       - 'tools/build_drone_embedded_firmware.py'
       - 'variants/nrf52840/rak4631/**'
       - 'platformio.ini'
+      - 'README.md'
+      - 'docs/RAK_REMOTE_DFU.md'
       - '.github/workflows/build_remote_drone_flasher.yml'
   workflow_dispatch:
 
