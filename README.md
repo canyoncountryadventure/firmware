@@ -10,8 +10,6 @@ The normal field firmware stays on its own target branch. Every supported target
 - a normal **BLE DFU OTA ZIP**
 - the built-in mesh **`DFU` hook** that stores the requester/build marker and safely reboots the target into AdaDFU
 
-The Seeed Water + HOBO target uses a stable HOBO central-only BLE role and the standard `0x20006000` application RAM origin because dual-role Bluefruit resets this XIAO/S140 combination; phone BLE is disabled while LoRa, sensors, the mesh DFU hook, and bootloader drone DFU remain available. Its first automatic sensor read and LoRa transmission are delayed until 30 seconds after boot so they cannot collide with SoftDevice startup.
-
 The **compressed drone/Scout firmware lives only on this branch**. Each Scout UF2 embeds the LZ4-compressed OTA application from exactly one target configuration.
 
 Do **not** flash a `Drone-*.uf2` onto the field target. It goes on the separate RAK4631 carried by the drone.
@@ -28,7 +26,6 @@ Do **not** flash a `Drone-*.uf2` onto the field target. It goes on the separate 
 | RAK Water Distance + HOBO v2 | [RAK-Water-Distance-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v2) | [Drone-RAK-Water-Distance-HOBO-v2.uf2](downloads/Drone-RAK-Water-Distance-HOBO-v2.uf2) |
 | Seeed HOBO Safe v2 | [Seeed-HOBO-Safe-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-HOBO-Safe-v2) | [Drone-Seeed-HOBO-Safe-v2.uf2](downloads/Drone-Seeed-HOBO-Safe-v2.uf2) |
 | Seeed Water Distance v2 | [Seeed-Water-Distance-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-v2) | [Drone-Seeed-Water-Distance-v2.uf2](downloads/Drone-Seeed-Water-Distance-v2.uf2) |
-| Seeed Water Distance + HOBO v2 | [Seeed-Water-Distance-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v2) | [Drone-Seeed-Water-Distance-HOBO-v2.uf2](downloads/Drone-Seeed-Water-Distance-HOBO-v2.uf2) |
 | Trail PIR + Rock + HOBO v2 | [Trail-Sensors-v2](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v2) | [Drone-Trail-PIR-Rock-HOBO-v2.uf2](downloads/Drone-Trail-PIR-Rock-HOBO-v2.uf2) |
 | Trail SEN0171 v2 | [Trail-Sensors-v2](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v2) | [Drone-Trail-SEN0171-v2.uf2](downloads/Drone-Trail-SEN0171-v2.uf2) |
 
