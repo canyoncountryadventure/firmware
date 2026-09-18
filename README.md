@@ -8,6 +8,29 @@ Production field firmware for **RAK4631 + RAK19007** stations using a **DFRobot 
 
 This build combines the proven HOBO next-record telemetry path, SEN0308 analog soil moisture, direct-message diagnostics, raw-data preservation, non-destructive self-recovery, and nRF52840 watchdog protection for unattended stations.
 
+## Download and project links
+
+| Item | Link |
+|---|---|
+| **USB firmware (UF2)** | **[Download RAK-Soil-Moisture-HOBO-v1.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v1.uf2)** |
+| **BLE DFU firmware (ZIP)** | **[Download RAK-Soil-Moisture-HOBO-v1-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v1-OTA.zip)** |
+| Source branch | [RAK-Soil-Moisture-HOBO-v1](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v1) |
+| Build workflow runs | [Build RAK Soil Moisture HOBO v1](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_soil_moisture_hobo_rak4631.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v1) |
+| Workflow source | [build_soil_moisture_hobo_rak4631.yml](.github/workflows/build_soil_moisture_hobo_rak4631.yml) |
+| Soil module source | [SEN0308SoilMoisture.cpp](src/modules/Telemetry/SoilMoisture/SEN0308SoilMoisture.cpp) |
+
+The UF2 and OTA ZIP are built from this branch and then published as stable downloads on the repository's default `field-self-recovery` branch.
+
+## Fast start
+
+1. Seat the RAK4631 firmly in the RAK19007 and attach the LoRa and BLE antennas.
+2. Wire the SEN0308 exactly as shown below. Use `VDD`, **not `VBAT`**.
+3. Flash the UF2 over USB or the unopened OTA ZIP through BLE DFU.
+4. Configure the normal Meshtastic region, LoRa preset, frequency slot, channel and keys.
+5. Direct-message `SOIL READ`, then `SOIL STATUS` and `SOIL TX`.
+6. If using a HOBO logger, run `LOGGER`, `LOCK`, reboot, and run `LOGGER` again.
+7. Confirm at least one automatic soil packet and one real next-record HOBO packet reach the intended receiver/dashboard before deployment.
+
 ## Hardware
 
 ### Soil sensor wiring — RAK19007
@@ -22,6 +45,28 @@ This build combines the proven HOBO next-record telemetry path, SEN0308 analog s
 RAK19007 `AIN1` maps to RAK4631 **A1 / P0.31 / AIN7**.
 
 The RAK variant enables the WisBlock 3.3-V rail during startup, so the SEN0308 can be powered directly from `VDD`.
+
+Do not connect the SEN0308 red lead to `BAT`/`VBAT`. `BAT` is the raw single-cell LiPo rail; `VDD` is the regulated 3.3-V sensor rail.
+
+## Flashing
+
+### USB — recommended and recovery method
+
+1. Download the **UF2** above.
+2. Connect USB-C to the RAK19007.
+3. Double-press reset to expose the RAK4631 bootloader drive.
+4. Copy the UF2 onto that drive.
+5. Let the drive disconnect and the application reboot.
+
+### Android BLE DFU
+
+1. Download the **OTA ZIP** above to the phone. **Do not unzip it.**
+2. Open Nordic **nRF Connect** and connect to the RAK4631.
+3. Tap **DFU** in the upper-right corner.
+4. Choose **Distribution packet (ZIP)** and select `RAK-Soil-Moisture-HOBO-v1-OTA.zip`.
+5. Let validation, activation and reboot finish, then reconnect in Meshtastic and send `VERSION` and `SOIL STATUS`.
+
+The UF2 is USB-only. The OTA ZIP is BLE-only. If a legacy BLE update reaches 100% but stalls during validation/activation, stop retrying and recover with the UF2 over USB. Routine updates should not use a factory-erase image.
 
 ## SEN0308 field calibration
 
@@ -52,6 +97,8 @@ The firmware averages **20 analog samples** separated by **10 ms** before calcul
 
 Because saturated soil and open water both drive this sensor close to zero, the sensor should be treated as a soil-moisture indicator, not as a way to distinguish saturated soil from standing water.
 
+The reported percentage is a field-calibrated moisture index, **not laboratory volumetric water content**. Soil texture, salinity, temperature, installation contact and sensor-to-sensor variation can shift the response. Preserve and use `ADC10` when comparing sites or refining calibration.
+
 ## Soil telemetry
 
 The node automatically samples and transmits soil moisture **once per hour** after the initial startup delay.
@@ -73,6 +120,17 @@ Raw packet format, version 1:
 | 6–7 | Soil telemetry sequence, little-endian |
 
 Keeping the raw ADC value means the percentage calibration can be changed later without losing the original sensor response.
+
+Current fixed behavior:
+
+- Automatic soil interval: **1 hour**.
+- Automatic soil output channel: **Meshtastic channel 0**.
+- Calibration endpoints: **ADC10 580 = 0%**, **ADC10 0 = 100%**.
+- `SOIL CAL` reports the endpoints; it does not modify them.
+- `SOIL READ` replies only by DM and does not create an automatic telemetry event.
+- `SOIL TX` forces both the standard telemetry packet and the raw packet.
+- The raw sequence counter restarts after a reboot.
+- Normal Meshtastic apps can consume the standard `soil_moisture` field; the compact `PRIVATE_APP` packet requires a custom decoder/ingestion path.
 
 ## HOBO automatic telemetry
 
@@ -176,6 +234,38 @@ For soil validation, compare `SOIL READ` against known conditions. The original 
 
 For HOBO validation, lock the correct logger, reboot, confirm `LOGGER` restores the assignment, then wait through at least one real logger interval and verify automatic telemetry occurs only after the next logger record.
 
+### Pass criteria
+
+| Check | Required result |
+|---|---|
+| `SOIL READ` in dry soil | Plausible low percentage and stable ADC10 near the dry calibration range. |
+| `SOIL READ` in moist soil | Lower ADC10 and higher percentage than the dry test. |
+| `SOIL TX` | DM reports `telemetry=OK raw=OK`; receiver/dashboard gets the standard soil packet. |
+| Reboot | Meshtastic identity, channel configuration and locked HOBO assignment remain intact. |
+| One-hour run | A new automatic soil telemetry event is received. |
+| HOBO interval | A HOBO packet is generated only after the logger write pointer advances. |
+| `WATCHDOG` after 30 seconds | Reports the nRF52840 watchdog running. |
+
+## Troubleshooting
+
+### Three flashes, pause, repeat
+
+This is the nRF52840 low-voltage safe-boot loop. The firmware measured the regulated VDD rail below **2.7 V** and stopped before Meshtastic, HOBO and the USB console were initialized.
+
+1. Disconnect the battery, solar input, SEN0308 and other accessories.
+2. Leave the LoRa antenna attached.
+3. Power the RAK19007 from a known-good 5-V USB-C source and press reset once.
+4. If the pattern continues, remove power, firmly reseat the RAK4631, and retry.
+
+A blank serial console during this exact three-flash pattern is expected because console initialization occurs after the power-safety check.
+
+### Soil always reads 0% or 100%
+
+- Confirm red is on `VDD`, yellow is on `AIN1`, and both black wires are on `GND`.
+- Verify the signal is not on `VBAT`, `IO1`, `IO2`, `RX1` or `TX1`.
+- Use `SOIL READ` repeatedly while moving between dry and moist material and compare the raw ADC10 value, not only the percentage.
+- ADC10 near 0 in both saturated soil and water is expected for this calibration.
+
 ## Build target
 
 ```text
@@ -185,3 +275,11 @@ rak4631
 The branch uses the same validated Meshtastic baseline as the RAK HOBO Safe build. The GitHub Actions workflow builds the RAK4631 release artifacts and publishes a permanent UF2/OTA copy for this branch.
 
 Use the normal UF2 or BLE DFU package for routine updates. Do not use factory-erase firmware for ordinary upgrades.
+
+## Scope and deployment status
+
+- Hardware target: **RAK4631 + RAK19007 only**.
+- Soil sensor: **DFRobot SEN0308 analog waterproof capacitive sensor**.
+- HOBO support: **MX2001, MX2201 and MX2203**.
+- Soil sampling, fixed calibration, standard telemetry, raw telemetry and DM commands are implemented in this branch.
+- The exact SEN0308 calibration points above came from the bench setup documented for this project; field soil should still be checked against gravimetric or site-specific reference measurements when quantitative soil-water content matters.
