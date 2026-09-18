@@ -386,10 +386,15 @@ void NRF52Bluetooth::setup()
 }
 void NRF52Bluetooth::resumeAdvertising()
 {
+#if defined(HOBO_BLE_CENTRAL_ONLY)
+    // Central-only HOBO builds never configure a peripheral advertising set.
+    return;
+#else
     Bluefruit.Advertising.restartOnDisconnect(true);
     Bluefruit.Advertising.setInterval(32, 668); // in unit of 0.625 ms
     Bluefruit.Advertising.setFastTimeout(30);   // number of seconds in fast mode
     Bluefruit.Advertising.start(0);
+#endif
 }
 /// Given a level between 0-100, update the BLE attribute
 void updateBatteryLevel(uint8_t level)
