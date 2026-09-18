@@ -22,10 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     name: build-rak4631-ble-dfu-target
     steps:
-      - name: Checkout ESP32 testing branch
+      - name: Checkout triggering commit
         uses: actions/checkout@v7
         with:
-          ref: esp-32-testing
           submodules: recursive
 
       - name: Build normal RAK4631 Meshtastic target
@@ -40,14 +39,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p export
-          UF2="$(find release .pio/build/rak4631 -type f -name '*.uf2' 2>/dev/null | head -n 1)"
+          UF2="$(find .pio/build/rak4631 -maxdepth 1 -type f -name 'firmware-rak4631-*.uf2' | sort | head -n 1)"
           test -n "$UF2"
+          UF2_SIZE="$(stat -c%s "$UF2")"
+          test "$UF2_SIZE" -gt 1000000
+          echo "Packaging full application UF2: $UF2 ($UF2_SIZE bytes)"
           cp "$UF2" export/RAK4631-Meshtastic-HOBO-BLE-DFU-Target.uf2
 
-          OTA="$(find release .pio/build/rak4631 -type f -name '*ota*.zip' 2>/dev/null | head -n 1 || true)"
-          if [ -n "$OTA" ]; then
-            cp "$OTA" export/RAK4631-Meshtastic-HOBO-BLE-DFU-Target-OTA.zip
-          fi
+          OTA="$(find .pio/build/rak4631 -maxdepth 1 -type f -name 'firmware-rak4631-*-ota.zip' | sort | head -n 1 || true)"
+          test -n "$OTA"
+          OTA_SIZE="$(stat -c%s "$OTA")"
+          test "$OTA_SIZE" -gt 500000
+          echo "Packaging application OTA ZIP: $OTA ($OTA_SIZE bytes)"
+          cp "$OTA" export/RAK4631-Meshtastic-HOBO-BLE-DFU-Target-OTA.zip
 
       - name: Upload target firmware
         uses: actions/upload-artifact@v7
