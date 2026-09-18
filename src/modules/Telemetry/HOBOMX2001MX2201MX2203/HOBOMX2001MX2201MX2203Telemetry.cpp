@@ -20,6 +20,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#if defined(RAK_4631)
+#include <nrf_sdm.h>
+#endif
 
 namespace
 {
@@ -184,6 +187,25 @@ uint32_t lastAutomaticTxMs = 0;
 uint32_t automaticTxCount = 0;
 uint16_t measurementSequence = 0;
 
+#if defined(RAK_4631)
+bool otaDfuRebootPending = false;
+uint32_t otaDfuRebootAtMs = 0;
+#define DFU_STRINGIFY_INNER(x) #x
+#define DFU_STRINGIFY(x) DFU_STRINGIFY_INNER(x)
+
+bool otaDfuBootConfirmPending = false;
+uint32_t otaDfuBootConfirmDestination = 0;
+uint8_t otaDfuBootConfirmChannel = 0;
+uint32_t otaDfuBootConfirmDueMs = 0;
+static constexpr size_t OTA_DFU_BUILD_ID_MAX = 20;
+char otaDfuPreviousBuild[OTA_DFU_BUILD_ID_MAX + 1] = {};
+static constexpr char OTA_DFU_CURRENT_BUILD[] = DFU_STRINGIFY(APP_VERSION);
+static constexpr uint32_t OTA_DFU_REBOOT_DELAY_MS = 3000;
+static constexpr uint32_t OTA_DFU_BOOT_CONFIRM_DELAY_MS = 5000;
+static constexpr uint32_t OTA_DFU_BOOT_CONFIRM_RETRY_MS = 30000;
+static constexpr char OTA_DFU_PENDING_FILE_PATH[] = "/prefs/dfu_pending.bin";
+#endif
+
 bool readRequestPending = false;
 bool readRequestInProgress = false;
 bool readFailureReplyPending = false;
@@ -260,6 +282,133 @@ uint8_t lockChecksum(const uint8_t *data, size_t length)
         checksum ^= data[i];
     return checksum;
 }
+
+#if defined(RAK_4631)
+bool saveOtaDfuPending(uint32_t destination, uint8_t channel)
+{
+    if (destination == 0)
+        return false;
+
+    uint8_t record[32] = {
+        'D', 'F', 'U', '2', 2,
+        0, 0, 0, 0,
+        channel,
+        0
+    };
+
+    record[5] = static_cast<uint8_t>(destination);
+    record[6] = static_cast<uint8_t>(destination >> 8);
+    record[7] = static_cast<uint8_t>(destination >> 16);
+    record[8] = static_cast<uint8_t>(destination >> 24);
+
+    size_t buildLength = strlen(OTA_DFU_CURRENT_BUILD);
+    if (buildLength > OTA_DFU_BUILD_ID_MAX)
+        buildLength = OTA_DFU_BUILD_ID_MAX;
+
+    record[10] = static_cast<uint8_t>(buildLength);
+    memcpy(&record[11], OTA_DFU_CURRENT_BUILD, buildLength);
+    record[31] = lockChecksum(record, 31);
+
+    concurrency::LockGuard g(spiLock);
+    File file = FSCom.open(OTA_DFU_PENDING_FILE_PATH, FILE_O_WRITE);
+    if (!file) {
+        LOG_WARN("RAK DFU: failed to open pending-confirmation marker for write");
+        return false;
+    }
+
+    const size_t written = file.write(record, sizeof(record));
+    file.flush();
+    file.close();
+
+    if (written != sizeof(record)) {
+        LOG_WARN("RAK DFU: pending-confirmation marker short write");
+        return false;
+    }
+
+    otaDfuBootConfirmDestination = destination;
+    otaDfuBootConfirmChannel = channel;
+    memset(otaDfuPreviousBuild, 0, sizeof(otaDfuPreviousBuild));
+    memcpy(otaDfuPreviousBuild, OTA_DFU_CURRENT_BUILD, buildLength);
+
+    LOG_INFO(
+        "RAK DFU: saved post-update confirmation destination=0x%08lX channel=%u build=%s",
+        static_cast<unsigned long>(destination),
+        channel,
+        otaDfuPreviousBuild);
+    return true;
+}
+
+void clearOtaDfuPending()
+{
+    otaDfuBootConfirmPending = false;
+    otaDfuBootConfirmDestination = 0;
+    otaDfuBootConfirmChannel = 0;
+    otaDfuBootConfirmDueMs = 0;
+    memset(otaDfuPreviousBuild, 0, sizeof(otaDfuPreviousBuild));
+
+    concurrency::LockGuard g(spiLock);
+    FSCom.remove(OTA_DFU_PENDING_FILE_PATH);
+}
+
+void loadOtaDfuPending()
+{
+    otaDfuBootConfirmPending = false;
+    otaDfuBootConfirmDestination = 0;
+    otaDfuBootConfirmChannel = 0;
+    otaDfuBootConfirmDueMs = 0;
+    memset(otaDfuPreviousBuild, 0, sizeof(otaDfuPreviousBuild));
+
+    uint8_t record[32] = {};
+    size_t readLength = 0;
+
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(OTA_DFU_PENDING_FILE_PATH, FILE_O_READ);
+        if (!file)
+            return;
+
+        readLength = file.read(record, sizeof(record));
+        file.close();
+    }
+
+    if (readLength != sizeof(record) ||
+        record[0] != 'D' || record[1] != 'F' ||
+        record[2] != 'U' || record[3] != '2' ||
+        record[4] != 2 ||
+        record[10] > OTA_DFU_BUILD_ID_MAX ||
+        record[31] != lockChecksum(record, 31)) {
+        LOG_WARN("RAK DFU: ignoring invalid pending-confirmation marker");
+        clearOtaDfuPending();
+        return;
+    }
+
+    const uint32_t destination =
+        static_cast<uint32_t>(record[5]) |
+        (static_cast<uint32_t>(record[6]) << 8) |
+        (static_cast<uint32_t>(record[7]) << 16) |
+        (static_cast<uint32_t>(record[8]) << 24);
+
+    if (destination == 0 || record[10] == 0) {
+        LOG_WARN("RAK DFU: pending-confirmation marker has invalid destination/build");
+        clearOtaDfuPending();
+        return;
+    }
+
+    otaDfuBootConfirmDestination = destination;
+    otaDfuBootConfirmChannel = record[9];
+    memcpy(otaDfuPreviousBuild, &record[11], record[10]);
+    otaDfuPreviousBuild[record[10]] = '\0';
+    otaDfuBootConfirmPending = true;
+    otaDfuBootConfirmDueMs = millis() + OTA_DFU_BOOT_CONFIRM_DELAY_MS;
+
+    LOG_INFO(
+        "RAK DFU: post-update confirmation pending destination=0x%08lX channel=%u old_build=%s current_build=%s",
+        static_cast<unsigned long>(otaDfuBootConfirmDestination),
+        otaDfuBootConfirmChannel,
+        otaDfuPreviousBuild,
+        OTA_DFU_CURRENT_BUILD);
+}
+#endif
 
 void logLockTarget(const char *prefix)
 {
@@ -924,6 +1073,10 @@ void initializeClient()
 
     loadLoggerLock();
 
+#if defined(RAK_4631)
+    loadOtaDfuPending();
+#endif
+
     hoboService.begin();
     hoboCharacteristic.setNotifyCallback(notifyCallback);
     hoboCharacteristic.begin(&hoboService);
@@ -1031,6 +1184,76 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
     const uint32_t ourNode = nodeDB->getNodeNum();
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
+
+    // Canonical VERSION responder for this target; the self-recovery
+    // supervisor intentionally leaves VERSION to this feature-aware response.
+    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "VERSION")) {
+#if defined(RAK_4631)
+        static constexpr const char *radioType = "RAK4631/19007";
+        static constexpr const char *dfuState = "ON";
+        static constexpr const char *dmCommands = "VERSION DFU LOGGER LOCK UNLOCK READ";
+#else
+        static constexpr const char *radioType = "SEEED-XIAO-nRF52840";
+        static constexpr const char *dfuState = "OFF";
+        static constexpr const char *dmCommands = "VERSION LOGGER LOCK UNLOCK READ";
+#endif
+
+        // Keep VERSION well below Meshtastic's 233-byte Data payload ceiling
+        // and common client text-display limits. Every required field remains
+        // present, while platform-specific capability reporting stays honest.
+        char reply[210] = {};
+        snprintf(
+            reply,
+            sizeof(reply),
+            "RADIO:%s\n"
+            "SENSORS:HOBO MX2001/2201/2203\n"
+            "NEXTREAD:ON NEWREAD64\n"
+            "DM:ON %s\n"
+            "BUILD:%s\n"
+            "DFU:%s\n"
+            "WDT:90s+field\n"
+            "DATE:%s",
+            radioType,
+            dmCommands,
+            OTA_DFU_CURRENT_BUILD,
+            dfuState,
+            __DATE__);
+
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+
+#if defined(RAK_4631)
+    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "DFU")) {
+        if (otaDfuRebootPending) {
+            sendTextReply(mp.from, mp.channel, "BLE OTA DFU already armed");
+            return ProcessMessage::CONTINUE;
+        }
+
+        if (!saveOtaDfuPending(mp.from, mp.channel)) {
+            sendTextReply(
+                mp.from,
+                mp.channel,
+                "BLE OTA DFU NOT armed\nCould not save post-update confirmation marker");
+            LOG_WARN("RAK DFU: refusing OTA reboot because confirmation marker could not be saved");
+            return ProcessMessage::CONTINUE;
+        }
+
+        sendTextReply(
+            mp.from,
+            mp.channel,
+            "BLE OTA DFU armed\nRebooting into OTA bootloader in 3 seconds\nBoot confirmation will return after update");
+
+        otaDfuRebootPending = true;
+        otaDfuRebootAtMs = millis() + OTA_DFU_REBOOT_DELAY_MS;
+        setIntervalFromNow(10);
+        LOG_WARN(
+            "RAK DFU: OTA reboot armed by direct mesh command from=0x%08lX channel=%u",
+            static_cast<unsigned long>(mp.from),
+            mp.channel);
+        return ProcessMessage::CONTINUE;
+    }
+#endif
 
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOGGER")) {
         char reply[220] = {};
@@ -1204,6 +1427,67 @@ bool HOBOMX2001MX2201MX2203TelemetryModule::sendTextReply(
 int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 {
     const uint32_t now = millis();
+
+#if defined(RAK_4631)
+    if (otaDfuRebootPending && reached(now, otaDfuRebootAtMs)) {
+        otaDfuRebootPending = false;
+        LOG_WARN("RAK DFU: rebooting into BLE OTA bootloader (GPREGRET=0xA8)");
+        delay(100);
+        nrf52FlashQuiesce();
+        uint8_t softdeviceEnabled = 0;
+        if (sd_softdevice_is_enabled(&softdeviceEnabled) == NRF_SUCCESS && softdeviceEnabled)
+            (void)sd_softdevice_disable();
+        NRF_POWER->GPREGRET = 0xA8;
+        __DSB();
+        NVIC_SystemReset();
+        while (true) {
+            delay(1000);
+        }
+    }
+
+    if (otaDfuBootConfirmPending &&
+        otaDfuBootConfirmDestination != 0 &&
+        reached(now, otaDfuBootConfirmDueMs)) {
+        const bool buildChanged =
+            otaDfuPreviousBuild[0] != '\0' &&
+            strcmp(otaDfuPreviousBuild, OTA_DFU_CURRENT_BUILD) != 0;
+
+        char reply[220] = {};
+        if (buildChanged) {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "UPDATE SUCCESS\nRAK4631 booted new firmware after BLE DFU\nOld: %s\nNew: %s",
+                otaDfuPreviousBuild,
+                OTA_DFU_CURRENT_BUILD);
+        } else {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "DFU RESULT: BUILD UNCHANGED\nSame build after reboot\nBuild: %s",
+                OTA_DFU_CURRENT_BUILD);
+        }
+
+        const bool queued = sendTextReply(
+            otaDfuBootConfirmDestination,
+            otaDfuBootConfirmChannel,
+            reply);
+
+        if (queued) {
+            LOG_INFO(
+                "RAK DFU: post-DFU boot result queued to=0x%08lX channel=%u changed=%s old=%s new=%s",
+                static_cast<unsigned long>(otaDfuBootConfirmDestination),
+                otaDfuBootConfirmChannel,
+                buildChanged ? "yes" : "no",
+                otaDfuPreviousBuild,
+                OTA_DFU_CURRENT_BUILD);
+            clearOtaDfuPending();
+        } else {
+            otaDfuBootConfirmDueMs = now + OTA_DFU_BOOT_CONFIRM_RETRY_MS;
+            LOG_WARN("RAK DFU: post-DFU result enqueue failed; retry scheduled");
+        }
+    }
+#endif
 
     auto sendTemperatureTelemetry = [&](float temperatureC) -> bool {
         meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
