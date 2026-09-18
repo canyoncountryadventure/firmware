@@ -263,7 +263,14 @@ void NRF52Bluetooth::setup()
     // Initialise the Bluefruit module
     LOG_INFO("Init the Bluefruit nRF52 module");
     Bluefruit.autoConnLed(false);
+#if defined(SEEED_XIAO_NRF52840_KIT)
+    // XIAO dual-role builds need one peripheral phone link plus one central HOBO link.
+    // BANDWIDTH_MAX pushes the S140 SoftDevice RAM requirement beyond this board's
+    // 0x20006000 application RAM origin and causes a software-reset loop in Bluefruit.begin().
+    Bluefruit.configPrphBandwidth(BANDWIDTH_NORMAL);
+#else
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
+#endif
 #if defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631)
     // HOBO integrations: keep one BLE peripheral link for the
     // Meshtastic phone connection and add one BLE central link
