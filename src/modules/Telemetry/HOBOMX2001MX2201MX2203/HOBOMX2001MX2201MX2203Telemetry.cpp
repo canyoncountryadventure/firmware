@@ -1422,7 +1422,7 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             snprintf(
                 reply,
                 sizeof(reply),
-                "DFU NOT CONFIRMED\nPrevious firmware resumed\nBuild: %s",
+                "DFU RESULT: BUILD UNCHANGED\nSame build after reboot\nBuild: %s",
                 OTA_DFU_CURRENT_BUILD);
         }
 
