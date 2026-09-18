@@ -72,6 +72,9 @@ The HOBO BLE module is intentionally not instantiated in the dedicated SEN0171 c
 | `PIR OFF` | Disables PIR monitoring and saves the setting. |
 | `PIR TX ON` | Enables private PIR detection alerts. |
 | `PIR TX OFF` | Stops PIR alert transmissions while continuing to count locally. |
+| `PING` | Confirms the CCA application is alive and reports uptime. |
+| `WATCHDOG` | Reports the 90-second main watchdog and independent field-health watchdog channel. |
+| `RECOVER` or `REBOOT` | Schedules the v2 flash-safe whole-node reboot path in 2 seconds. |
 | `POWER` or `POWER STATUS` | Shows battery voltage/percent, charging state, trend, min/max, and sample count. |
 | `POWER VOLTAGE` | Shows current battery voltage, percentage, and charging state. |
 | `POWER MINMAX` | Shows minimum, maximum, and current battery voltage since boot. |
