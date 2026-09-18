@@ -1,0 +1,6 @@
+Drone flasher: Drone-Trail-PIR-Rock-HOBO-v2.uf2
+Target branch: Trail-Sensors-v2
+Target commit: c61e63ed26dee7b198e7e05d23216c8f078e2306
+Embedded payload: LZ4-compressed application OTA
+Scout UF2 bytes: 1283072
+9ba589727072d1c28cc796835575f952f1f8e1ed39e7b12ecb5928a75c896242  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.c935cc0.uf2
