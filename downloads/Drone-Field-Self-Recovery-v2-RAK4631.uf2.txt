@@ -3,4 +3,4 @@ Target branch: field-self-recovery-v2
 Target commit: 14f403c0a911c2ad05bf4cd15cb727f49b7f16cb
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1381376
-166f53952621bb389e8669a1f4483231e1f20fb6b5a5b0941ffc28162c7183af  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.dfec158.uf2
+3b79f9021b2128bbdb439349b7c2c61cfeb422721959126104d60a1118ab2aea  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.3dee966.uf2

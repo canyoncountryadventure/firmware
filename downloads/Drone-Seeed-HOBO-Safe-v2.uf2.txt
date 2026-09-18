@@ -3,4 +3,4 @@ Target branch: Seeed-HOBO-Safe-v2
 Target commit: 9d62deba3533594f09ab3e97808505f9e346d28e
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1331712
-3b04a935074c56fbd2edbcff226df9401db9f9638374d65cfd14edb8dcfe455a  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.dfec158.uf2
+e14eedea416fd7a6c13bf740ea51bbac9992cba7558b015e1222e3e42321a996  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.3dee966.uf2

@@ -3,4 +3,4 @@ Target branch: RAK-Soil-Moisture-HOBO-v2
 Target commit: 960a439fbe98d72c67bea311232bedc92d53a250
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1384448
-faad6a4497eb69c6b33ed4d398f92ff848ba812f0106db2a2f2a73cbd70056e2  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.dfec158.uf2
+4d6f2bb1d0867b4c8e31ddcb2c1cd9f2e2e012c93ac9c686b3092c6438ce055e  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.3dee966.uf2

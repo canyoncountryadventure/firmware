@@ -3,4 +3,4 @@ Target branch: Trail-Sensors-v2
 Target commit: 6d30b284b94adb9003930f83989e7dbb81709bcb
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1283072
-e66f994341c4d7def6844ae4ebfccb55ec5f17c7b0246a0bda028a3735b62f6c  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.dfec158.uf2
+d138d7f659026d28daaee2f41f3a3c6c2286ad87abc4c052f44af02cdada5f7a  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.3dee966.uf2
