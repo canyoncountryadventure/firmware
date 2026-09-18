@@ -1,6 +1,6 @@
 Drone flasher: Drone-Trail-SEN0171-v2.uf2
 Target branch: Trail-Sensors-v2
-Target commit: c61e63ed26dee7b198e7e05d23216c8f078e2306
+Target commit: 6d30b284b94adb9003930f83989e7dbb81709bcb
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1264128
-45413b61028ec7661a556d46d5410ec539e5af1f82aacdc0f81049c760f68ace  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.5053a85.uf2
+323c0fc616cd4f1060f9770ccf909ddfb1485ce19c8092fb078455b823e09c99  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.dfec158.uf2
