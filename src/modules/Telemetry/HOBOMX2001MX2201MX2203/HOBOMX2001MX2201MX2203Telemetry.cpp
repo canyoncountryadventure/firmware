@@ -1147,6 +1147,43 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
 
+    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "VERSION")) {
+#if defined(HAS_HARDWARE_WATCHDOG)
+        static constexpr const char *watchdogState = "ON";
+#else
+        static constexpr const char *watchdogState = "OFF";
+#endif
+
+#if defined(RAK_4631)
+        static constexpr const char *radioType = "RAK4631/RAK19007";
+        static constexpr const char *dfuState = "ON";
+#else
+        static constexpr const char *radioType = "nRF52840";
+        static constexpr const char *dfuState = "OFF";
+#endif
+
+        char reply[240] = {};
+        snprintf(
+            reply,
+            sizeof(reply),
+            "RADIO: %s\n"
+            "SENSORS: HOBO MX2001/MX2201/MX2203\n"
+            "HOBO NEXTREAD: ON (NEWREAD64)\n"
+            "DM: ON VERSION,DFU,LOGGER,LOCK,UNLOCK,READ\n"
+            "BUILD: %s\n"
+            "DFU: %s\n"
+            "WATCHDOG: %s\n"
+            "BUILD DATE: %s",
+            radioType,
+            OTA_DFU_CURRENT_BUILD,
+            dfuState,
+            watchdogState,
+            __DATE__);
+
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+
 #if defined(RAK_4631)
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "DFU")) {
         if (otaDfuRebootPending) {
