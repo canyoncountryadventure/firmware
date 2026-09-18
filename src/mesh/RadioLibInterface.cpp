@@ -580,6 +580,7 @@ void RadioLibInterface::handleReceiveInterrupt()
             airTime->logAirtime(RX_ALL_LOG, rxMsec);
         } else {
             rxGood++;
+            lastRxGoodMs = millis();
             // altered packet with "from == 0" can do Remote Node Administration without permission
             if (radioBuffer.header.from == 0) {
                 LOG_WARN("Ignore received packet without sender");
@@ -736,10 +737,12 @@ bool RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
             LOG_ERROR("startTransmit failed, error=%d", res);
             RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_RADIO_SPI_BUG);
 
-            // This send failed, but make sure to 'complete' it properly
+            // This send failed, but make sure to 'complete' it properly.
             completeSending();
-            powerMon->clearState(meshtastic_PowerMon_State_Lora_TXOn); // Transmitter off now
-            startReceive(); // Restart receive mode (because startTransmit failed to put us in xmit mode)
+            powerMon->clearState(meshtastic_PowerMon_State_Lora_TXOn);
+            rxOffline = true;
+            (void)maybeRecoverChipStateLoss();
+            startReceive();
         } else {
             // Must be done AFTER, starting transmit, because startTransmit clears (possibly stale) interrupt pending register
             // bits
