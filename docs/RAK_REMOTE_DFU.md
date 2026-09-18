@@ -1,56 +1,131 @@
-# RAK4631 Remote DFU — Architecture and Bench Notes
+# RAK4631 Remote Drone DFU — Architecture and Validation Notes
 
-This document describes the experimental remote application-update path on the `esp-32-testing` branch.
+This document is the technical reference for the `Remote-Drone-Flashing` branch.
 
-## Goal
+## Purpose
 
-Update a deployed RAK4631 without opening the enclosure or attaching USB, using a nearby RAK4631 as the BLE DFU client.
+Update a remote RAK4631 Meshtastic + HOBO field node without opening its enclosure or attaching USB.
 
-The target remains a normal Meshtastic + HOBO field node during normal operation.
+The field architecture uses three radios:
 
-## Target behavior
+```text
+Controller RAK
+      |
+      | LoRa direct message: DFU
+      v
+Target RAK4631
+      |
+      | reboot to AdaDFU
+      v
+Drone Scout RAK4631
+      |
+      | BLE Nordic Legacy DFU
+      v
+Target RAK4631
+      |
+      | LoRa result callback after reboot
+      v
+Controller RAK
+```
 
-The target listens for a direct Meshtastic text command:
+The Scout is a dedicated BLE flasher. It does not run Meshtastic and does not need a LoRa antenna during the mission.
+
+## Target firmware
+
+The target is the normal field application. It includes:
+
+- Meshtastic LoRa
+- HOBO MX2001 / MX2201 / MX2203 support
+- `NEWREAD64` next-record tracking
+- direct-message control commands
+- BLE DFU trigger
+- persistent post-DFU callback marker
+- nRF52840 internal watchdog through `HOBOSelfRecoveryModule`
+- self-recovery / BLE scanner recovery
+
+### VERSION
+
+Direct-message:
+
+```text
+VERSION
+```
+
+The response intentionally stays well below Meshtastic's 233-byte Data payload ceiling and reports:
+
+- radio/platform
+- supported sensors
+- NEXTREAD / NEWREAD64 state
+- DM command support
+- semantic version + Git SHA
+- DFU state
+- watchdog state and timeout
+- compile date
+
+### WATCHDOG
+
+Direct-message:
+
+```text
+WATCHDOG
+```
+
+The self-recovery supervisor arms the nRF52840 on-chip watchdog after the 30-second boot-settle period.
+
+Current configuration:
+
+```text
+timeout: 900 seconds / 15 minutes
+run while CPU sleeps: yes
+feed interval: approximately 30 seconds
+```
+
+The `WATCHDOG` reply reads the live WDT state.
+
+## DFU trigger
+
+The target accepts a direct Meshtastic text command:
 
 ```text
 DFU
 ```
 
-When received, the target:
+When received, it:
 
-1. Verifies the command is addressed directly to this node.
-2. Persists the requester node ID and channel to `/prefs/dfu_pending.bin`.
-3. Replies that DFU is armed.
-4. Waits three seconds.
-5. Writes `0xA8` to `NRF_POWER->GPREGRET`.
-6. Resets.
-7. Boots the Adafruit/Nordic BLE OTA bootloader.
+1. verifies the message is addressed directly to this node;
+2. stores the requester node ID, channel, and current `APP_VERSION`;
+3. replies that BLE OTA DFU is armed;
+4. waits about three seconds;
+5. writes `0xA8` to `NRF_POWER->GPREGRET`;
+6. resets into the Adafruit/Nordic BLE OTA bootloader.
 
-The tested bootloader advertises as `AdaDFU`.
+The target refuses to enter DFU if the callback marker cannot be written.
 
 ## Persistent callback marker
 
-The callback record intentionally lives outside the application image so it survives an application-only OTA update. It also stores the firmware build that was running when DFU was armed.
+File:
 
-Record layout:
+```text
+/prefs/dfu_pending.bin
+```
+
+Record:
 
 | Offset | Length | Meaning |
 |---|---:|---|
 | 0–3 | 4 | Magic `DFU2` |
-| 4 | 1 | Record format version (`2`) |
-| 5–8 | 4 | Requester node ID, little-endian |
+| 4 | 1 | Record format version 2 |
+| 5–8 | 4 | requester node ID, little-endian |
 | 9 | 1 | Meshtastic channel |
-| 10 | 1 | Saved build-ID length |
-| 11–30 | 20 | Saved pre-DFU `APP_VERSION` text |
-| 31 | 1 | XOR checksum of bytes 0–30 |
+| 10 | 1 | saved build-ID length |
+| 11–30 | 20 | saved pre-DFU `APP_VERSION` |
+| 31 | 1 | XOR checksum over bytes 0–30 |
 
-Meshtastic's build system defines `APP_VERSION` as the semantic version plus the 7-character Git SHA, for example `2.7.26.6e91722`.
+The marker survives an application-only DFU.
 
-The target refuses to enter DFU if this record cannot be written.
+After the application boots:
 
-After an application boots, the HOBO/DFU module loads the marker and compares the saved pre-DFU build ID with the currently running build.
-
-If the build changed, it queues:
+### Different build
 
 ```text
 UPDATE SUCCESS
@@ -59,213 +134,206 @@ Old: 2.7.26.<oldsha>
 New: 2.7.26.<newsha>
 ```
 
-If the same build simply resumes (for example after an aborted DFU/reset), it queues:
+### Same build
 
 ```text
-DFU NOT CONFIRMED
-Previous firmware resumed
+DFU RESULT: BUILD UNCHANGED
+Same build after reboot
 Build: 2.7.26.<sha>
 ```
 
-Only after the result text packet is successfully allocated and queued is the marker deleted.
+A same-build result is intentionally neutral. It cannot distinguish a successful reflash of identical firmware from returning to an identical build. DFU-side validation must be used for that case.
 
-If packet allocation fails, the marker remains and another send is scheduled 30 seconds later.
+The marker is cleared only after the result packet is queued. If allocation fails, the target retries later.
 
-## Observed bootloader
+## Tested bootloader
 
-The bootloader used by the tested RAK4631 exposes Nordic Legacy DFU:
+The tested RAK4631 bootloader advertises:
 
 ```text
-Device name:
-  AdaDFU
+Name: AdaDFU
 
 Service:
-  00001530-1212-EFDE-1523-785FEABCD123
+00001530-1212-EFDE-1523-785FEABCD123
 
 Control Point:
-  00001531-1212-EFDE-1523-785FEABCD123
+00001531-1212-EFDE-1523-785FEABCD123
 
 Packet:
-  00001532-1212-EFDE-1523-785FEABCD123
+00001532-1212-EFDE-1523-785FEABCD123
 
 Version:
-  00001534-1212-EFDE-1523-785FEABCD123
+00001534-1212-EFDE-1523-785FEABCD123
 ```
 
-The target BLE address was observed to change by +1 when entering DFU mode.
+Observed behavior: the BLE address changes by +1 when the target enters bootloader mode.
 
-## Scout behavior
+## Autonomous Scout
 
-The standalone Scout firmware is a BLE-central-only RAK4631 application.
+Source:
 
-It:
+```text
+src/experimental/rak4631_drone_flasher.cpp
+```
 
-1. Scans for nearby BLE advertisements.
-2. Detects Legacy DFU `0x1530` and keeps Secure DFU `0xFE59` recognition as a compatibility fallback.
-3. Connects to `AdaDFU`.
-4. Discovers the DFU service and required characteristics.
-5. Enables Control Point notifications.
-6. Exposes a simple USB serial bridge protocol to the PC helper.
-7. Performs Nordic Legacy application DFU.
+The Scout:
 
-### Legacy DFU sequence
+1. boots from battery power;
+2. scans indefinitely for Legacy AdaDFU service `0x1530`;
+3. requires RSSI of at least -90 dBm;
+4. connects and discovers the DFU characteristics;
+5. enables Control Point notifications;
+6. performs application-only Nordic Legacy DFU;
+7. streams a target image embedded in its own internal flash;
+8. stops after a validated activation sequence.
 
-The Scout sends:
+No PC, SD card, ESP32, USB cable, or LoRa stack is required in flight.
 
-1. `START_DFU` (`0x01`) with application type `0x04`.
-2. Three little-endian image sizes: SoftDevice = 0, bootloader = 0, application = BIN size.
-3. `INIT_DFU_PARAMS` start.
-4. The `.dat` init packet.
-5. `INIT_DFU_PARAMS` complete.
-6. Packet Receipt Notification interval = 8 packets.
-7. `RECEIVE_FW`.
-8. The complete application `.bin`.
-9. `VALIDATE`.
-10. `ACTIVATE_AND_RESET`.
+### BLE transfer parameters
 
-The current compatibility-first transfer uses 20-byte BLE writes.
+```text
+application type: 0x04
+BLE payload: 20 bytes
+packet receipt notification interval: 8 packets
+SoftDevice size: 0
+bootloader size: 0
+application size: embedded target BIN size
+```
 
-## PC serial bridge
+Sequence:
 
-`tools/rak_dfu_serial_upload.py` opens a standard Nordic OTA ZIP and reads:
+1. `START_DFU`
+2. image sizes
+3. `INIT_DFU_PARAMS` start
+4. application `.dat`
+5. `INIT_DFU_PARAMS` complete
+6. PRN interval = 8
+7. `RECEIVE_FW`
+8. application BIN
+9. `VALIDATE`
+10. `ACTIVATE_AND_RESET`
+
+## Embedded image
+
+The target build produces an application-only OTA ZIP containing:
 
 - `manifest.json`
-- the application `.dat`
-- the application `.bin`
+- application `.dat`
+- application `.bin`
 
-The Scout asks the PC for blocks using lines such as:
+`tools/build_drone_embedded_firmware.py`:
 
-```text
-REQ DAT 0 14
-REQ BIN 0 1024
-REQ BIN 1024 1024
-```
+1. extracts the application files;
+2. compresses the BIN with raw LZ4 block compression;
+3. verifies decompression with the Python LZ4 library;
+4. verifies decompression again with an implementation matching the Scout's exact 64 KiB circular-history decoder;
+5. generates `src/experimental/embedded_dfu_image.h`.
 
-The Python helper immediately returns exactly that many raw bytes over USB CDC.
+The build fails if either verification does not reproduce the original target BIN byte-for-byte.
 
-The Scout then packetizes those bytes into 20-byte BLE writes.
+## Proven autonomous bench test
 
-## Verified Phase 2 run
+The autonomous Scout has completed a full same-build reflash of target build `2.7.26.24e992b`.
 
-The tested OTA bundle contained:
-
-```text
-DAT: 14 bytes
-BIN: 778,048 bytes
-```
-
-The complete transfer reached:
+Observed Scout output:
 
 ```text
-PROGRESS 100% 778048/778048
-DFU STREAM COMPLETE
-RECEIVE_FW status=0x1
-VALIDATE status=0x1
-ACTIVATE sent
-DISCONNECTED, reason 0x13
-DFU SUCCESS: target accepted image and rebooted
+STREAMING EMBEDDED FIRMWARE...
+PROGRESS 0%
+PROGRESS 5%
+...
+PROGRESS 95%
+PROGRESS 100%
+VALIDATED; ACTIVATE SENT
+BLE DISCONNECTED reason=0x13
+AUTONOMOUS DFU SUCCESS
 ```
 
-The target then booted the flashed Meshtastic + HOBO application.
+The target then rebooted into Meshtastic and sent the stored callback.
 
-The current branch adds build-aware post-DFU confirmation so a future run can distinguish a genuinely new flashed application from merely returning to the pre-DFU build.
-
-### Fixed transfer bug
-
-An early Phase 2 build truncated the remaining firmware byte count to `uint16_t` before capping the PC request to 1,024 bytes.
-
-That caused this exact failure:
+This proves the autonomous path through:
 
 ```text
-REQ BIN 56320 832
-REQ BIN 57152 0
+mesh DFU trigger
+→ persistent callback marker
+→ AdaDFU
+→ Scout discovery
+→ full embedded image transfer
+→ RECEIVE_FW
+→ VALIDATE
+→ ACTIVATE
+→ disconnect/reset
+→ Meshtastic application reboot
+→ LoRa callback
 ```
 
-The corrected code keeps the subtraction in 32 bits and converts to 16 bits only after applying the 1,024-byte cap.
+The test used the same build before and after, so it did not test the `UPDATE SUCCESS` different-build branch. A later build-to-build test is still useful for that exact callback path.
 
-A zero-length block guard was also added.
+## LED behavior
 
-## Recovery model
+### Scout
 
-The current updater is application-only.
+- brief blink about every two seconds: scanning/waiting;
+- BLE/DFU activity: transfer in progress;
+- solid LED: Scout completed the DFU sequence successfully.
 
-It intentionally sends:
+### Target
+
+A brief blue LED flash can occur when a direct Meshtastic message is received or processed. That alone does **not** mean the target entered DFU. DFU mode is identified by the explicit `DFU` command/reply followed by loss of normal Meshtastic operation while `AdaDFU` is active.
+
+## Recovery
+
+The updater is application-only. It does not intentionally replace the SoftDevice or bootloader.
+
+An interrupted transfer can leave the application invalid. USB UF2 recovery remains the development fallback.
+
+Use the matching target UF2 generated by the same workflow.
+
+## Build system
+
+Workflow:
 
 ```text
-SoftDevice size: 0
-Bootloader size: 0
-Application size: <BIN size>
+.github/workflows/build_remote_drone_flasher.yml
 ```
 
-Therefore an interrupted transfer can invalidate the Meshtastic application, but it should not intentionally overwrite the bootloader or SoftDevice.
+The workflow builds both sides from the same commit:
 
-During development, keep a known-good UF2 available for USB recovery.
+1. target `rak4631`;
+2. target application-only OTA ZIP;
+3. generated embedded LZ4 header;
+4. autonomous `rak4631_drone_flasher`;
+5. matched artifacts.
 
-## Current bench topology
+The workflow is triggered by source and RAK configuration changes that can affect either the target or the Scout. This is intentional: a Scout artifact must never silently contain a stale target image after target source changes.
+
+## Output naming
+
+Versioned files:
 
 ```text
-Normal Meshtastic sender
-        |
-        | LoRa "DFU"
-        v
-Target RAK4631
-        |
-        | AdaDFU BLE
-        v
-Scout RAK4631
-        |
-        | USB serial
-        v
-PC + OTA ZIP
+RAK4631-HOBO-DFU-Target-<version>.uf2
+RAK4631-HOBO-DFU-Target-<version>-OTA.zip
+RAK4631-Remote-Drone-Flasher-embeds-<version>.uf2
 ```
 
-The third Meshtastic sender is still required in this **bench implementation** because the standalone Scout firmware does not currently run the Meshtastic stack.
-
-## Final two-RAK topology
-
-The intended field implementation merges the Scout DFU client into normal Meshtastic firmware:
+Stable aliases are also packaged:
 
 ```text
-Phone / controller
-        |
-        | BLE / serial
-        v
-Scout RAK4631 running Meshtastic
-        |
-        | LoRa "DFU"
-        v
-Target RAK4631
-        |
-        | AdaDFU
-        v
-Scout RAK4631
-        |
-        | BLE firmware update
-        v
-Target RAK4631
-        |
-        | LoRa UPDATE SUCCESS
-        v
-Scout / controller
+RAK4631-HOBO-DFU-Target.uf2
+RAK4631-HOBO-DFU-Target-OTA.zip
+RAK4631-Remote-Drone-Flasher.uf2
 ```
 
-No ESP32 is required for this RAK-to-RAK firmware-update path.
-
-## Next integration work
-
-1. Merge the Legacy DFU client into a normal RAK4631 Meshtastic build.
-2. Give the Scout local firmware storage or another non-PC firmware source.
-3. Add explicit target selection so a Scout never flashes the wrong nearby `AdaDFU` device.
-4. Add update identity/version metadata to the command and success response.
-5. Add timeout/failure messages over Meshtastic from the integrated Scout.
-6. Repeat the full test without a PC participating in the actual transfer.
+`BUILD.txt` records the commit, target version, file sizes, and explicitly states which target version is embedded in the Scout.
 
 ## Source map
 
-- [Scout implementation](../src/experimental/rak4631_dfu_scout.cpp)
-- [Target HOBO + DFU command implementation](../src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp)
+- [Autonomous Scout](../src/experimental/rak4631_drone_flasher.cpp)
+- [Embedded-image generator](../tools/build_drone_embedded_firmware.py)
+- [Target HOBO + DFU](../src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp)
 - [RAK wrapper](../src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203TelemetryRAK.cpp)
-- [PC uploader](../tools/rak_dfu_serial_upload.py)
-- [Scout workflow](../.github/workflows/build_rak_dfu_scout.yml)
-- [Target workflow](../.github/workflows/build_rak_ble_dfu_target.yml)
-- [RAK4631 PlatformIO configuration](../variants/nrf52840/rak4631/platformio.ini)
+- [Self-recovery watchdog](../src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp)
+- [RAK module attachment](../src/modules/Telemetry/MX2001Diagnostic.h)
+- [RAK PlatformIO configuration](../variants/nrf52840/rak4631/platformio.ini)
+- [Integrated workflow](../.github/workflows/build_remote_drone_flasher.yml)
