@@ -24,7 +24,7 @@ seeed_xiao_nrf52840_cca_mx_pir
 
 This build retains:
 
-- universal HOBO MX BLE telemetry
+- universal HOBO MX BLE telemetry with the v2 30-second connection timeout, bounded STATUS/NEWREAD recovery, and field-watchdog escalation
 - SEN0171 PIR/presence handling
 - RF-aware PIR suppression around local LoRa transmissions
 - CCA battery/power diagnostics
@@ -51,7 +51,7 @@ Behavior:
 - records HIGH duration and LOW gap for testing
 - transmits a Meshtastic detection message for each distinct event
 
-The HOBO BLE module is intentionally not instantiated in the dedicated SEN0171 counter build so the branch can hold both implementations without forcing both sensor systems into the same firmware image.
+The HOBO BLE module is intentionally not instantiated in the dedicated SEN0171 counter build so the branch can hold both implementations without forcing both sensor systems into the same firmware image. The PIR + Rock + HOBO image uses the canonical v2 HOBO state machine, but it intentionally does not instantiate the generic HOBO self-recovery command supervisor because `CCAStationModule` already owns overlapping station commands such as `STATUS`, `POWER`, and `VERSION`.
 
 ## Useful DM commands
 
