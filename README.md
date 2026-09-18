@@ -1,6 +1,6 @@
 > **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Water-Distance-HOBO-v1 is retained.
 
-# RAK Water Distance + HOBO v1
+# RAK Water Distance + HOBO v2
 
 Production combined firmware for **RAK4631 + RAK19007** field nodes that must do both:
 
