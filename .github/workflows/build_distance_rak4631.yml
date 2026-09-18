@@ -1,13 +1,13 @@
-name: Build RAK Water Distance v1
+name: Build RAK Water Distance v2
 
 on:
   push:
     branches:
-      - RAK-Water-Distance-v1
+      - RAK-Water-Distance-v2
   workflow_dispatch:
 
 concurrency:
-  group: RAK-Water-Distance-v1
+  group: RAK-Water-Distance-v2
   cancel-in-progress: true
 
 permissions:
@@ -17,14 +17,14 @@ jobs:
   build-rak-water-distance:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout RAK Water Distance v1 branch
+      - name: Checkout RAK Water Distance v2 branch
         uses: actions/checkout@v7
         with:
-          ref: RAK-Water-Distance-v1
+          ref: RAK-Water-Distance-v2
           submodules: recursive
 
       - name: Build RAK4631
-        uses: meshtastic/gh-action-firmware@main
+        uses: meshtastic/gh-action-firmware@39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
         with:
           pio_platform: nrf52840
           pio_env: rak4631
@@ -33,7 +33,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: RAK-Water-Distance-v1-${{ github.run_number }}
+          name: RAK-Water-Distance-v2-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
@@ -53,8 +53,8 @@ jobs:
           test -n "$UF2"
           test -n "$OTA"
           mkdir -p export
-          cp "$UF2" export/RAK-Water-Distance-v1.uf2
-          cp "$OTA" export/RAK-Water-Distance-v1-OTA.zip
+          cp "$UF2" export/RAK-Water-Distance-v2.uf2
+          cp "$OTA" export/RAK-Water-Distance-v2-OTA.zip
 
       - name: Checkout firmware download branch
         uses: actions/checkout@v7
@@ -74,14 +74,14 @@ jobs:
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
             mkdir -p downloads
-            cp ../export/RAK-Water-Distance-v1.uf2 downloads/
-            cp ../export/RAK-Water-Distance-v1-OTA.zip downloads/
-            git add downloads/RAK-Water-Distance-v1.uf2 downloads/RAK-Water-Distance-v1-OTA.zip
+            cp ../export/RAK-Water-Distance-v2.uf2 downloads/
+            cp ../export/RAK-Water-Distance-v2-OTA.zip downloads/
+            git add downloads/RAK-Water-Distance-v2.uf2 downloads/RAK-Water-Distance-v2-OTA.zip
             if git diff --cached --quiet; then
               echo "Downloads already current"
               exit 0
             fi
-            git commit -m "Publish RAK Water Distance v1 downloads"
+            git commit -m "Publish RAK Water Distance v2 downloads"
             if git push origin HEAD:field-self-recovery; then
               exit 0
             fi
