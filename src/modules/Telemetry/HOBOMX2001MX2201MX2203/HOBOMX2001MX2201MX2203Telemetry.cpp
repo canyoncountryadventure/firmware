@@ -1163,18 +1163,21 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
         static constexpr const char *watchdogState = "OFF";
 #endif
 
-        char reply[240] = {};
+        // Keep VERSION comfortably below Meshtastic's 233-byte Data
+        // payload ceiling. This response is intentionally concise because it
+        // is a field diagnostic command that must work over weak links.
+        char reply[200] = {};
         snprintf(
             reply,
             sizeof(reply),
             "RADIO: %s\n"
             "SENSORS: HOBO MX2001/MX2201/MX2203\n"
-            "HOBO NEXTREAD: ON (NEWREAD64)\n"
+            "NEXTREAD: ON (NEWREAD64)\n"
             "DM: ON VERSION,DFU,LOGGER,LOCK,UNLOCK,READ\n"
             "BUILD: %s\n"
             "DFU: %s\n"
-            "WATCHDOG: %s\n"
-            "BUILD DATE: %s",
+            "WDT: %s\n"
+            "DATE: %s",
             radioType,
             OTA_DFU_CURRENT_BUILD,
             dfuState,
