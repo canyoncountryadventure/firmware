@@ -18,8 +18,10 @@ This build reads real HOBO records over BLE, transmits them over Meshtastic, pre
 - Manual `READ` does not consume the automatic pointer.
 - `LOCK` persists the intended logger assignment across reboot.
 - Disconnected BLE scanning uses a low-duty passive scan.
+- A BLE connection attempt is cancelled after 30 seconds if it does not complete.
+- Repeated `STATUS` or `NEWREAD64` failures rebuild the BLE link; five exhausted recovery cycles trip the independent field watchdog.
 - Recovery actions preserve Meshtastic identity, channels, keys, NodeDB, and logger assignment.
-- nRF52840 watchdog protection is retained without taking ownership if the core already owns the watchdog.
+- Field-Recovery v2 uses the normal 90-second nRF52840 watchdog plus an independent field-health watchdog channel; both run during CPU sleep/halt.
 
 ## Useful DM commands
 
@@ -33,7 +35,7 @@ Send these as a direct Meshtastic text message to the node.
 | `READ` | Requests a fresh HOBO measurement without consuming the automatic record pointer. |
 | `LOCK` | Saves the currently identified HOBO as this station's logger. |
 | `UNLOCK` | Clears the saved logger assignment and resumes discovery. |
-| `BLE` | Shows BLE scan/link state, disconnected age, low-duty state, and restart count. |
+| `BLE` | Shows central-link count, scanner state, and confirms that the HOBO state machine owns scanner/link lifecycle. |
 | `AUTO` | Shows/validates pointer-gated automatic HOBO record operation. |
 | `POWER` | Shows battery voltage, percentage, battery-present, and charging state. |
 | `BATTERY` | Alias for `POWER`. |
@@ -41,11 +43,11 @@ Send these as a direct Meshtastic text message to the node.
 | `NODES` | Shows the current Meshtastic NodeDB count. |
 | `UPTIME` | Shows node uptime. |
 | `VERSION` | Shows firmware identity and platform. |
-| `WATCHDOG` | Shows watchdog state and ownership. |
+| `WATCHDOG` | Shows the 90-second core watchdog, independent field-health watchdog channel, and sleep/halt behavior. |
 | `PING` | Quick end-to-end DM/liveness check. |
 | `WAKE` | Alias for `PING`. |
-| `SCAN` | Refreshes BLE scanning only when the logger is disconnected. |
-| `RECONNECT` | Rebuilds the disconnected BLE scanner/link. |
+| `SCAN` | Legacy diagnostic command. In v2 it does not manipulate the scanner; it reports that BLE recovery is automatic. |
+| `RECONNECT` | Legacy diagnostic command. In v2 it does not force a link rebuild; scanner/link lifecycle remains owned by the HOBO state machine. |
 | `RECOVER` | Replies, then performs a safe non-destructive reboot. |
 | `REBOOT` | Alias for `RECOVER`. |
 
