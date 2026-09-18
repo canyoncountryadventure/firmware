@@ -463,38 +463,45 @@ A branch-by-branch post-build audit was performed after the initial v2 rollout. 
 
 For each product branch:
 
-1. Compare the v1/product branch against its v2 successor and verify the v2 branch descends from the intended product source.
+1. Compare the legacy/product branch against its v2 successor and verify the v2 branch descends from the intended product source.
 2. Compare the shared radio/nRF52 files against `field-self-recovery-v2`.
 3. Verify that sensor-specific modules remain present and were not replaced by generic firmware.
-4. Inspect any branch-specific watchdog, BLE, or reboot helper for conflicting recovery ownership.
+4. Inspect branch-specific watchdog, BLE, persistence, and reboot helpers for conflicting recovery ownership or unsafe reset/write paths.
 5. Verify the GitHub Actions build/publish workflow and permanent-download path.
-6. Correct documentation where it described obsolete v1 recovery behavior.
+6. Correct documentation where it described obsolete v1 behavior or claimed capabilities not present in source.
+7. Rebuild the exact corrected branch head and verify permanent artifacts.
+
+### Repository-wide result
+
+All current product lines now have v2 successors. Every product v2 branch is ahead of and zero commits behind its matching legacy/source branch. Legacy/v1 branches and artifacts remain available as rollback baselines.
+
+The default `field-self-recovery` branch remains the front-facing firmware catalog. Its README contains permanent UF2/ZIP links for the complete v2 family, and the post-audit link check found no missing download targets.
 
 ### Branch results
 
 | Branch | Result | Audit notes |
 |---|---|---|
-| `field-self-recovery-v2` | PASS | Canonical source contains missed IRQ polling, bounded SX1262 recovery, guarded 60-second maintenance, 50 ms image-calibration settle, dual nRF52 WDT channels, flash-safe reboot, pinned nRF52 dependencies/stacks, and the 12-hour burn-in reboot. Canonical RAK + Seeed CI is green. |
-| `RAK-HOBO-Safe-v2` | PASS | v1 HOBO behavior retained; shared recovery/HOBO state-machine files match canonical v2. Documentation corrected so BLE recovery ownership, 30-second connection timeout, bounded STATUS/NEWREAD retries, and dual-WDT behavior match the actual code. |
-| `RAK-Soil-Moisture-HOBO-v2` | PASS | SEN0308 soil implementation/calibration/raw telemetry retained; canonical v2 radio + HOBO recovery merged. Obsolete 15-minute/six-hour recovery documentation removed. CI green. |
-| `RAK-Water-Distance-HOBO-v2` | PASS / rebuild | Water calibration/persistence and HOBO behavior retained. Dormant DistanceSelfRecovery helper was also updated to use the v2 flash-safe reboot/watchdog interface so it cannot become an unsafe alternate reset path if instantiated later. |
-| `RAK-Water-Distance-v2` | PASS | Found and fixed a real v1-era conflict: the water recovery helper directly called `NVIC_SystemReset()` and reported the legacy watchdog. v2 now reports the dual-WDT state and routes `RECOVER/REBOOT` through the centralized flash-quiesce + SoftDevice-disable reset path. Fresh CI passed. |
-| `Seeed-HOBO-Safe-v2` | PASS | Product behavior retained; canonical v2 radio/HOBO recovery present. Documentation corrected to match automatic BLE ownership and dual-WDT behavior. CI green. |
-| `Seeed-Water-Distance-HOBO-v2` | PASS / rebuild | Water + HOBO product behavior retained; dormant DistanceSelfRecovery helper updated to the same v2-safe path as RAK. |
-| `Seeed-Water-Distance-v2` | PASS | Same direct-reset conflict found on the RAK water-only build was corrected. Fresh CI passed. |
-| `Trail-Sensors-v2` | PASS | PIR/Rock/HOBO and dedicated SEN0171 implementations remain intact. Trail product modules contain no competing reset/watchdog owner; shared nRF52/SX1262 recovery matches canonical v2. Both Trail CI targets are green. |
-| `Remote-Drone-Flashing-v2` | FIXED / rebuild | Initial bulk v2 merge had accidentally replaced the proven drone target's DFU-specific HOBO source with the generic hardened HOBO file. The audit caught this. The proven `DFU` command, persistent callback marker, compact `VERSION` response, and AdaDFU boot path were restored on top of the hardened v2 BLE/radio state machine. The bootloader-entry reset now quiesces flash and disables the SoftDevice before setting GPREGRET/reset. The original `2.7.26.b812974` matched pair remains the physically proven rollback/reference pair; the new hardened v2 matched pair must receive one repeat end-to-end bench DFU before remote field deployment. |
-| `Heltec-Gateway-v2` | PASS | Existing gateway/mesh/cloud/OTA behavior retained and shared SX1262 recovery code matches v2. nRF52-only watchdog logic does not apply to ESP32-S3. README/workflow wording corrected: direct local HOBO BLE remains a future Heltec gateway feature rather than a claimed current capability. |
+| `field-self-recovery-v2` | **PASS** | Canonical source contains missed RX/TX IRQ polling, bounded SX1262 recovery, guarded 60-second maintenance, 50 ms image-calibration settle, dual nRF52 WDT channels, flash-safe reboot, pinned nRF52 dependencies/stacks, and the 12-hour burn-in reboot. Canonical RAK + Seeed CI is green. |
+| `RAK-HOBO-Safe-v2` | **PASS** | v1 HOBO behavior retained; common recovery/HOBO state-machine files match canonical v2. Documentation corrected for 30-second connection timeout, bounded STATUS/NEWREAD recovery, sole BLE scanner ownership, and dual-WDT behavior. Exact-head CI is green. |
+| `RAK-Soil-Moisture-HOBO-v2` | **PASS** | SEN0308 soil implementation/calibration/raw telemetry retained; canonical v2 radio + HOBO recovery merged. Obsolete 15-minute/six-hour recovery documentation removed. Exact-head CI is green. |
+| `RAK-Water-Distance-HOBO-v2` | **PASS** | Water calibration/persistence and HOBO behavior retained. The dormant DistanceSelfRecovery helper was updated to the v2 flash-safe reboot/watchdog interface so it cannot become an alternate unsafe reset path if instantiated later. Exact-head CI is green and permanent downloads were republished. |
+| `RAK-Water-Distance-v2` | **PASS** | Fixed a real v1-era conflict: the water recovery helper directly called `NVIC_SystemReset()` and reported the legacy watchdog. v2 now reports the dual-WDT state and routes `RECOVER/REBOOT` through the centralized flash-quiesce + SoftDevice-disable reset path. Exact-head CI is green. |
+| `Seeed-HOBO-Safe-v2` | **PASS** | Product behavior retained; canonical v2 radio/HOBO recovery present. Documentation corrected to match automatic BLE ownership and dual-WDT behavior. Exact-head CI is green. |
+| `Seeed-Water-Distance-HOBO-v2` | **PASS** | Water + HOBO product behavior retained; dormant DistanceSelfRecovery helper updated to the same v2-safe path as RAK. Exact-head CI is green and permanent downloads were republished. |
+| `Seeed-Water-Distance-v2` | **PASS** | Same direct-reset conflict found on the RAK water-only build was corrected. Exact-head CI is green. |
+| `Trail-Sensors-v2` | **PASS** | PIR/Rock/HOBO and dedicated SEN0171 implementations remain intact. The PIR/Rock/HOBO image now uses the canonical v2 HOBO BLE state machine; the generic HOBO command supervisor is intentionally not instantiated because CCAStation already owns overlapping station commands. CCAStation now exposes v2 `PING`, `WATCHDOG`, and flash-safe `RECOVER/REBOOT`. CCA state/alert records and Rock calibration were corrected to truncate-and-replace with read-back verification instead of appending stale LittleFS records. Station version is `1.0.8-v2`. Trail CI now uses newest-run concurrency plus a source-head guard so stale runs cannot overwrite permanent downloads. Both Trail firmware builds, settings-safe OTA verification, and the permanent publish step are green. |
+| `Remote-Drone-Flashing-v2` | **PASS — software/CI** | The audit caught an initial bulk-merge regression that had removed the proven target DFU-specific HOBO code. The `DFU` command, compact `VERSION`, persistent requester/build callback marker, post-update callback, and AdaDFU boot entry were restored on top of the hardened v2 BLE/radio core. The DFU marker now truncates and read-back verifies before bootloader entry; AdaDFU reset now quiesces flash and disables the active SoftDevice before GPREGRET/reset. Exact-head CI successfully built the target, generated the embedded image, built the matched Scout, packaged it, and published the stable v2 pair. The original `2.7.26.b812974` pair remains the physically proven reference; the new v2 pair still requires one repeat physical end-to-end bench DFU before remote deployment. |
+| `Heltec-Gateway-v2` | **PASS** | Existing gateway/mesh/cloud/OTA behavior retained and shared SX1262 recovery code matches v2. nRF52-only dual-WDT logic does not apply to ESP32-S3. README/workflow wording corrected: direct local HOBO BLE remains a future Heltec gateway feature rather than a claimed current capability. Exact-head CI is green and the gateway ZIP was republished. |
 
-### Important corrections found by this audit
+### Important corrections found by the final audit
 
-#### Water-only direct-reset bypass
+#### Water direct-reset bypass
 
 The RAK and Seeed water-only branches still carried a product helper that scheduled its own direct `NVIC_SystemReset()`. That bypassed the new v2 pre-reset flash quiesce and SoftDevice shutdown. Under `FIELD_RECOVERY_V2`, those commands now schedule the centralized `rebootAtMsec` path instead. The legacy helper reset remains compiled only for non-v2 builds.
 
 The same corrected helper was copied into both combined water + HOBO branches even though that helper is currently not instantiated there. This removes a dormant unsafe path rather than depending on it remaining unused forever.
 
-#### Drone DFU regression
+#### Drone DFU regression and persistence hardening
 
 The first bulk v2 merge preserved the drone workflow and README but accidentally lost the target's product-specific DFU implementation. This was not accepted as complete. The DFU additions from the physically proven drone branch were isolated and reapplied to the current hardened HOBO state machine instead of reverting the whole file.
 
@@ -508,7 +515,17 @@ The hardened target therefore keeps:
 - current v2 BLE connection timeout and bounded STATUS/NEWREAD recovery;
 - current SX1262 recovery and dual field watchdog design.
 
-The special AdaDFU reset remains a bootloader-entry reset rather than an ordinary reboot, but it now performs `nrf52FlashQuiesce()` and disables the active SoftDevice before setting GPREGRET and resetting.
+The callback marker originally inherited a LittleFS append hazard. It now truncates the stale record, writes the new record, reopens it, and verifies exact contents before allowing the node to leave Meshtastic for AdaDFU. The special AdaDFU reset also performs `nrf52FlashQuiesce()` and disables the active SoftDevice before setting GPREGRET and resetting.
+
+#### Trail HOBO and persistence defects
+
+The initial Trail v2 merge had the canonical LoRa/watchdog core but still carried the pre-v2 universal HOBO BLE state machine. That file was replaced by the canonical v2 implementation so Trail gains the 30-second connection cancel, bounded STATUS/NEWREAD recovery, and field-watchdog escalation.
+
+The generic HOBO command/recovery supervisor is deliberately not instantiated in the Trail PIR/Rock/HOBO image because CCAStation already owns overlapping direct-message commands. Instead CCAStation directly exposes v2 liveness/watchdog/reboot diagnostics while the HOBO telemetry state machine remains the sole BLE scanner/link owner.
+
+A separate persistence audit found that CCA station state, private alert destination, and Rock calibration all used Adafruit LittleFS `FILE_O_WRITE` as though it truncated the file. It opens an existing file at EOF. Repeated writes could therefore append records while the reboot loader continued reading the oldest record. All three persistence paths now truncate to one exact record and perform read-back verification.
+
+Finally, repeated audit commits exposed a publication race: multiple Trail CI runs could finish out of order and write the same permanent filenames. Trail CI now cancels superseded runs and the publish job independently checks that `GITHUB_SHA` is still the current `Trail-Sensors-v2` head before touching permanent downloads.
 
 ### Validation boundary
 
@@ -516,8 +533,9 @@ A green CI build verifies source integration and artifact packaging. It does **n
 
 - the original drone `2.7.26.b812974` matched pair is the known successful physical DFU reference;
 - the hardened drone v2 matched pair requires a repeat end-to-end bench DFU after this source merge;
-- water sensor calibration/persistence, HOBO BLE behavior, soil analog response, trail detection, and gateway field behavior still require normal assembled-hardware checks before deployment;
+- water sensor calibration/persistence, HOBO BLE behavior, soil analog response, trail detection/calibration, and gateway field behavior still require normal assembled-hardware checks before deployment;
+- the 12-hour scheduled reboot remains intentionally enabled during v2 burn-in;
 - v1 artifacts remain in the repository as rollback baselines.
 
-The v2 repository policy is therefore: preserve the proven product behavior, add recovery underneath it, build every product independently, and never treat a generic compile as proof that a product-specific field workflow still works.
+The v2 repository policy is therefore: preserve the proven product behavior, add recovery underneath it, build every product independently, publish only from the current product head, and never treat a generic compile as proof that a product-specific field workflow still works.
 
