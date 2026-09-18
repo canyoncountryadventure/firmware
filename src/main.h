@@ -106,3 +106,9 @@ void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, Scan
 
 // We default to 4MHz SPI, SPI mode 0
 extern SPISettings spiSettings;
+
+#if defined(ARCH_NRF52)
+void nrf52FieldWatchdogTrip();
+bool nrf52FieldWatchdogIsArmed();
+void nrf52FlashQuiesce();
+#endif

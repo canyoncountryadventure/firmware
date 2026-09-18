@@ -3,10 +3,10 @@ name: Trail Sensors Build
 on:
   push:
     branches:
-      - Trail-Sensors
+      - Trail-Sensors-v2
   pull_request:
     branches:
-      - Trail-Sensors
+      - Trail-Sensors-v2
   workflow_dispatch:
 
 permissions: read-all
@@ -16,7 +16,7 @@ jobs:
     name: Build PIR + Rock + HOBO
     uses: ./.github/workflows/build_firmware.yml
     with:
-      version: TRAIL-PIR-ROCK-v1
+      version: TRAIL-PIR-ROCK-v2
       platform: nrf52840
       pio_env: seeed_xiao_nrf52840_cca_mx_pir
 
@@ -24,7 +24,7 @@ jobs:
     name: Build SEN0171 trail counter
     uses: ./.github/workflows/build_firmware.yml
     with:
-      version: TRAIL-SEN0171-v1
+      version: TRAIL-SEN0171-v2
       platform: nrf52840
       pio_env: seeed_xiao_nrf52840_trail
 
@@ -36,7 +36,7 @@ jobs:
       - name: Download PIR/Rock firmware artifact
         uses: actions/download-artifact@v7
         with:
-          name: firmware-nrf52840-seeed_xiao_nrf52840_cca_mx_pir-TRAIL-PIR-ROCK-v1
+          name: firmware-nrf52840-seeed_xiao_nrf52840_cca_mx_pir-TRAIL-PIR-ROCK-v2
           path: firmware
 
       - name: Extract application-only OTA package
@@ -50,11 +50,11 @@ jobs:
           fi
 
           mkdir -p safe-ota
-          cp "$OTA_FILE" safe-ota/Trail-PIR-Rock-HOBO-v1-OTA.zip
+          cp "$OTA_FILE" safe-ota/Trail-PIR-Rock-HOBO-v2-OTA.zip
 
           python3 - <<'PY'
           import json, zipfile
-          path = 'safe-ota/Trail-PIR-Rock-HOBO-v1-OTA.zip'
+          path = 'safe-ota/Trail-PIR-Rock-HOBO-v2-OTA.zip'
           with zipfile.ZipFile(path) as z:
               names = set(z.namelist())
               if 'manifest.json' not in names:
@@ -74,6 +74,65 @@ jobs:
       - name: Upload normal-upgrade artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Trail-PIR-Rock-HOBO-v1-OTA
-          path: safe-ota/Trail-PIR-Rock-HOBO-v1-OTA.zip
+          name: Trail-PIR-Rock-HOBO-v2-OTA
+          path: safe-ota/Trail-PIR-Rock-HOBO-v2-OTA.zip
           if-no-files-found: error
+
+
+  publish-permanent-v2:
+    name: Publish stable Trail v2 downloads
+    needs: [build-pir-rock-hobo, build-sen0171]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download PIR/Rock artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: firmware-nrf52840-seeed_xiao_nrf52840_cca_mx_pir-TRAIL-PIR-ROCK-v2
+          path: pir
+      - name: Download SEN0171 artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: firmware-nrf52840-seeed_xiao_nrf52840_trail-TRAIL-SEN0171-v2
+          path: sen
+      - name: Prepare stable names
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          PIR_UF2="$(find pir -type f -name '*.uf2' | head -n1)"
+          PIR_OTA="$(find pir -type f -name '*-ota.zip' | head -n1)"
+          SEN_UF2="$(find sen -type f -name '*.uf2' | head -n1)"
+          SEN_OTA="$(find sen -type f -name '*-ota.zip' | head -n1)"
+          test -n "$PIR_UF2"; test -n "$PIR_OTA"; test -n "$SEN_UF2"; test -n "$SEN_OTA"
+          cp "$PIR_UF2" export/Trail-PIR-Rock-HOBO-v2.uf2
+          cp "$PIR_OTA" export/Trail-PIR-Rock-HOBO-v2-OTA.zip
+          cp "$SEN_UF2" export/Trail-SEN0171-v2.uf2
+          cp "$SEN_OTA" export/Trail-SEN0171-v2-OTA.zip
+      - name: Checkout download branch
+        uses: actions/checkout@v7
+        with:
+          ref: field-self-recovery
+          path: publish
+          fetch-depth: 0
+      - name: Publish permanent files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin field-self-recovery
+            git reset --hard origin/field-self-recovery
+            mkdir -p downloads
+            cp ../export/* downloads/
+            git add downloads/Trail-*-v2*
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Publish Trail Sensors v2 downloads"
+            if git push origin HEAD:field-self-recovery; then exit 0; fi
+            sleep $((attempt * 3))
+          done
+          exit 1

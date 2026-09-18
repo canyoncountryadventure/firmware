@@ -1,4 +1,4 @@
-# Trail Sensors
+> **Trail Sensors v2:** existing PIR/Rock/HOBO and SEN0171 sensor logic is retained on the Field-Recovery v2 radio/watchdog core.\n\n# Trail Sensors
 
 Consolidated Meshtastic trail-sensor development branch for **Seeed XIAO nRF52840 + Wio-SX1262**.
 
