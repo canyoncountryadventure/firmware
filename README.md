@@ -1,4 +1,6 @@
-> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Soil-Moisture-HOBO-v1 is retained.\n\n# RAK Soil Moisture + HOBO v1
+> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Soil-Moisture-HOBO-v1 is retained.
+
+# RAK Soil Moisture + HOBO v1
 
 Production field firmware for **RAK4631 + RAK19007** stations using a **DFRobot SEN0308 waterproof capacitive soil-moisture sensor** and optional **Onset HOBO MX-series BLE temperature/water-level loggers**.
 
