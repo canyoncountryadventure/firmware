@@ -270,7 +270,7 @@ Each v2 branch is based on its matching v1 branch and then receives the shared h
 | Seeed-Water-Distance-v2 | XIAO nRF52840 + Wio-SX1262 | water-distance |
 | Trail-Sensors-v2 | XIAO nRF52840 + Wio-SX1262 | PIR/Rock/HOBO build and dedicated SEN0171 trail counter |
 | Remote-Drone-Flashing-v2 | RAK4631 | autonomous BLE embedded-target flasher + hardened target |
-| Heltec-Gateway-v2 | Heltec V4 | Wi-Fi/mesh/Vercel/Neon gateway + existing gateway sensors/HOBO support |
+| Heltec-Gateway-v2 | Heltec V4 | Wi-Fi/mesh/Vercel/Neon gateway + existing gateway sensors/HOBO support + shared SX1262 recovery core (nRF52-only watchdog logic is not applicable) |
 | field-self-recovery-v2 | RAK4631 + Seeed | canonical common self-recovery reference builds |
 
 ---
@@ -418,7 +418,7 @@ The important result is that the product-specific sensor implementations were **
 - **Seeed Water Distance / Seeed Water Distance + HOBO:** the same existing water-distance driver and calibration implementation remains intact; combined builds add the HOBO v2 state machine.
 - **Trail Sensors:** the PIR/Rock/HOBO and SEN0171 product code remains from `Trail-Sensors`; v2 changes are the shared nRF52/LoRa hardening and the v2 packaging workflow.
 - **Remote Drone Flashing:** the autonomous Scout/flasher workflow remains, but the embedded target image is now built from the hardened v2 target so target and Scout remain a matched pair.
-- **Heltec Gateway:** gateway ingestion, Wi-Fi, Vercel/Neon forwarding, direct HOBO BLE, and gateway sensor logic are unchanged; the v2 branch is the matching gateway release and distribution package.
+- **Heltec Gateway:** gateway ingestion, Wi-Fi, Vercel/Neon forwarding, direct HOBO BLE, and gateway sensor logic are retained. The v2 branch also receives the shared SX1262 calibration/IRQ/recovery core; only the nRF52840-specific dual-WDT and flash-reset code is omitted because Heltec V4 is ESP32-S3.
 - **HOBO-only products:** MX2001/MX2201/MX2203 STATUS/NEWREAD behavior is retained, with intentional changes only to connection timeout, stale-link recovery, diagnostics, watchdog escalation, and removal of the temporary field-check test responder.
 
 This verification is also reflected in the Git compare history: non-HOBO soil, distance, trail, and gateway sensor source files do not appear as replacements in the v1-to-v2 diffs.
