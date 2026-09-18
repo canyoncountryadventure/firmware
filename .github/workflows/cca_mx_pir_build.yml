@@ -130,6 +130,13 @@ jobs:
           cd publish
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          latest_source_sha="$(git ls-remote origin refs/heads/Trail-Sensors-v2 | awk '{print $1}')"
+          if [[ "$latest_source_sha" != "$GITHUB_SHA" ]]; then
+            echo "Skipping stale Trail publish: run=$GITHUB_SHA latest=$latest_source_sha"
+            exit 0
+          fi
+
           for attempt in 1 2 3 4 5; do
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
