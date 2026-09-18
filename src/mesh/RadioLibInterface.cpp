@@ -519,6 +519,7 @@ void RadioLibInterface::completeSending()
         airTime->logAirtime(TX_LOG, xmitMsec);
 
         txGood++;
+        lastTxCompleteMs = millis();
         if (!isFromUs(p))
             txRelay++;
         printPacket("Completed sending", p);
@@ -628,15 +629,18 @@ void RadioLibInterface::handleReceiveInterrupt()
 void RadioLibInterface::startReceive()
 {
     isReceiving = true;
+    rxOffline = false;
+    chipRecoveryFailures = 0;
     powerMon->setState(meshtastic_PowerMon_State_Lora_RXOn);
 }
 
 void RadioLibInterface::pollMissedIrqs()
 {
-    // RadioLibInterface::enableInterrupt uses EDGE-TRIGGERED interrupts. Poll as a backup to catch missed edges.
-    if (isReceiving) {
+    // DIO interrupts are edge-triggered. Poll both directions as a safety net.
+    if (isReceiving)
         checkRxDoneIrqFlag();
-    }
+    if (sendingPacket)
+        checkTxDoneIrqFlag();
 }
 
 void RadioLibInterface::resetAGC()
@@ -644,11 +648,60 @@ void RadioLibInterface::resetAGC()
     // Base implementation: no-op. Override in chip-specific subclasses.
 }
 
+void RadioLibInterface::periodicRadioMaintenance()
+{
+    if (rxOffline) {
+        LOG_WARN("Radio RX offline, retrying recovery");
+        if (maybeRecoverChipStateLoss())
+            startReceive();
+        return;
+    }
+    resetAGC();
+}
+
+bool RadioLibInterface::maybeRecoverChipStateLoss()
+{
+    const uint32_t now = millis();
+    if (lastChipRecoveryMs != 0 && Throttle::isWithinTimespanMs(lastChipRecoveryMs, 30000UL))
+        return false;
+
+    lastChipRecoveryMs = now ? now : 1;
+    radioRecoveryAttempts++;
+    chipRecoveryFailures++;
+
+    LOG_ERROR("Radio state lost; recovery attempt %u", chipRecoveryFailures);
+    const bool recovered = recoverChipStateLoss();
+    if (recovered) {
+        radioRecoverySuccesses++;
+        LOG_INFO("Radio recovery succeeded");
+        return true;
+    }
+
+    if (chipRecoveryFailures >= MAX_CHIP_RECOVERY_FAILURES) {
+        LOG_ERROR("Radio recovery exhausted; forcing whole-node recovery");
+#if defined(ARCH_NRF52) && defined(FIELD_RECOVERY_V2)
+        nrf52FieldWatchdogTrip();
+#else
+        if (rebootAtMsec == 0)
+            rebootAtMsec = millis() + 2000UL;
+#endif
+    }
+    return false;
+}
+
 void RadioLibInterface::checkRxDoneIrqFlag()
 {
     if (iface->checkIrq(RADIOLIB_IRQ_RX_DONE)) {
         LOG_WARN("caught missed RX_DONE");
         notify(ISR_RX, true);
+    }
+}
+
+void RadioLibInterface::checkTxDoneIrqFlag()
+{
+    if (iface->checkIrq(RADIOLIB_IRQ_TX_DONE)) {
+        LOG_WARN("caught missed TX_DONE");
+        notify(ISR_TX, true);
     }
 }
 

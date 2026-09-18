@@ -1,8 +1,8 @@
-# RAK Soil Moisture + HOBO v1
+> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Soil-Moisture-HOBO-v1 is retained.\n\n# RAK Soil Moisture + HOBO v1
 
 Production field firmware for **RAK4631 + RAK19007** stations using a **DFRobot SEN0308 waterproof capacitive soil-moisture sensor** and optional **Onset HOBO MX-series BLE temperature/water-level loggers**.
 
-**Branch:** `RAK-Soil-Moisture-HOBO-v1`
+**Branch:** `RAK-Soil-Moisture-HOBO-v2`
 
 **Supported HOBO loggers:** MX2001, MX2201, MX2203.
 
@@ -12,10 +12,10 @@ This build combines the proven HOBO next-record telemetry path, SEN0308 analog s
 
 | Item | Link |
 |---|---|
-| **USB firmware (UF2)** | **[Download RAK-Soil-Moisture-HOBO-v1.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v1.uf2)** |
-| **BLE DFU firmware (ZIP)** | **[Download RAK-Soil-Moisture-HOBO-v1-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v1-OTA.zip)** |
-| Source branch | [RAK-Soil-Moisture-HOBO-v1](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v1) |
-| Build workflow runs | [Build RAK Soil Moisture HOBO v1](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_soil_moisture_hobo_rak4631.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v1) |
+| **USB firmware (UF2)** | **[Download RAK-Soil-Moisture-HOBO-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2.uf2)** |
+| **BLE DFU firmware (ZIP)** | **[Download RAK-Soil-Moisture-HOBO-v2-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2-OTA.zip)** |
+| Source branch | [RAK-Soil-Moisture-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v2) |
+| Build workflow runs | [Build RAK Soil Moisture HOBO v1](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_soil_moisture_hobo_rak4631.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v2) |
 | Workflow source | [build_soil_moisture_hobo_rak4631.yml](.github/workflows/build_soil_moisture_hobo_rak4631.yml) |
 | Soil module source | [SEN0308SoilMoisture.cpp](src/modules/Telemetry/SoilMoisture/SEN0308SoilMoisture.cpp) |
 
@@ -63,7 +63,7 @@ Do not connect the SEN0308 red lead to `BAT`/`VBAT`. `BAT` is the raw single-cel
 1. Download the **OTA ZIP** above to the phone. **Do not unzip it.**
 2. Open Nordic **nRF Connect** and connect to the RAK4631.
 3. Tap **DFU** in the upper-right corner.
-4. Choose **Distribution packet (ZIP)** and select `RAK-Soil-Moisture-HOBO-v1-OTA.zip`.
+4. Choose **Distribution packet (ZIP)** and select `RAK-Soil-Moisture-HOBO-v2-OTA.zip`.
 5. Let validation, activation and reboot finish, then reconnect in Meshtastic and send `VERSION` and `SOIL STATUS`.
 
 The UF2 is USB-only. The OTA ZIP is BLE-only. If a legacy BLE update reaches 100% but stalls during validation/activation, stop retrying and recover with the UF2 over USB. Routine updates should not use a factory-erase image.
