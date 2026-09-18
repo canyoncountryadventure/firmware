@@ -1,11 +1,23 @@
 # Meshtastic Field Firmware
 
-If you just want firmware, use **these two folders**:
+If you just want firmware, start here:
 
 1. **[`Self-Recovery-v1s/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Self-Recovery-v1s)** — HOBO, water-distance, combined water + HOBO, and Heltec gateway firmware.
 2. **[`Trail-Sensors/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Trail-Sensors)** — trail-counter, PIR, rock telemetry, and trail HOBO firmware.
+3. **[`RAK-Soil-Moisture-HOBO-v1`](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v1)** — RAK4631/RAK19007 + SEN0308 soil moisture + optional HOBO firmware.
+4. **[`Remote-Drone-Flashing`](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing)** — autonomous RAK4631-to-RAK4631 BLE firmware-update prototype and matched build workflow.
 
 Everything else in the repository is source code or build infrastructure.
+
+## Start with the right file
+
+| File type | Use it for | How |
+|---|---|---|
+| `.uf2` | Normal USB installation and recovery | Double-press reset, then copy the UF2 to the board's bootloader drive. |
+| `-OTA.zip` | Android BLE update | In Nordic nRF Connect choose **DFU → Distribution packet (ZIP)**. Do not unzip it. |
+| Full build `.zip` | Platform-specific bundle such as the Heltec gateway | Open its firmware folder and follow that build's README. |
+
+Do not select a UF2 in nRF Connect, and do not copy an OTA ZIP to the bootloader drive. Routine upgrades should not use factory-erase images.
 
 ## Self-Recovery-v1s
 
@@ -17,7 +29,10 @@ Everything else in the repository is source code or build infrastructure.
 | **RAK Water Distance v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-v1/RAK-Water-Distance-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-v1/RAK-Water-Distance-v1-OTA.zip) |
 | **Seeed Water Distance + HOBO v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1-OTA.zip) |
 | **RAK Water Distance + HOBO v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1-OTA.zip) |
+| **RAK Soil Moisture + HOBO v1** | RAK4631 + RAK19007 + SEN0308 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v1-OTA.zip) |
 | **Heltec Gateway v1** | Heltec V4 | [Full build ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Heltec-Gateway-v1/Heltec-Gateway-v1.zip) | — |
+
+Detailed soil wiring, calibration, packet format, commands, validation and troubleshooting are on the **[RAK Soil Moisture + HOBO v1 branch front page](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v1)**.
 
 ## Trail-Sensors
 
@@ -95,6 +110,32 @@ Use the explicit `WATER` prefix for water commands to avoid ambiguity:
 | `WATCHDOG` | Shows watchdog state. |
 | `RECOVER` / `REBOOT` | Safely reboots the node. |
 
+### RAK Soil Moisture + HOBO v1
+
+SEN0308 wiring on the RAK19007:
+
+| SEN0308 lead | RAK19007 |
+|---|---|
+| Red | `VDD` (regulated 3.3 V; **not VBAT**) |
+| Yellow | `AIN1` |
+| Black | `GND` |
+| Black | `GND` |
+
+`AIN1` maps to RAK4631 A1 / P0.31 / AIN7. Current soil calibration is ADC10 580 = 0% and ADC10 0 = 100%, with 20 samples averaged per reading and automatic telemetry once per hour.
+
+| Command | What it does |
+|---|---|
+| `SOIL` / `SOIL READ` | Fresh DM-only moisture percentage and raw ADC10. |
+| `SOIL STATUS` | Last reading, one-hour interval, input pin and endpoints. |
+| `SOIL TX` | Fresh reading plus standard soil telemetry and compact raw packet. |
+| `SOIL CAL` | Shows the fixed endpoints and direction. |
+| `SOIL HELP` | Lists soil commands. |
+| `LOGGER` / `READ` | Shows or reads the optional HOBO logger. |
+| `LOCK` / `UNLOCK` | Saves or clears the HOBO assignment. |
+| `WATCHDOG` | Shows the live nRF52840 watchdog state. |
+
+The percentage is a field-calibrated index, not laboratory volumetric water content. The standard `soil_moisture` telemetry is app-compatible; the raw `PRIVATE_APP` packet retains ADC10 for custom ingestion and later recalibration.
+
 ### Trail PIR + Rock + HOBO
 
 | Command | What it does |
@@ -146,9 +187,38 @@ CAL RESET CONFIRM
 For nRF52840 boards:
 
 - **UF2** = normal USB drag-and-drop firmware update.
-- **BLE / OTA ZIP** = nRF Connect / BLE DFU update.
+- **BLE / OTA ZIP** = Nordic nRF Connect **Distribution packet (ZIP)**; leave the ZIP unopened.
 - **Do not use factory-erase images for routine upgrades.**
 
 Normal updates are intended to preserve Meshtastic identity, channels, keys, NodeDB, and saved application settings.
+
+If a legacy BLE update reaches 100% but stalls during validation or activation, recover with the matching UF2 over USB rather than repeatedly forcing BLE attempts.
+
+## Remote Drone Flashing
+
+The **[Remote-Drone-Flashing branch](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing)** builds a matched pair:
+
+- a normal RAK4631 Meshtastic + HOBO target with the `DFU` DM command; and
+- a dedicated BLE-only RAK4631 Scout carrying a compressed copy of that exact target application.
+
+Use the **[latest successful Remote Drone Flasher workflow run](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing)** and download its `remote-drone-flashing-<run>` artifact. Keep the target and Scout files from the same run together. The package contains:
+
+```text
+RAK4631-HOBO-DFU-Target.uf2
+RAK4631-HOBO-DFU-Target-OTA.zip
+RAK4631-Remote-Drone-Flasher.uf2
+BUILD.txt
+```
+
+Bench validation has proven the autonomous embedded-image transfer, validation, activation, target reboot and LoRa callback using a same-build reflash. A true different-build callback and an airborne hover/update mission remain unproven. Read the branch README before treating it as field-ready.
+
+## Common RAK three-blink diagnosis
+
+Three LED flashes, a pause, then three flashes again means the nRF52840 measured its regulated VDD rail below the firmware's **2.7-V safe-boot threshold**. The application stops before Meshtastic, sensor code and the USB console start.
+
+1. Disconnect battery, solar and sensors.
+2. Leave the LoRa antenna attached.
+3. Power the RAK19007 from a known-good 5-V USB-C source and press reset once.
+4. If the pattern continues, remove power, reseat the RAK4631 firmly, and retry.
 
 The project remains pinned to the validated **Meshtastic 2.7.26** base unless an upgrade is explicitly tested and approved.
