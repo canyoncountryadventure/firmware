@@ -1,4 +1,4 @@
-name: Build Remote Drone Flasher
+name: Build Remote Drone Flasher v2
 
 on:
   push:
