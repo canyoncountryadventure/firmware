@@ -6,7 +6,9 @@ on:
       - field-self-recovery-v2
   workflow_dispatch:
 
-permissions: read-all
+permissions:
+  contents: write
+  actions: read
 
 concurrency:
   group: field-self-recovery-v2-${{ github.ref }}
