@@ -570,8 +570,8 @@ static bool runLegacyDfuFromSerial(uint32_t datSize, uint32_t binSize)
     static uint8_t serialBlock[SERIAL_BLOCK];
     uint32_t datOff = 0;
     while (datOff < datSize) {
-        uint16_t want = (uint16_t)(datSize - datOff);
-        if (want > SERIAL_BLOCK) want = SERIAL_BLOCK;
+        const uint32_t remaining = datSize - datOff;
+        const uint16_t want = (uint16_t)(remaining > SERIAL_BLOCK ? SERIAL_BLOCK : remaining);
         if (!requestSerialBlock("DAT", datOff, want, serialBlock)) {
             abortLegacyDfu();
             return false;
@@ -632,8 +632,15 @@ static bool runLegacyDfuFromSerial(uint32_t datSize, uint32_t binSize)
     uint8_t lastPct = 255;
 
     while (sent < binSize) {
-        uint16_t blockWant = (uint16_t)(binSize - sent);
-        if (blockWant > SERIAL_BLOCK) blockWant = SERIAL_BLOCK;
+        const uint32_t remaining = binSize - sent;
+        const uint16_t blockWant =
+            (uint16_t)(remaining > SERIAL_BLOCK ? SERIAL_BLOCK : remaining);
+
+        if (blockWant == 0) {
+            Serial.println("DFU ERROR: internal block-size overflow");
+            abortLegacyDfu();
+            return false;
+        }
 
         if (!requestSerialBlock("BIN", sent, blockWant, serialBlock)) {
             abortLegacyDfu();
