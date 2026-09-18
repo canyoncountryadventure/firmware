@@ -2,40 +2,81 @@
 
 Autonomous **RAK4631-to-RAK4631 firmware updating over BLE** for remote Meshtastic field stations.
 
-The field design uses three radios:
+This branch builds a matched pair:
+
+- **Target firmware** — normal Meshtastic + HOBO field firmware with remote DFU, self-recovery, watchdog, version reporting, and post-update callback.
+- **Drone Scout firmware** — BLE-only RAK4631 firmware carrying a compressed copy of that exact target application in its own internal flash.
+
+The Scout needs no laptop, phone, SD card, ESP32, LoRa antenna, or USB connection during flight.
+
+## Architecture
 
 ```text
-Controller RAK                  Target RAK4631
-(with operator)                    field node
-      |                               |
-      | LoRa DM: DFU                  | reboots into AdaDFU
-      +------------------------------>|
-                                      |
-                                      | BLE Legacy DFU
-                                      v
-                               Drone Scout RAK4631
-                               DFU-only firmware
-                               target image embedded
+Controller RAK
+(operator / phone)
+      |
+      | LoRa direct message: DFU
+      v
+Target RAK4631
+Meshtastic + HOBO + DFU
+      |
+      | reboot into AdaDFU
+      v
+Drone Scout RAK4631
+BLE-only autonomous flasher
+      |
+      | Nordic Legacy DFU over BLE
+      v
+Target RAK4631
+new application boots
+      |
+      | LoRa callback
+      v
+Controller RAK
 ```
 
-The **drone Scout does not need a laptop, phone, SD card, ESP32, LoRa antenna, or USB connection during flight**.
+The controller and Scout are separate radios. The Scout does not run Meshtastic; it only performs the nearby BLE firmware transfer.
 
-## Validated autonomous build
+## Proven autonomous bench test
 
-The autonomous build has compiled successfully with the target image embedded and the exact streaming decoder verified against the original target firmware.
+The autonomous Scout has completed a full embedded-image DFU transfer through:
 
-| Item | Validated value |
-|---|---:|
-| Embedded target build | `2.7.26.3e23bdb` |
-| Target application BIN | 780,080 bytes |
-| Embedded LZ4 image | 570,664 bytes |
-| Drone application flash | 690,012 / 815,104 bytes (84.7%) |
-| Drone RAM | 84,828 / 248,832 bytes (34.1%) |
-| Drone UF2 | 1,380,352 bytes |
-| Streaming LZ4 verification | **PASS** |
+```text
+STREAMING EMBEDDED FIRMWARE...
+PROGRESS 0%
+PROGRESS 5%
+...
+PROGRESS 95%
+PROGRESS 100%
+VALIDATED; ACTIVATE SENT
+BLE DISCONNECTED reason=0x13
+AUTONOMOUS DFU SUCCESS
+```
 
-That leaves about **125 KB of application-flash headroom** and **164 KB of RAM headroom**.
+The target then rebooted into Meshtastic and sent its stored post-DFU callback.
 
+The first fully autonomous validation used the same build before and after the transfer. That proves the transfer/validate/activate/reboot path, but a same-build callback cannot prove a version change.
+
+Current callback wording is therefore deliberately precise.
+
+### Different build installed
+
+```text
+UPDATE SUCCESS
+RAK4631 booted new firmware after BLE DFU
+Old: 2.7.26.<oldsha>
+New: 2.7.26.<newsha>
+```
+
+### Same build after reboot
+
+```text
+DFU RESULT: BUILD UNCHANGED
+Same build after reboot
+Build: 2.7.26.<sha>
+```
+
+A same-build result is **not automatically a DFU failure**. The Scout's `VALIDATED; ACTIVATE SENT`, expected BLE disconnect, and autonomous success message are the DFU-side evidence.
 
 ## Hardware
 
@@ -50,66 +91,127 @@ Measured RAK19007 + RAK4631 + BLE antenna: **10.4 g**.
 
 With a ~3 g 100 mAh LiPo and lightweight mounting, the complete Scout should be roughly **14–15 g**.
 
+### Target
+
+RAK4631 / RAK19007 running the target firmware from this branch.
+
+Target capabilities:
+
+- Meshtastic LoRa
+- HOBO MX2001 / MX2201 / MX2203
+- `NEWREAD64` next-record tracking
+- direct-message commands
+- BLE DFU trigger
+- persistent post-update callback
+- nRF52840 internal watchdog
+- BLE/self-recovery supervisor
+
 ### Controller
 
 Any normal Meshtastic radio that can directly message the target.
 
-### Target
+## Field procedure
 
-RAK4631 running the confirmation-capable Meshtastic + HOBO target firmware from this branch.
+1. Flash the latest matched **target UF2** onto the field target.
+2. Flash the matching **Drone Flasher UF2** onto the Scout.
+3. Power the Scout before takeoff.
+4. Fly the Scout close to the target.
+5. Hover near the target.
+6. Direct-message the target:
 
-## How it works
-
-1. Flash **RAK4631-Remote-Drone-Flasher.uf2** onto the drone Scout.
-2. Power the Scout from its battery before takeoff.
-3. Fly the Scout near the target.
-4. From the separate controller radio, send the target:
    ```text
    DFU
    ```
-5. The target stores the requesting controller node and current build ID, replies that DFU is armed, and reboots into **AdaDFU**.
-6. The drone Scout automatically detects the AdaDFU BLE service.
-7. The Scout decompresses the target firmware stored inside its own internal flash and streams the application to the target over BLE.
-8. The target validates the image, activates it, and reboots into Meshtastic.
-9. The target sends the original controller a result message.
 
-Successful new build:
+7. The target stores the requesting controller node, channel, and current build ID.
+8. The target replies that DFU is armed.
+9. About three seconds later the target resets into `AdaDFU`.
+10. The Scout detects `AdaDFU`, connects, and flashes its embedded target image.
+11. The target validates and activates the application.
+12. The target reboots into Meshtastic.
+13. If the build changed, the controller receives `UPDATE SUCCESS`.
+
+For field use, keep the Scout near the target until the expected post-update callback arrives.
+
+## Target commands
+
+### VERSION
+
+Direct-message:
 
 ```text
-UPDATE SUCCESS
-RAK4631 booted new firmware after BLE DFU
-Old: 2.7.26.<oldsha>
-New: 2.7.26.<newsha>
+VERSION
 ```
 
-If the old firmware simply resumes without a different build being installed:
+The response is intentionally kept comfortably below Meshtastic's **233-byte Data payload limit** so it remains reliable over a weak link.
+
+It reports:
 
 ```text
-DFU NOT CONFIRMED
-Previous firmware resumed
-Build: 2.7.26.<sha>
+RADIO: RAK4631/RAK19007
+SENSORS: HOBO MX2001/MX2201/MX2203
+NEXTREAD: ON (NEWREAD64)
+DM: ON VERSION,DFU,LOGGER,LOCK,UNLOCK,READ
+BUILD: 2.7.26.<gitsha>
+DFU: ON
+WDT: ON (nRF52840 internal, 900s)
+DATE: <compile date>
 ```
 
-## Why the firmware fits inside the Scout
+A brief target LED flash when a direct message is received/processed is normal radio/status activity; it does not by itself mean DFU mode was entered.
 
-The RAK4631 drone firmware is intentionally small and does **not** run Meshtastic.
+### WATCHDOG
 
-The target application is compressed with **LZ4** during the build and embedded directly into the Scout firmware. During DFU, the Scout keeps only a 64 KiB LZ4 history window in RAM and streams decompressed bytes directly to BLE.
+Direct-message:
 
-There is no second uncompressed 780 KB image stored in RAM or external storage.
+```text
+WATCHDOG
+```
+
+This reads the live self-recovery watchdog state.
+
+The RAK target uses the **nRF52840 internal WDT**:
+
+- boot settle before arming: **30 seconds**
+- timeout: **900 seconds / 15 minutes**
+- runs while CPU sleeps
+- supervisor feeds it approximately every 30 seconds
+
+### Other target commands
+
+```text
+LOGGER
+LOCK
+UNLOCK
+READ
+DFU
+HELP
+STATUS
+HEALTH
+POWER
+BLE
+AUTO
+STATS
+NODES
+UPTIME
+WATCHDOG
+SCAN
+RECONNECT
+RECOVER
+REBOOT
+PING
+```
 
 ## Drone Scout behavior
-
-Power-on behavior is automatic:
 
 ```text
 Power on
    ↓
 scan for AdaDFU
    ↓
-connect when target appears
+connect
    ↓
-Legacy DFU START
+START_DFU
    ↓
 send init packet
    ↓
@@ -122,33 +224,27 @@ ACTIVATE + target reboot
 Scout stops after success
 ```
 
-LED behavior:
+Scout LED:
 
-- Brief blink every ~2 seconds: scanning/waiting.
-- Active BLE/DFU: normal runtime activity.
-- Solid LED: DFU completed successfully.
+- brief blink about every 2 seconds: scanning/waiting
+- BLE/DFU activity: transfer in progress
+- solid LED: Scout completed the DFU sequence successfully
 
 USB serial output is retained for bench diagnostics but is **not required in flight**.
 
-## Build outputs
+## Why the target firmware fits inside the Scout
 
-The integrated GitHub Actions workflow builds both sides from the same commit:
+The Scout does not carry a second uncompressed ~780 KB application.
 
-- **RAK4631-Remote-Drone-Flasher.uf2** — goes on the drone Scout.
-- **RAK4631-Target-Confirmation-Firmware.uf2** — USB/recovery target firmware.
-- **RAK4631-Target-Confirmation-Firmware-OTA.zip** — target application OTA package.
+During CI:
 
-[Build Remote Drone Flasher workflow](.github/workflows/build_remote_drone_flasher.yml)
+1. the target application-only OTA ZIP is built;
+2. its `.bin` is compressed with raw LZ4;
+3. reference decompression is verified byte-for-byte;
+4. a second decoder matching the Scout's exact **64 KiB circular-history** implementation verifies it again;
+5. the compressed target and `.dat` init packet are compiled directly into the Scout.
 
-[Remote Drone Flashing Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing)
-
-## Source
-
-- [Autonomous drone flasher](src/experimental/rak4631_drone_flasher.cpp)
-- [Embedded-image generator](tools/build_drone_embedded_firmware.py)
-- [Target DFU + HOBO implementation](src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp)
-- [RAK4631 PlatformIO environments](variants/nrf52840/rak4631/platformio.ini)
-- [Architecture / development notes](docs/RAK_REMOTE_DFU.md)
+During flight, the Scout decompresses and streams bytes directly to BLE.
 
 ## DFU protocol
 
@@ -165,25 +261,64 @@ Control Point:
 
 Packet:
 00001532-1212-EFDE-1523-785FEABCD123
+
+Version:
+00001534-1212-EFDE-1523-785FEABCD123
 ```
 
-The Scout performs an **application-only Nordic Legacy DFU**. It does not intentionally replace the target bootloader or SoftDevice.
+The Scout performs **application-only Nordic Legacy DFU**.
+
+Current compatibility-first transfer settings:
+
+```text
+BLE payload: 20 bytes
+PRN interval: 8 packets
+SoftDevice image: none
+Bootloader image: none
+Application image: embedded target BIN
+```
+
+## Build system
+
+The integrated workflow is:
+
+[Build Remote Drone Flasher](.github/workflows/build_remote_drone_flasher.yml)
+
+It builds the target first, embeds that exact target OTA image into the Scout, builds the Scout, validates minimum artifact sizes, and uploads the matched pair.
+
+The workflow watches target, Scout, self-recovery, common source, and RAK configuration changes so a Scout cannot silently carry a stale target image after firmware changes.
+
+### Versioned outputs
+
+```text
+RAK4631-HOBO-DFU-Target-<version>.uf2
+RAK4631-HOBO-DFU-Target-<version>-OTA.zip
+RAK4631-Remote-Drone-Flasher-embeds-<version>.uf2
+```
+
+### Stable aliases
+
+```text
+RAK4631-HOBO-DFU-Target.uf2
+RAK4631-HOBO-DFU-Target-OTA.zip
+RAK4631-Remote-Drone-Flasher.uf2
+```
+
+`BUILD.txt` records the commit, target version, target/Scout sizes, and which target version is embedded in the Scout.
 
 ## Recovery
 
-An interrupted update can leave the target application invalid, because Legacy DFU erases/replaces the application region.
+The update is application-only. It does not intentionally replace the SoftDevice or bootloader.
 
-The target bootloader should remain intact. During development, keep the target USB UF2 available so the node can be restored manually if needed.
+An interrupted transfer can leave the application invalid. During development, keep the matching target UF2 available for USB recovery.
 
-## Development history
+## Source
 
-The earlier `esp-32-testing` branch proved the complete PC-assisted transfer:
-
-- Mesh `DFU` command entered AdaDFU.
-- Scout discovered Legacy DFU.
-- Full ~780 KB application transferred over BLE.
-- `RECEIVE_FW` returned success.
-- `VALIDATE` returned success.
-- `ACTIVATE` rebooted the target successfully.
-
-This branch replaces the PC serial bridge with **firmware stored inside the drone Scout itself**.
+- [Autonomous drone flasher](src/experimental/rak4631_drone_flasher.cpp)
+- [Embedded-image generator](tools/build_drone_embedded_firmware.py)
+- [Target HOBO + DFU implementation](src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp)
+- [RAK target wrapper](src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203TelemetryRAK.cpp)
+- [Self-recovery watchdog](src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp)
+- [RAK module attachment](src/modules/Telemetry/MX2001Diagnostic.h)
+- [RAK4631 PlatformIO environment](variants/nrf52840/rak4631/platformio.ini)
+- [Technical architecture and validation notes](docs/RAK_REMOTE_DFU.md)
