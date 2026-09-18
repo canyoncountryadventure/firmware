@@ -3,7 +3,10 @@
 #include "buzz/BuzzerFeedbackThread.h"
 #include "modules/SystemCommandsModule.h"
 #endif
-#include "modules/StatusLEDModule.h"\n#if defined(ARCH_NRF52) && defined(RAK_4631)\n#include "modules/RAKRemoteDfuModule.h"\n#endif
+#include "modules/StatusLEDModule.h"
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+#include "modules/RAKRemoteDfuModule.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_REPLYBOT
 #include "ReplyBotModule.h"
 #endif
@@ -122,7 +125,10 @@ void setupModules()
         buzzerFeedbackThread = new BuzzerFeedbackThread();
     }
 #endif
-    statusLEDModule = new StatusLEDModule();\n#if defined(ARCH_NRF52) && defined(RAK_4631)\n    new RAKRemoteDfuModule();\n#endif
+    statusLEDModule = new StatusLEDModule();
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    new RAKRemoteDfuModule();
+#endif
 #if !MESHTASTIC_EXCLUDE_REPLYBOT
     new ReplyBotModule();
 #endif
