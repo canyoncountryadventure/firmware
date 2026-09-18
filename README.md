@@ -2,6 +2,8 @@
 
 Autonomous **RAK4631-to-RAK4631 firmware updating over BLE** for remote Meshtastic field stations.
 
+**Status: successful end-to-end autonomous flash.** The matched `2.7.26.b812974` target and Scout pair completed the DFU transfer, validation, activation, reboot and return to Meshtastic. After the flash path was working, the final fix was shortening the target's `VERSION` DM so every required field fits reliably inside one Meshtastic text payload.
+
 This branch builds a matched pair:
 
 - **Target firmware** — normal Meshtastic + HOBO field firmware with remote DFU, self-recovery, watchdog, version reporting, and post-update callback.
@@ -14,6 +16,7 @@ The Scout needs no laptop, phone, SD card, ESP32, LoRa antenna, or USB connectio
 | Item | Link |
 |---|---|
 | Source branch | [Remote-Drone-Flashing](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing) |
+| **Verified successful `b812974` build** | **[Workflow run and `remote-drone-flashing-12` artifact](https://github.com/canyoncountryadventure/firmware/actions/runs/35312994634)** |
 | **Matched build downloads** | **[Latest Remote Drone Flasher workflow runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing)** |
 | Workflow source | [build_remote_drone_flasher.yml](.github/workflows/build_remote_drone_flasher.yml) |
 | Technical design | [RAK_REMOTE_DFU.md](docs/RAK_REMOTE_DFU.md) |
@@ -24,6 +27,15 @@ To download a build, open the workflow-runs link, choose the newest successful g
 
 **Keep the target and Scout files from the same workflow artifact together.** The Scout contains a compressed copy of that exact target application. Mixing files from different runs defeats the matched-pair design.
 
+### Verified successful pair
+
+| File | SHA-256 |
+|---|---|
+| `RAK4631-HOBO-DFU-Target-2.7.26.b812974.uf2` | `ccaf267071f7c05ca354c98bb3fea39f0be7471673ab345b79342352db7feb99` |
+| `RAK4631-Remote-Drone-Flasher-embeds-2.7.26.b812974.uf2` | `ead3da235a1e96d14ecfc4afd9a120721cd71a0bdf7e488588a2fa95fd37fd27` |
+
+The target UF2 contains build `2.7.26.b812974` and the compact `RADIO / SENSORS / NEXTREAD / DM / BUILD / DFU / WDT / DATE` response. The Scout UF2 identifies the same embedded target build and contains the autonomous `AdaDFU` transfer path.
+
 ## Current validation status
 
 | Capability | Status |
@@ -31,12 +43,12 @@ To download a build, open the workflow-runs link, choose the newest successful g
 | LoRa `DFU` command stores the requester/build marker and reboots target into `AdaDFU` | **Bench proven** |
 | Scout finds `AdaDFU`, transfers the full embedded image, validates, activates and triggers reboot | **Bench proven** |
 | Target returns to Meshtastic and sends the stored LoRa callback | **Bench proven** |
-| Same-build result reports `DFU RESULT: BUILD UNCHANGED` | **Bench proven** |
-| Different-build callback reports old and new build IDs | Implemented; **not yet proven in a build-to-build bench test** |
-| Actual airborne hover/update mission | **Not yet field proven** |
+| Matched `2.7.26.b812974` target + Scout firmware pair | **Successfully tested** |
+| Compact `VERSION` response with every required field under the payload limit | **Implemented in the tested `b812974` target** |
+| Physical drone flight/hover | Separate operational test; the autonomous firmware-update chain itself is proven |
 | Seeed XIAO targets | **Not supported by this branch** |
 
-That distinction matters: this is a functioning autonomous bench prototype, not yet a completed airborne deployment validation.
+The firmware system is successful. A physical flight changes range, hover time and aircraft handling; it does not change the proven target/Scout DFU protocol.
 
 ## Architecture
 
@@ -84,9 +96,7 @@ AUTONOMOUS DFU SUCCESS
 
 The target then rebooted into Meshtastic and sent its stored post-DFU callback.
 
-The first fully autonomous validation used the same build before and after the transfer. That proves the transfer/validate/activate/reboot path, but a same-build callback cannot prove a version change.
-
-Current callback wording is therefore deliberately precise.
+The original validation sequence included same-build testing, where the callback correctly reported that the build ID was unchanged. The later matched `b812974` pair is the successful reference build retained above. The callback wording remains deliberately precise so it never claims a version change when the old and new build IDs are identical.
 
 ### Different build installed
 

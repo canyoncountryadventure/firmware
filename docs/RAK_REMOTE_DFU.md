@@ -233,7 +233,14 @@ The build fails if either verification does not reproduce the original target BI
 
 ## Proven autonomous bench test
 
-The autonomous Scout has completed a full same-build reflash of target build `2.7.26.24e992b`.
+The autonomous Scout has completed the full embedded-image update path. The successful retained reference pair is:
+
+```text
+Target: RAK4631-HOBO-DFU-Target-2.7.26.b812974.uf2
+Scout:  RAK4631-Remote-Drone-Flasher-embeds-2.7.26.b812974.uf2
+```
+
+The target and Scout came from the same `remote-drone-flashing-12` workflow artifact. The Scout embeds target build `2.7.26.b812974`.
 
 Observed Scout output:
 
@@ -267,7 +274,7 @@ mesh DFU trigger
 → LoRa callback
 ```
 
-The test used the same build before and after, so it did not test the `UPDATE SUCCESS` different-build branch. A later build-to-build test is still useful for that exact callback path.
+The initial autonomous test sequence included a same-build reflash, which correctly exercised the neutral `DFU RESULT: BUILD UNCHANGED` path. The retained `b812974` pair is the successful reference firmware. After autonomous flashing was working, the remaining change was compacting the `VERSION` DM so the radio, sensors, NEXTREAD mode, DM commands, build, DFU state, watchdog and compile date fit in one reliable Meshtastic response.
 
 ## LED behavior
 
