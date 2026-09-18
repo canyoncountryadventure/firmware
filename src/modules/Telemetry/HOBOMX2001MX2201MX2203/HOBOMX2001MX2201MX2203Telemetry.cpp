@@ -14,6 +14,7 @@
 #include "pb_encode.h"
 
 #include <bluefruit.h>
+#include <ble_gap.h>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -127,6 +128,9 @@ bool initialized = false;
 bool connecting = false;
 bool connected = false;
 uint16_t connectionHandle = BLE_CONN_HANDLE_INVALID;
+uint32_t connectAttemptStartedMs = 0;
+uint8_t bleRecoveryCycles = 0;
+uint8_t consecutiveReadTimeouts = 0;
 
 LoggerType loggerType = LoggerType::UNKNOWN;
 MetaProfile activeMetaProfile = MetaProfile::NONE;
@@ -180,25 +184,6 @@ uint32_t lastAutomaticTxMs = 0;
 uint32_t automaticTxCount = 0;
 uint16_t measurementSequence = 0;
 
-#if defined(RAK_4631)
-bool otaDfuRebootPending = false;
-uint32_t otaDfuRebootAtMs = 0;
-#define DFU_STRINGIFY_INNER(x) #x
-#define DFU_STRINGIFY(x) DFU_STRINGIFY_INNER(x)
-
-bool otaDfuBootConfirmPending = false;
-uint32_t otaDfuBootConfirmDestination = 0;
-uint8_t otaDfuBootConfirmChannel = 0;
-uint32_t otaDfuBootConfirmDueMs = 0;
-static constexpr size_t OTA_DFU_BUILD_ID_MAX = 20;
-char otaDfuPreviousBuild[OTA_DFU_BUILD_ID_MAX + 1] = {};
-static constexpr char OTA_DFU_CURRENT_BUILD[] = DFU_STRINGIFY(APP_VERSION);
-static constexpr uint32_t OTA_DFU_REBOOT_DELAY_MS = 3000;
-static constexpr uint32_t OTA_DFU_BOOT_CONFIRM_DELAY_MS = 5000;
-static constexpr uint32_t OTA_DFU_BOOT_CONFIRM_RETRY_MS = 30000;
-static constexpr char OTA_DFU_PENDING_FILE_PATH[] = "/prefs/dfu_pending.bin";
-#endif
-
 bool readRequestPending = false;
 bool readRequestInProgress = false;
 bool readFailureReplyPending = false;
@@ -212,6 +197,8 @@ static constexpr uint32_t POINTER_FINE_POLL_MS = 500;
 static constexpr uint32_t POINTER_INITIAL_SYNC_POLL_MS = 1000;
 static constexpr uint32_t STATUS_RECOVERY_RETRY_MS = 5000;
 static constexpr uint8_t STATUS_TIMEOUT_LIMIT = 3;
+static constexpr uint8_t READ_TIMEOUT_LIMIT = 3;
+static constexpr uint32_t CONNECT_ATTEMPT_TIMEOUT_MS = 30000UL;
 static constexpr uint32_t REJECT_RETRY_MS = 60000;
 static constexpr uint32_t TRANSIENT_RETRY_MS = 5000;
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
@@ -273,133 +260,6 @@ uint8_t lockChecksum(const uint8_t *data, size_t length)
         checksum ^= data[i];
     return checksum;
 }
-
-#if defined(RAK_4631)
-bool saveOtaDfuPending(uint32_t destination, uint8_t channel)
-{
-    if (destination == 0)
-        return false;
-
-    uint8_t record[32] = {
-        'D', 'F', 'U', '2', 2,
-        0, 0, 0, 0,
-        channel,
-        0
-    };
-
-    record[5] = static_cast<uint8_t>(destination);
-    record[6] = static_cast<uint8_t>(destination >> 8);
-    record[7] = static_cast<uint8_t>(destination >> 16);
-    record[8] = static_cast<uint8_t>(destination >> 24);
-
-    size_t buildLength = strlen(OTA_DFU_CURRENT_BUILD);
-    if (buildLength > OTA_DFU_BUILD_ID_MAX)
-        buildLength = OTA_DFU_BUILD_ID_MAX;
-
-    record[10] = static_cast<uint8_t>(buildLength);
-    memcpy(&record[11], OTA_DFU_CURRENT_BUILD, buildLength);
-    record[31] = lockChecksum(record, 31);
-
-    concurrency::LockGuard g(spiLock);
-    File file = FSCom.open(OTA_DFU_PENDING_FILE_PATH, FILE_O_WRITE);
-    if (!file) {
-        LOG_WARN("RAK DFU: failed to open pending-confirmation marker for write");
-        return false;
-    }
-
-    const size_t written = file.write(record, sizeof(record));
-    file.flush();
-    file.close();
-
-    if (written != sizeof(record)) {
-        LOG_WARN("RAK DFU: pending-confirmation marker short write");
-        return false;
-    }
-
-    otaDfuBootConfirmDestination = destination;
-    otaDfuBootConfirmChannel = channel;
-    memset(otaDfuPreviousBuild, 0, sizeof(otaDfuPreviousBuild));
-    memcpy(otaDfuPreviousBuild, OTA_DFU_CURRENT_BUILD, buildLength);
-
-    LOG_INFO(
-        "RAK DFU: saved post-update confirmation destination=0x%08lX channel=%u build=%s",
-        static_cast<unsigned long>(destination),
-        channel,
-        otaDfuPreviousBuild);
-    return true;
-}
-
-void clearOtaDfuPending()
-{
-    otaDfuBootConfirmPending = false;
-    otaDfuBootConfirmDestination = 0;
-    otaDfuBootConfirmChannel = 0;
-    otaDfuBootConfirmDueMs = 0;
-    memset(otaDfuPreviousBuild, 0, sizeof(otaDfuPreviousBuild));
-
-    concurrency::LockGuard g(spiLock);
-    FSCom.remove(OTA_DFU_PENDING_FILE_PATH);
-}
-
-void loadOtaDfuPending()
-{
-    otaDfuBootConfirmPending = false;
-    otaDfuBootConfirmDestination = 0;
-    otaDfuBootConfirmChannel = 0;
-    otaDfuBootConfirmDueMs = 0;
-    memset(otaDfuPreviousBuild, 0, sizeof(otaDfuPreviousBuild));
-
-    uint8_t record[32] = {};
-    size_t readLength = 0;
-
-    {
-        concurrency::LockGuard g(spiLock);
-        File file = FSCom.open(OTA_DFU_PENDING_FILE_PATH, FILE_O_READ);
-        if (!file)
-            return;
-
-        readLength = file.read(record, sizeof(record));
-        file.close();
-    }
-
-    if (readLength != sizeof(record) ||
-        record[0] != 'D' || record[1] != 'F' ||
-        record[2] != 'U' || record[3] != '2' ||
-        record[4] != 2 ||
-        record[10] > OTA_DFU_BUILD_ID_MAX ||
-        record[31] != lockChecksum(record, 31)) {
-        LOG_WARN("RAK DFU: ignoring invalid pending-confirmation marker");
-        clearOtaDfuPending();
-        return;
-    }
-
-    const uint32_t destination =
-        static_cast<uint32_t>(record[5]) |
-        (static_cast<uint32_t>(record[6]) << 8) |
-        (static_cast<uint32_t>(record[7]) << 16) |
-        (static_cast<uint32_t>(record[8]) << 24);
-
-    if (destination == 0 || record[10] == 0) {
-        LOG_WARN("RAK DFU: pending-confirmation marker has invalid destination/build");
-        clearOtaDfuPending();
-        return;
-    }
-
-    otaDfuBootConfirmDestination = destination;
-    otaDfuBootConfirmChannel = record[9];
-    memcpy(otaDfuPreviousBuild, &record[11], record[10]);
-    otaDfuPreviousBuild[record[10]] = '\0';
-    otaDfuBootConfirmPending = true;
-    otaDfuBootConfirmDueMs = millis() + OTA_DFU_BOOT_CONFIRM_DELAY_MS;
-
-    LOG_INFO(
-        "RAK DFU: post-update confirmation pending destination=0x%08lX channel=%u old_build=%s current_build=%s",
-        static_cast<unsigned long>(otaDfuBootConfirmDestination),
-        otaDfuBootConfirmChannel,
-        otaDfuPreviousBuild,
-        OTA_DFU_CURRENT_BUILD);
-}
-#endif
 
 void logLockTarget(const char *prefix)
 {
@@ -899,10 +759,12 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
         loggerLockEnabled ? " LOCKED-TARGET" : "");
 
     connecting = true;
+    connectAttemptStartedMs = millis();
     Bluefruit.Scanner.stop();
 
     if (!Bluefruit.Central.connect(report)) {
         connecting = false;
+        connectAttemptStartedMs = 0;
         LOG_WARN("HOBO universal: BLE connection request failed");
         Bluefruit.Scanner.start(0);
     }
@@ -911,6 +773,7 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
 void connectCallback(uint16_t connHandle)
 {
     connecting = false;
+    connectAttemptStartedMs = 0;
     connected = true;
     connectionHandle = connHandle;
 
@@ -1002,6 +865,7 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 
     connected = false;
     connecting = false;
+    connectAttemptStartedMs = 0;
     connectionHandle = BLE_CONN_HANDLE_INVALID;
     loggerType = LoggerType::UNKNOWN;
     activeMetaProfile = MetaProfile::NONE;
@@ -1030,15 +894,35 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
     }
 }
 
+void triggerBleRecovery(const char *reason)
+{
+    bleRecoveryCycles++;
+    LOG_ERROR("HOBO universal: BLE recovery cycle %u: %s", bleRecoveryCycles, reason ? reason : "unspecified");
+
+    if (connected && connectionHandle != BLE_CONN_HANDLE_INVALID) {
+        Bluefruit.disconnect(connectionHandle);
+    } else if (connecting) {
+        (void)sd_ble_gap_connect_cancel();
+        connecting = false;
+        connectAttemptStartedMs = 0;
+    }
+
+    universalState = UniversalState::IDLE;
+    statusTrackingAvailable = false;
+
+#if defined(FIELD_RECOVERY_V2)
+    if (bleRecoveryCycles >= 5) {
+        LOG_ERROR("HOBO universal: BLE recovery exhausted; tripping field watchdog");
+        nrf52FieldWatchdogTrip();
+    }
+#endif
+}
+
 void initializeClient()
 {
     LOG_INFO("HOBO universal bridge: MX2001 + MX2201 + MX2203");
 
     loadLoggerLock();
-
-#if defined(RAK_4631)
-    loadOtaDfuPending();
-#endif
 
     hoboService.begin();
     hoboCharacteristic.setNotifyCallback(notifyCallback);
@@ -1049,7 +933,8 @@ void initializeClient()
 
     Bluefruit.Scanner.setRxCallback(scanCallback);
     Bluefruit.Scanner.restartOnDisconnect(false);
-    Bluefruit.Scanner.setInterval(160, 80);
+    // Passive 10% duty scan; the HOBO state machine is the sole owner of scanner lifecycle.
+    Bluefruit.Scanner.setInterval(320, 32);
     Bluefruit.Scanner.useActiveScan(false);
 
     initialized = true;
@@ -1146,76 +1031,6 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
     const uint32_t ourNode = nodeDB->getNodeNum();
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
-
-    // Canonical VERSION responder for this target; the self-recovery
-    // supervisor intentionally leaves VERSION to this feature-aware response.
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "VERSION")) {
-#if defined(RAK_4631)
-        static constexpr const char *radioType = "RAK4631/19007";
-        static constexpr const char *dfuState = "ON";
-        static constexpr const char *dmCommands = "VERSION DFU LOGGER LOCK UNLOCK READ";
-#else
-        static constexpr const char *radioType = "SEEED-XIAO-nRF52840";
-        static constexpr const char *dfuState = "OFF";
-        static constexpr const char *dmCommands = "VERSION LOGGER LOCK UNLOCK READ";
-#endif
-
-        // Keep VERSION well below Meshtastic's 233-byte Data payload ceiling
-        // and common client text-display limits. Every required field remains
-        // present, while platform-specific capability reporting stays honest.
-        char reply[210] = {};
-        snprintf(
-            reply,
-            sizeof(reply),
-            "RADIO:%s\n"
-            "SENSORS:HOBO MX2001/2201/2203\n"
-            "NEXTREAD:ON NEWREAD64\n"
-            "DM:ON %s\n"
-            "BUILD:%s\n"
-            "DFU:%s\n"
-            "WDT:ON nRF52 900s\n"
-            "DATE:%s",
-            radioType,
-            dmCommands,
-            OTA_DFU_CURRENT_BUILD,
-            dfuState,
-            __DATE__);
-
-        sendTextReply(mp.from, mp.channel, reply);
-        return ProcessMessage::CONTINUE;
-    }
-
-#if defined(RAK_4631)
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "DFU")) {
-        if (otaDfuRebootPending) {
-            sendTextReply(mp.from, mp.channel, "BLE OTA DFU already armed");
-            return ProcessMessage::CONTINUE;
-        }
-
-        if (!saveOtaDfuPending(mp.from, mp.channel)) {
-            sendTextReply(
-                mp.from,
-                mp.channel,
-                "BLE OTA DFU NOT armed\nCould not save post-update confirmation marker");
-            LOG_WARN("RAK DFU: refusing OTA reboot because confirmation marker could not be saved");
-            return ProcessMessage::CONTINUE;
-        }
-
-        sendTextReply(
-            mp.from,
-            mp.channel,
-            "BLE OTA DFU armed\nRebooting into OTA bootloader in 3 seconds\nBoot confirmation will return after update");
-
-        otaDfuRebootPending = true;
-        otaDfuRebootAtMs = millis() + OTA_DFU_REBOOT_DELAY_MS;
-        setIntervalFromNow(10);
-        LOG_WARN(
-            "RAK DFU: OTA reboot armed by direct mesh command from=0x%08lX channel=%u",
-            static_cast<unsigned long>(mp.from),
-            mp.channel);
-        return ProcessMessage::CONTINUE;
-    }
-#endif
 
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOGGER")) {
         char reply[220] = {};
@@ -1390,63 +1205,6 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 {
     const uint32_t now = millis();
 
-#if defined(RAK_4631)
-    if (otaDfuRebootPending && reached(now, otaDfuRebootAtMs)) {
-        otaDfuRebootPending = false;
-        LOG_WARN("RAK DFU: rebooting into BLE OTA bootloader (GPREGRET=0xA8)");
-        delay(100);
-        NRF_POWER->GPREGRET = 0xA8;
-        __DSB();
-        NVIC_SystemReset();
-        while (true) {
-            delay(1000);
-        }
-    }
-
-    if (otaDfuBootConfirmPending &&
-        otaDfuBootConfirmDestination != 0 &&
-        reached(now, otaDfuBootConfirmDueMs)) {
-        const bool buildChanged =
-            otaDfuPreviousBuild[0] != '\0' &&
-            strcmp(otaDfuPreviousBuild, OTA_DFU_CURRENT_BUILD) != 0;
-
-        char reply[220] = {};
-        if (buildChanged) {
-            snprintf(
-                reply,
-                sizeof(reply),
-                "UPDATE SUCCESS\nRAK4631 booted new firmware after BLE DFU\nOld: %s\nNew: %s",
-                otaDfuPreviousBuild,
-                OTA_DFU_CURRENT_BUILD);
-        } else {
-            snprintf(
-                reply,
-                sizeof(reply),
-                "DFU RESULT: BUILD UNCHANGED\nSame build after reboot\nBuild: %s",
-                OTA_DFU_CURRENT_BUILD);
-        }
-
-        const bool queued = sendTextReply(
-            otaDfuBootConfirmDestination,
-            otaDfuBootConfirmChannel,
-            reply);
-
-        if (queued) {
-            LOG_INFO(
-                "RAK DFU: post-DFU boot result queued to=0x%08lX channel=%u changed=%s old=%s new=%s",
-                static_cast<unsigned long>(otaDfuBootConfirmDestination),
-                otaDfuBootConfirmChannel,
-                buildChanged ? "yes" : "no",
-                otaDfuPreviousBuild,
-                OTA_DFU_CURRENT_BUILD);
-            clearOtaDfuPending();
-        } else {
-            otaDfuBootConfirmDueMs = now + OTA_DFU_BOOT_CONFIRM_RETRY_MS;
-            LOG_WARN("RAK DFU: post-DFU result enqueue failed; retry scheduled");
-        }
-    }
-#endif
-
     auto sendTemperatureTelemetry = [&](float temperatureC) -> bool {
         meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
         telemetry.time = getTime();
@@ -1585,8 +1343,15 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
     }
 
     if (!connected) {
-        if (connecting)
+        if (connecting) {
+            if (connectAttemptStartedMs != 0 && reached(now, connectAttemptStartedMs + CONNECT_ATTEMPT_TIMEOUT_MS)) {
+                LOG_ERROR("HOBO universal: BLE connect attempt timed out");
+                triggerBleRecovery("connect timeout");
+                if (!Bluefruit.Scanner.isRunning())
+                    Bluefruit.Scanner.start(0);
+            }
             return 500;
+        }
 
         if (!Bluefruit.Scanner.isRunning())
             Bluefruit.Scanner.start(0);
@@ -1686,6 +1451,7 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 
     case UniversalState::WAIT_READ:
         if (measurementReady) {
+            consecutiveReadTimeouts = 0;
             measurementReady = false;
 
             LOG_INFO(
@@ -1841,10 +1607,16 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 break;
             }
 
-            LOG_WARN("HOBO universal: automatic NEWREAD64 timeout");
-            readPurpose = ReadPurpose::AUTOMATIC;
-            nextStatusCheckMs = now + 1000;
-            universalState = UniversalState::READY;
+            consecutiveReadTimeouts++;
+            LOG_WARN("HOBO universal: automatic NEWREAD64 timeout %u/%u",
+                     consecutiveReadTimeouts, READ_TIMEOUT_LIMIT);
+            if (consecutiveReadTimeouts >= READ_TIMEOUT_LIMIT) {
+                triggerBleRecovery("NEWREAD64 timeouts");
+            } else {
+                readPurpose = ReadPurpose::AUTOMATIC;
+                nextStatusCheckMs = now + 1000;
+                universalState = UniversalState::READY;
+            }
         }
         break;
 
@@ -1857,14 +1629,12 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         } else {
             consecutiveStatusTimeouts++;
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
-                statusTrackingAvailable = false;
-                nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
-                LOG_WARN(
-                    "HOBO universal: STATUS command unavailable; automatic TX PAUSED until pointer tracking recovers");
+                LOG_ERROR("HOBO universal: STATUS writes failed repeatedly; rebuilding BLE link");
+                triggerBleRecovery("STATUS write failures");
             } else {
                 nextStatusCheckMs = now + 1000;
+                universalState = UniversalState::READY;
             }
-            universalState = UniversalState::READY;
         }
         break;
 
@@ -1872,6 +1642,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         if (statusReady) {
             statusReady = false;
             consecutiveStatusTimeouts = 0;
+            consecutiveReadTimeouts = 0;
+            bleRecoveryCycles = 0;
             statusTrackingAvailable = true;
 
             if (!haveStatusBaseline) {
@@ -1921,13 +1693,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 STATUS_TIMEOUT_LIMIT);
 
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
-                statusTrackingAvailable = false;
-                nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
-
-                LOG_WARN(
-                    "HOBO universal: write-pointer tracking unavailable; automatic TX PAUSED until STATUS recovers");
-
-                universalState = UniversalState::READY;
+                LOG_ERROR("HOBO universal: STATUS responses stale; rebuilding BLE link");
+                triggerBleRecovery("STATUS response timeouts");
             } else {
                 universalState = UniversalState::SEND_STATUS;
                 stateDueMs = now + 1000;

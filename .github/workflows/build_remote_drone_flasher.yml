@@ -3,7 +3,7 @@ name: Build Remote Drone Flasher
 on:
   push:
     branches:
-      - Remote-Drone-Flashing
+      - Remote-Drone-Flashing-v2
     paths:
       # The Scout embeds the target application, so any source/config change
       # that can alter either side must rebuild the matched pair.
@@ -88,9 +88,9 @@ jobs:
           cp "$DRONE_UF2" "export/RAK4631-Remote-Drone-Flasher-embeds-${TARGET_VERSION}.uf2"
 
           # Stable aliases for users who do not need the version in the filename.
-          cp "$TARGET_UF2" export/RAK4631-HOBO-DFU-Target.uf2
-          cp "$TARGET_OTA" export/RAK4631-HOBO-DFU-Target-OTA.zip
-          cp "$DRONE_UF2" export/RAK4631-Remote-Drone-Flasher.uf2
+          cp "$TARGET_UF2" export/RAK4631-HOBO-DFU-Target-v2.uf2
+          cp "$TARGET_OTA" export/RAK4631-HOBO-DFU-Target-v2-OTA.zip
+          cp "$DRONE_UF2" export/RAK4631-Remote-Drone-Flasher-v2.uf2
           cp remote-drone-flasher-build.log export/
 
           {
@@ -111,3 +111,27 @@ jobs:
           retention-days: 30
           if-no-files-found: error
           path: export/*
+
+
+      - name: Publish stable v2 drone downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --branch field-self-recovery "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" publish
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin field-self-recovery
+            git reset --hard origin/field-self-recovery
+            mkdir -p downloads
+            cp ../export/RAK4631-HOBO-DFU-Target-v2.uf2 downloads/
+            cp ../export/RAK4631-HOBO-DFU-Target-v2-OTA.zip downloads/
+            cp ../export/RAK4631-Remote-Drone-Flasher-v2.uf2 downloads/
+            git add downloads/RAK4631-*-v2*
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Publish Remote Drone Flashing v2 downloads"
+            if git push origin HEAD:field-self-recovery; then exit 0; fi
+            sleep $((attempt * 3))
+          done
+          exit 1
