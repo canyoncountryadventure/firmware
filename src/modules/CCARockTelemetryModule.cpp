@@ -96,21 +96,53 @@ bool saveRockCalibration()
 {
     rockCal.checksum = checksumBytes(reinterpret_cast<const uint8_t *>(&rockCal), sizeof(rockCal) - 1);
 
-    concurrency::LockGuard g(spiLock);
-    File file = FSCom.open(ROCK_CAL_FILE_PATH, FILE_O_WRITE);
-    if (!file) {
-        LOG_WARN("CCA ROCK: failed to open calibration file for write");
-        return false;
-    }
+    size_t written = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(ROCK_CAL_FILE_PATH, FILE_O_WRITE);
+        if (!file) {
+            LOG_WARN("CCA ROCK: failed to open calibration file for write");
+            return false;
+        }
 
-    const size_t written = file.write(reinterpret_cast<const uint8_t *>(&rockCal), sizeof(rockCal));
-    file.flush();
-    file.close();
+        // FILE_O_WRITE opens an existing LittleFS file at EOF. Calibration
+        // updates must replace the previous fixed-size record, not append.
+        if (!file.seek(0) || !file.truncate()) {
+            LOG_WARN("CCA ROCK: failed to truncate calibration file");
+            file.close();
+            return false;
+        }
+
+        written = file.write(reinterpret_cast<const uint8_t *>(&rockCal), sizeof(rockCal));
+        file.flush();
+        file.close();
+    }
 
     if (written != sizeof(rockCal)) {
         LOG_WARN("CCA ROCK: calibration short write");
         return false;
     }
+
+    RockCalibrationRecord verify = {};
+    size_t readLength = 0;
+    bool extraData = false;
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(ROCK_CAL_FILE_PATH, FILE_O_READ);
+        if (!file) {
+            LOG_WARN("CCA ROCK: failed to reopen calibration file");
+            return false;
+        }
+        readLength = file.read(reinterpret_cast<uint8_t *>(&verify), sizeof(verify));
+        extraData = file.available();
+        file.close();
+    }
+
+    if (readLength != sizeof(verify) || extraData || memcmp(&verify, &rockCal, sizeof(rockCal)) != 0) {
+        LOG_WARN("CCA ROCK: calibration read-back verification failed");
+        return false;
+    }
+
     return true;
 }
 
