@@ -8,9 +8,9 @@
 #include "NodeDB.h"
 #include "PowerFSM.h"
 #include "main.h"
+#include "mesh/RadioLibInterface.h"
 
 #include <bluefruit.h>
-#include <nrf.h>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -19,33 +19,10 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr uint32_t SCAN_RESTART_INTERVAL_MS = 30UL * 60UL * 1000UL;
-static constexpr uint32_t BLE_STALE_REBOOT_MS = 6UL * 60UL * 60UL * 1000UL;
-static constexpr uint32_t WDT_TIMEOUT_SECONDS = 15UL * 60UL;
-static constexpr uint32_t WDT_TICKS_PER_SECOND = 32768UL;
-static constexpr uint32_t WDT_RELOAD_MAGIC = 0x6E524635UL;
-static constexpr uint16_t LOW_DUTY_SCAN_INTERVAL = 320;
-static constexpr uint16_t LOW_DUTY_SCAN_WINDOW = 32;
-static constexpr char FIRMWARE_LABEL[] = "HOBO SELF-RECOVERY 1.1";
+static constexpr char FIRMWARE_LABEL[] = "HOBO FIELD-RECOVERY v2";
 
-bool watchdogOwned = false;
-bool watchdogChecked = false;
-bool bleTuned = false;
-bool lastScannerRunning = false;
-bool haveScannerState = false;
-bool rebootPending = false;
-uint32_t disconnectedSinceMs = 0;
-uint32_t lastScanRefreshMs = 0;
-uint32_t scanRestartCount = 0;
-uint32_t automaticRecoveryCount = 0;
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
-uint32_t rebootDueMs = 0;
-
-bool reached(uint32_t now, uint32_t target)
-{
-    return static_cast<int32_t>(now - target) >= 0;
-}
 
 bool isCommand(const uint8_t *bytes, size_t size, const char *expected)
 {
@@ -88,73 +65,6 @@ const char *platformName()
 #endif
 }
 
-void feedInternalWatchdog()
-{
-    if (watchdogOwned)
-        NRF_WDT->RR[0] = WDT_RELOAD_MAGIC;
-}
-
-void initializeInternalWatchdog()
-{
-    if (watchdogChecked)
-        return;
-
-    watchdogChecked = true;
-    if (NRF_WDT->RUNSTATUS != 0) {
-        LOG_INFO("HOBO self-recovery: on-chip watchdog already running; leaving owner unchanged");
-        return;
-    }
-
-    NRF_WDT->CONFIG = 1UL;
-    NRF_WDT->CRV = WDT_TICKS_PER_SECOND * WDT_TIMEOUT_SECONDS;
-    NRF_WDT->RREN = 1UL;
-    NRF_WDT->TASKS_START = 1UL;
-    watchdogOwned = true;
-    feedInternalWatchdog();
-
-    LOG_INFO("HOBO self-recovery: watchdog armed for %lu sec, RUN-IN-SLEEP",
-             static_cast<unsigned long>(WDT_TIMEOUT_SECONDS));
-}
-
-void configureLowDutyScanner(bool restartIfRunning)
-{
-    const bool wasRunning = Bluefruit.Scanner.isRunning();
-    if (wasRunning && restartIfRunning) {
-        Bluefruit.Scanner.stop();
-        delay(20);
-    }
-
-    Bluefruit.Scanner.setInterval(LOW_DUTY_SCAN_INTERVAL, LOW_DUTY_SCAN_WINDOW);
-    Bluefruit.Scanner.useActiveScan(false);
-
-    if (wasRunning && restartIfRunning)
-        Bluefruit.Scanner.start(0);
-
-    bleTuned = true;
-}
-
-void restartScanner()
-{
-    if (Bluefruit.Scanner.isRunning()) {
-        Bluefruit.Scanner.stop();
-        delay(20);
-    }
-
-    Bluefruit.Scanner.setInterval(LOW_DUTY_SCAN_INTERVAL, LOW_DUTY_SCAN_WINDOW);
-    Bluefruit.Scanner.useActiveScan(false);
-    Bluefruit.Scanner.start(0);
-    scanRestartCount++;
-    lastScanRefreshMs = millis();
-    LOG_WARN("HOBO self-recovery: BLE scanner refreshed (%lu)", static_cast<unsigned long>(scanRestartCount));
-}
-
-uint32_t disconnectedAgeSeconds()
-{
-    if (disconnectedSinceMs == 0)
-        return 0;
-    return (millis() - disconnectedSinceMs) / 1000UL;
-}
-
 } // namespace
 
 HOBOSelfRecoveryModule::HOBOSelfRecoveryModule()
@@ -162,7 +72,7 @@ HOBOSelfRecoveryModule::HOBOSelfRecoveryModule()
       concurrency::OSThread("hobo_self_recovery")
 {
     isPromiscuous = true;
-    resetReasonAtBoot = NRF_POWER->RESETREAS;
+    resetReasonAtBoot = readResetReason();
     setIntervalFromNow(5000);
 }
 
@@ -186,7 +96,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     if (isCommand(payload, payloadSize, "HELP")) {
         sendTextReply(mp.from, mp.channel,
-                      "CMDS: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BLE AUTO STATS NODES UPTIME VERSION WATCHDOG SCAN RECONNECT RECOVER REBOOT PING HELP");
+                      "CMDS: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BLE AUTO STATS NODES UPTIME VERSION WATCHDOG RECOVER REBOOT PING HELP");
         return ProcessMessage::CONTINUE;
     }
 
@@ -198,7 +108,8 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     }
 
     if (isCommand(payload, payloadSize, "VERSION")) {
-        snprintf(reply, sizeof(reply), "%s\nPlatform: %s\nNEWREAD/AUTO + self-recovery", FIRMWARE_LABEL, platformName());
+        snprintf(reply, sizeof(reply), "%s\nPlatform:%s\nSX1262+BLE+dual-WDT+12h safety reset",
+                 FIRMWARE_LABEL, platformName());
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
@@ -224,27 +135,22 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     }
 
     if (isCommand(payload, payloadSize, "BLE")) {
-        snprintf(reply, sizeof(reply), "BLE: scanner=%s disconnected=%lus low-duty=%s restarts=%lu",
-                 Bluefruit.Scanner.isRunning() ? "SCANNING" : "CONNECTED/IDLE",
-                 static_cast<unsigned long>(disconnectedAgeSeconds()),
-                 bleTuned ? "ON(10%)" : "PENDING",
-                 static_cast<unsigned long>(scanRestartCount));
+        snprintf(reply, sizeof(reply), "BLE: central_links=%u scanner=%s owner=HOBO-state-machine",
+                 static_cast<unsigned int>(Bluefruit.Central.connected()),
+                 Bluefruit.Scanner.isRunning() ? "SCANNING" : "STOPPED");
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
     if (isCommand(payload, payloadSize, "AUTO")) {
         sendTextReply(mp.from, mp.channel,
-                      "AUTO: ON. HOBO core uses STATUS write-pointer + NEWREAD; manual READ does not consume AUTO pointer. Self-recovery supervisor ON.");
+                      "AUTO: ON. STATUS pointer gating + NEWREAD. BLE connect/STATUS/read failures self-recover.");
         return ProcessMessage::CONTINUE;
     }
 
     if (isCommand(payload, payloadSize, "WATCHDOG")) {
-        snprintf(reply, sizeof(reply), "WATCHDOG: running=%s owner=%s timeout=%lus run-in-sleep=%s",
-                 NRF_WDT->RUNSTATUS ? "YES" : "NO",
-                 watchdogOwned ? "SELFRECOVERY" : "CORE/OTHER",
-                 static_cast<unsigned long>(WDT_TIMEOUT_SECONDS),
-                 watchdogOwned ? "YES" : "UNKNOWN");
+        snprintf(reply, sizeof(reply), "WATCHDOG: core=90s field-channel=%s run-in-sleep=YES",
+                 nrf52FieldWatchdogIsArmed() ? "ARMED" : "OFF");
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
@@ -257,9 +163,13 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     }
 
     if (isCommand(payload, payloadSize, "STATS")) {
-        snprintf(reply, sizeof(reply), "RECOVERY STATS: scan_restarts=%lu auto_recoveries=%lu command_recovers=%lu reset_reason=0x%08lX",
-                 static_cast<unsigned long>(scanRestartCount),
-                 static_cast<unsigned long>(automaticRecoveryCount),
+        const auto *radio = RadioLibInterface::instance;
+        snprintf(reply, sizeof(reply),
+                 "STATS: radio_recover=%lu/%lu tx=%lu last_tx=%lus cmd_reboots=%lu reset=0x%08lX",
+                 radio ? static_cast<unsigned long>(radio->radioRecoverySuccesses) : 0UL,
+                 radio ? static_cast<unsigned long>(radio->radioRecoveryAttempts) : 0UL,
+                 radio ? static_cast<unsigned long>(radio->txGood) : 0UL,
+                 radio && radio->lastTxCompleteMs ? static_cast<unsigned long>((millis() - radio->lastTxCompleteMs) / 1000UL) : 0UL,
                  static_cast<unsigned long>(commandRecoveryCount),
                  static_cast<unsigned long>(resetReasonAtBoot));
         sendTextReply(mp.from, mp.channel, reply);
@@ -269,48 +179,32 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     if (isCommand(payload, payloadSize, "STATUS") || isCommand(payload, payloadSize, "HEALTH")) {
         const unsigned int mv = powerStatus ? powerStatus->getBatteryVoltageMv() : 0;
         const unsigned int pct = powerStatus ? powerStatus->getBatteryChargePercent() : 0;
-        snprintf(reply, sizeof(reply), "%s %s\nUptime:%lus Power:%umV/%u%%\nBLE:%s WDT:%s\nScanRestarts:%lu Reset:0x%08lX",
-                 FIRMWARE_LABEL,
-                 platformName(),
-                 static_cast<unsigned long>(millis() / 1000UL),
-                 mv,
-                 pct,
-                 Bluefruit.Scanner.isRunning() ? "SCAN" : "LINK/IDLE",
-                 NRF_WDT->RUNSTATUS ? "ON" : "OFF",
-                 static_cast<unsigned long>(scanRestartCount),
+        const auto *radio = RadioLibInterface::instance;
+        snprintf(reply, sizeof(reply),
+                 "%s %s\nUp:%lus Power:%umV/%u%% BLE:%u\nTX:%lu RadioRec:%lu/%lu Reset:0x%08lX",
+                 FIRMWARE_LABEL, platformName(),
+                 static_cast<unsigned long>(millis() / 1000UL), mv, pct,
+                 static_cast<unsigned int>(Bluefruit.Central.connected()),
+                 radio ? static_cast<unsigned long>(radio->txGood) : 0UL,
+                 radio ? static_cast<unsigned long>(radio->radioRecoverySuccesses) : 0UL,
+                 radio ? static_cast<unsigned long>(radio->radioRecoveryAttempts) : 0UL,
                  static_cast<unsigned long>(resetReasonAtBoot));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(payload, payloadSize, "SCAN")) {
-        if (Bluefruit.Scanner.isRunning()) {
-            restartScanner();
-            sendTextReply(mp.from, mp.channel, "SCAN: disconnected-state BLE scanner refreshed in passive 10% duty mode");
-        } else {
-            sendTextReply(mp.from, mp.channel, "SCAN: not started because HOBO BLE link appears active/idle; active link left untouched");
-        }
-        return ProcessMessage::CONTINUE;
-    }
-
-    if (isCommand(payload, payloadSize, "RECONNECT")) {
-        if (Bluefruit.Scanner.isRunning()) {
-            restartScanner();
-            sendTextReply(mp.from, mp.channel, "RECONNECT: disconnected-state scanner rebuilt");
-        } else {
-            sendTextReply(mp.from, mp.channel, "RECONNECT: BLE link appears active. Use RECOVER for a full safe reboot if link is stale.");
-        }
+    if (isCommand(payload, payloadSize, "SCAN") || isCommand(payload, payloadSize, "RECONNECT")) {
+        sendTextReply(mp.from, mp.channel,
+                      "BLE recovery is automatic in v2; scanner/link lifecycle is owned by the HOBO state machine.");
         return ProcessMessage::CONTINUE;
     }
 
     if (isCommand(payload, payloadSize, "RECOVER") || isCommand(payload, payloadSize, "REBOOT")) {
         commandRecoveryCount++;
-        rebootPending = true;
-        rebootDueMs = millis() + 2000UL;
-        feedInternalWatchdog();
+        if (rebootAtMsec == 0)
+            rebootAtMsec = millis() + 2000UL;
         sendTextReply(mp.from, mp.channel,
-                      "RECOVERY: safe reboot in 2 sec. NVS, node identity, channels, keys and logger lock are preserved.");
-        setIntervalFromNow(100);
+                      "RECOVERY: flash-safe whole-node reboot scheduled in 2 sec; settings and logger lock preserved.");
         return ProcessMessage::CONTINUE;
     }
 
@@ -344,57 +238,12 @@ bool HOBOSelfRecoveryModule::sendTextReply(uint32_t destination, uint8_t channel
 
 int32_t HOBOSelfRecoveryModule::runOnce()
 {
-    const uint32_t now = millis();
-
-    if (rebootPending && reached(now, rebootDueMs)) {
-        LOG_WARN("HOBO self-recovery: executing safe reboot");
-        feedInternalWatchdog();
-        delay(20);
-        NVIC_SystemReset();
-        return 1000;
-    }
-
-    if (now < BOOT_SETTLE_MS)
+    if (millis() < BOOT_SETTLE_MS)
         return 5000;
 
-    initializeInternalWatchdog();
-    feedInternalWatchdog();
-
-    if (!bleTuned) {
-        configureLowDutyScanner(true);
-        LOG_INFO("HOBO self-recovery: BLE passive scan tuned to 10%% duty");
-    }
-
-    const bool scannerRunning = Bluefruit.Scanner.isRunning();
-    if (!haveScannerState || scannerRunning != lastScannerRunning) {
-        haveScannerState = true;
-        lastScannerRunning = scannerRunning;
-        if (scannerRunning) {
-            disconnectedSinceMs = now;
-            lastScanRefreshMs = now;
-        } else {
-            disconnectedSinceMs = 0;
-            lastScanRefreshMs = now;
-        }
-    }
-
-    if (scannerRunning) {
-        if (disconnectedSinceMs != 0 && (now - disconnectedSinceMs) >= BLE_STALE_REBOOT_MS) {
-            automaticRecoveryCount++;
-            LOG_ERROR("HOBO self-recovery: no HOBO BLE link for 6h; rebooting to rebuild BLE stack");
-            rebootPending = true;
-            rebootDueMs = now + 1000UL;
-            setIntervalFromNow(100);
-            return 100;
-        }
-
-        if ((now - lastScanRefreshMs) >= SCAN_RESTART_INTERVAL_MS) {
-            restartScanner();
-            return 1000;
-        }
-    }
-
-    feedInternalWatchdog();
+    // Scanner and central-link lifecycle intentionally belong to the HOBO telemetry state machine.
+    // This supervisor only exposes diagnostics/commands; exhausted BLE/radio recovery trips the
+    // independent field watchdog channel in the owning subsystem.
     return SUPERVISOR_INTERVAL_MS;
 }
 
