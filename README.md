@@ -18,8 +18,10 @@ This build reads real HOBO records over BLE, transmits them over Meshtastic, pre
 - Manual `READ` does not consume the automatic pointer.
 - `LOCK` persists the intended logger assignment across reboot.
 - Disconnected BLE scanning uses a low-duty passive scan.
+- A BLE connection attempt is cancelled after 30 seconds if it does not complete.
+- Repeated `STATUS` or `NEWREAD64` failures rebuild the BLE link; five exhausted recovery cycles trip the independent field watchdog.
 - Recovery actions preserve Meshtastic identity, channels, keys, NodeDB, and logger assignment.
-- nRF52840 watchdog protection is retained without taking ownership if the core already owns the watchdog.
+- Field-Recovery v2 uses the normal 90-second nRF52840 watchdog plus an independent field-health watchdog channel; both run during CPU sleep/halt so a live-but-wedged field node cannot remain stuck indefinitely.
 
 ## Useful DM commands
 
@@ -44,8 +46,8 @@ Send these as a direct Meshtastic text message to the node.
 | `WATCHDOG` | Shows watchdog state and ownership. |
 | `PING` | Quick end-to-end DM/liveness check. |
 | `WAKE` | Alias for `PING`. |
-| `SCAN` | Refreshes BLE scanning only when the logger is disconnected. |
-| `RECONNECT` | Rebuilds the disconnected BLE scanner/link. |
+| `SCAN` | Legacy diagnostic command. In v2 it does not manipulate the scanner; it reports that BLE recovery is automatic. |
+| `RECONNECT` | Legacy diagnostic command. In v2 it does not force a link rebuild; scanner/link lifecycle remains owned by the HOBO state machine. |
 | `RECOVER` | Replies, then performs a safe non-destructive reboot. |
 | `REBOOT` | Alias for `RECOVER`. |
 
