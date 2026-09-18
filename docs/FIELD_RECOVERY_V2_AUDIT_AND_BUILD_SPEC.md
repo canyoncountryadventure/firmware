@@ -403,3 +403,22 @@ A v2 source branch is considered deployable only when all of the following are t
 7. the corresponding v1 branch remains untouched as a rollback baseline.
 
 For HOBO and Remote Drone products, a successful CI build is still followed by physical field validation before replacing the known-good v1 image on every remote station.
+
+
+---
+
+## 15. Sensor-preservation verification
+
+A final v1-to-v2 branch comparison was performed after the recovery layer was applied.
+
+The important result is that the product-specific sensor implementations were **not replaced by a generic firmware tree**:
+
+- **RAK Soil Moisture + HOBO:** the SEN0308 soil-moisture implementation and its product wiring/configuration remain from `RAK-Soil-Moisture-HOBO-v1`; v2 changes are confined to the common reliability layer, HOBO recovery, workflow, and documentation.
+- **RAK Water Distance / RAK Water Distance + HOBO:** the `DistanceSensor` driver/calibration/persistence implementation remains from the matching v1 branches. The combined build additionally receives the HOBO v2 recovery changes.
+- **Seeed Water Distance / Seeed Water Distance + HOBO:** the same existing water-distance driver and calibration implementation remains intact; combined builds add the HOBO v2 state machine.
+- **Trail Sensors:** the PIR/Rock/HOBO and SEN0171 product code remains from `Trail-Sensors`; v2 changes are the shared nRF52/LoRa hardening and the v2 packaging workflow.
+- **Remote Drone Flashing:** the autonomous Scout/flasher workflow remains, but the embedded target image is now built from the hardened v2 target so target and Scout remain a matched pair.
+- **Heltec Gateway:** gateway ingestion, Wi-Fi, Vercel/Neon forwarding, direct HOBO BLE, and gateway sensor logic are unchanged; the v2 branch is the matching gateway release and distribution package.
+- **HOBO-only products:** MX2001/MX2201/MX2203 STATUS/NEWREAD behavior is retained, with intentional changes only to connection timeout, stale-link recovery, diagnostics, watchdog escalation, and removal of the temporary field-check test responder.
+
+This verification is also reflected in the Git compare history: non-HOBO soil, distance, trail, and gateway sensor source files do not appear as replacements in the v1-to-v2 diffs.
