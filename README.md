@@ -34,6 +34,22 @@ The original Meshtastic 2.7.26 application baseline is retained rather than blin
 
 ---
 
+## Field-build drone-flash requirement
+
+**Project release rule:** every new or revised nRF52 field-node firmware configuration must ship with remote drone-flash capability as part of the same release work unless the hardware is technically incompatible.
+
+A field build is not complete until:
+
+1. its normal target branch produces the standard USB UF2 and BLE OTA ZIP;
+2. the target application contains a direct-message `DFU` hook that safely enters its BLE OTA bootloader and persists the post-update callback marker;
+3. `Remote-Drone-Flashing-v2` produces a named `Drone-<configuration>.uf2` embedding the exact target OTA payload;
+4. CI successfully builds both the normal target and its matched Scout image; and
+5. hardware-specific bootloader behavior is documented rather than assuming the RAK implementation applies unchanged.
+
+Seeed and other supported nRF52 targets use their own target-side bootloader handoff where required; the drone Scout remains a separate RAK4631 unless a future hardware change is explicitly documented.
+
+---
+
 ## Download Field-Recovery v2
 
 ### nRF52840 environmental firmware
