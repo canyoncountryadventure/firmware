@@ -21,12 +21,23 @@ This branch proves that a field RAK4631 can be commanded over Meshtastic to ente
 | Transfer full application image (`.bin`) | ✅ **778,048-byte image verified** |
 | Nordic RECEIVE / VALIDATE / ACTIVATE / RESET | ✅ Bench verified |
 | Target boots flashed Meshtastic + HOBO application | ✅ Bench verified |
-| Persist requester/build before DFU and report verified new-build boot over mesh | ✅ Implemented in target source |
+| Persist requester/build before DFU and report verified new-build boot over mesh | ✅ Compiled + artifact verified; bench callback test is next |
 | Scout carries firmware without a PC | ⏳ Next step |
 | Scout runs normal Meshtastic and DFU client in one image | ⏳ Next step |
 | Final two-RAK field architecture | ⏳ Integration step |
 
 The successful Phase 2 bench run reached `100%`, returned `RECEIVE_FW status=0x1`, `VALIDATE status=0x1`, sent `ACTIVATE`, disconnected during reboot, and reported `DFU SUCCESS`.
+
+### Latest validated CI artifacts
+
+- **Target build:** `2.7.26.ba278ae`
+  - Full UF2: **1,560,576 bytes**
+  - Application OTA ZIP: **781,005 bytes**
+  - Compiled image contains the build-aware `UPDATE SUCCESS` / `DFU NOT CONFIRMED` callback logic.
+- **Scout build:** triggering commit `5d336b7`
+  - Phase 2 serial-bridge UF2: **249,344 bytes**
+  - Packaging is pinned to the triggering SHA and guarded against implausibly small artifacts.
+
 
 ## Quick links
 
