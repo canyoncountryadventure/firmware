@@ -2,7 +2,7 @@
 """
 Build an embedded target image for the autonomous RAK4631 drone flasher.
 
-Input: Nordic/Adafruit application-only OTA ZIP produced by the RAK4631 target build.
+Input: Nordic/Adafruit application-only OTA ZIP produced by a supported nRF52840 target build.
 Output: C++ header containing:
   - Legacy DFU .dat init packet
   - LZ4-compressed application .bin
