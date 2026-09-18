@@ -1151,34 +1151,34 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
     // supervisor intentionally leaves VERSION to this feature-aware response.
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "VERSION")) {
 #if defined(RAK_4631)
-        static constexpr const char *radioType = "RAK4631/RAK19007";
+        static constexpr const char *radioType = "RAK4631/19007";
         static constexpr const char *dfuState = "ON";
-        // The canonical RAK HOBO target constructs HOBOSelfRecoveryModule
-        // from MX2001DiagnosticModule. That supervisor arms the nRF52840
-        // on-chip watchdog after the 30-second boot-settle period.
-        static constexpr const char *watchdogState = "ON (nRF52840 internal, 900s)";
+        static constexpr const char *dmCommands = "VERSION DFU LOGGER LOCK UNLOCK READ";
 #else
-        static constexpr const char *radioType = "nRF52840";
+        static constexpr const char *radioType = "SEEED-XIAO-nRF52840";
         static constexpr const char *dfuState = "OFF";
-        static constexpr const char *watchdogState = "OFF";
+        static constexpr const char *dmCommands = "VERSION LOGGER LOCK UNLOCK READ";
 #endif
 
-        // Keep VERSION well below Meshtastic's 233-byte Data payload
-        // ceiling and common client text-display limits. Every required field
-        // is present, but labels are compact for reliable weak-link delivery.
+        // Keep VERSION well below Meshtastic's 233-byte Data payload ceiling
+        // and common client text-display limits. Every required field remains
+        // present, while platform-specific capability reporting stays honest.
         char reply[210] = {};
         snprintf(
             reply,
             sizeof(reply),
-            "RADIO: RAK4631/19007\n"
-            "SENSORS: HOBO MX2001/2201/2203\n"
-            "NEXTREAD: ON NEWREAD64\n"
-            "DM: ON VERSION DFU LOGGER LOCK UNLOCK READ\n"
-            "BUILD: %s\n"
-            "DFU: ON\n"
-            "WDT: ON nRF52 900s\n"
-            "DATE: %s",
+            "RADIO:%s\n"
+            "SENSORS:HOBO MX2001/2201/2203\n"
+            "NEXTREAD:ON NEWREAD64\n"
+            "DM:ON %s\n"
+            "BUILD:%s\n"
+            "DFU:%s\n"
+            "WDT:ON nRF52 900s\n"
+            "DATE:%s",
+            radioType,
+            dmCommands,
             OTA_DFU_CURRENT_BUILD,
+            dfuState,
             __DATE__);
 
         sendTextReply(mp.from, mp.channel, reply);
