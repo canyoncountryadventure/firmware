@@ -264,22 +264,35 @@ void NRF52Bluetooth::setup()
     LOG_INFO("Init the Bluefruit nRF52 module");
     Bluefruit.autoConnLed(false);
 #if defined(SEEED_XIAO_NRF52840_KIT)
-    // XIAO dual-role builds need one peripheral phone link plus one central HOBO link.
-    // BANDWIDTH_MAX pushes the S140 SoftDevice RAM requirement beyond this board's
-    // 0x20006000 application RAM origin and causes a software-reset loop in Bluefruit.begin().
-    Bluefruit.configPrphBandwidth(BANDWIDTH_NORMAL);
+    // Dual-role sensor nodes favor reliability over BLE throughput.  LOW bandwidth
+    // minimizes the S140 RAM reservation while retaining both the phone peripheral
+    // connection and the central HOBO logger connection.
+    Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
 #else
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
 #endif
+
+    bool bluefruitReady = false;
 #if defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631)
-    // HOBO integrations: keep one BLE peripheral link for the
-    // Meshtastic phone connection and add one BLE central link
-    // for the HOBO logger.
+    // HOBO integrations: keep one BLE peripheral link for the Meshtastic phone
+    // connection and add one BLE central link for the HOBO logger.
     Bluefruit.configCentralBandwidth(BANDWIDTH_LOW);
-    Bluefruit.begin(1, 1);
+    LOG_INFO("Starting Bluefruit dual-role (1 peripheral, 1 central)");
+    bluefruitReady = Bluefruit.begin(1, 1);
 #else
-    Bluefruit.begin();
+    bluefruitReady = Bluefruit.begin();
 #endif
+    if (!bluefruitReady) {
+        // Do not proceed into service setup with a disabled SoftDevice.  That path
+        // asserts and produces a permanent software-reset loop.  LoRa and wired
+        // sensors can continue operating, and the error remains visible in logs.
+        LOG_ERROR("Bluefruit initialization failed; continuing without Bluetooth");
+        delay(250);
+        return;
+    }
+    LOG_INFO("Bluefruit initialized");
+    delay(50);
+
     // Clear existing data.
     Bluefruit.Advertising.stop();
     Bluefruit.Advertising.clearData();
