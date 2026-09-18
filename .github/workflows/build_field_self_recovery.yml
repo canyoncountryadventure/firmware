@@ -59,9 +59,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p export
-          UF2="$(find release -maxdepth 1 -type f -name '*.uf2' | head -n1)"
+          UF2="$(find release -maxdepth 1 -type f -name 'firmware-*.uf2' | head -n1)"
           OTA="$(find release -maxdepth 1 -type f -name '*-ota.zip' | head -n1)"
-          test -n "$UF2"; test -n "$OTA"
+          test -n "$UF2"; test -n "$OTA"\n          test "$(stat -c%s "$UF2")" -gt 500000
           if [[ "${{ matrix.label }}" == "rak4631" ]]; then
             cp "$UF2" export/Field-Self-Recovery-v2-RAK4631.uf2
             cp "$OTA" export/Field-Self-Recovery-v2-RAK4631-OTA.zip
