@@ -61,16 +61,19 @@ These are useful for testing the common v2 recovery layer without a product-spec
 
 ### Remote drone flashing
 
-The drone system builds a **matched target + Scout/flasher pair**. Keep files from the same v2 build together.
+Every RAK v2 target branch keeps its **normal UF2 + normal OTA ZIP** and contains the mesh `DFU` hook. The **compressed Scout images are centralized on [Remote-Drone-Flashing-v2](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing-v2)**.
 
-| File | Download |
+| Target configuration | Compressed drone/Scout UF2 |
 |---|---|
-| Hardened RAK4631 target UF2 | [RAK4631-HOBO-DFU-Target-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-HOBO-DFU-Target-v2.uf2) |
-| Hardened RAK4631 target BLE DFU ZIP | [RAK4631-HOBO-DFU-Target-v2-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-HOBO-DFU-Target-v2-OTA.zip) |
-| Autonomous RAK4631 Scout / drone flasher | [RAK4631-Remote-Drone-Flasher-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-Remote-Drone-Flasher-v2.uf2) |
-| Source | [Remote-Drone-Flashing-v2](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing-v2) |
+| RAK HOBO Safe v2 | [Drone-RAK-HOBO-Safe-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-HOBO-Safe-v2.uf2) |
+| RAK Soil Moisture + HOBO v2 | [Drone-RAK-Soil-Moisture-HOBO-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v2.uf2) |
+| RAK Water Distance v2 | [Drone-RAK-Water-Distance-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-v2.uf2) |
+| RAK Water Distance + HOBO v2 | [Drone-RAK-Water-Distance-HOBO-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v2.uf2) |
+| Canonical Field Self-Recovery v2 — RAK4631 | [Drone-Field-Self-Recovery-v2-RAK4631.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v2-RAK4631.uf2) |
 
-The previously physically verified v1 drone pair remains available on the legacy branch and should remain the fallback until the v2 matched pair is physically field-tested.
+Each Scout UF2 embeds an **LZ4-compressed copy of the matching target branch's application OTA**. Flash the normal target firmware onto the field node; flash the matching `Drone-*.uf2` onto the separate RAK4631 carried by the drone.
+
+The original physically proven `2.7.26.b812974` pair remains the hardware-validation reference. The new multi-configuration v2 images are CI-built successfully but should receive one repeat physical end-to-end bench DFU before being trusted for inaccessible field nodes.
 
 ### Heltec gateway
 
