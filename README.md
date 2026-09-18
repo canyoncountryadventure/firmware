@@ -17,9 +17,9 @@ The Scout needs no laptop, phone, SD card, ESP32, LoRa antenna, or USB connectio
 
 | Item | Link |
 |---|---|
-| Source branch | [Remote-Drone-Flashing](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing) |
+| Source branch | [Remote-Drone-Flashing-v2](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing-v2) |
 | **Verified successful `b812974` build** | **[Workflow run and `remote-drone-flashing-12` artifact](https://github.com/canyoncountryadventure/firmware/actions/runs/35312994634)** |
-| **Matched build downloads** | **[Latest Remote Drone Flasher workflow runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing)** |
+| **Matched build downloads** | **[Latest Remote Drone Flasher workflow runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing-v2)** |
 | Workflow source | [build_remote_drone_flasher.yml](.github/workflows/build_remote_drone_flasher.yml) |
 | Technical design | [RAK_REMOTE_DFU.md](docs/RAK_REMOTE_DFU.md) |
 | Scout source | [rak4631_drone_flasher.cpp](src/experimental/rak4631_drone_flasher.cpp) |
@@ -45,12 +45,13 @@ The target UF2 contains build `2.7.26.b812974` and the compact `RADIO / SENSORS 
 | LoRa `DFU` command stores the requester/build marker and reboots target into `AdaDFU` | **Bench proven** |
 | Scout finds `AdaDFU`, transfers the full embedded image, validates, activates and triggers reboot | **Bench proven** |
 | Target returns to Meshtastic and sends the stored LoRa callback | **Bench proven** |
-| Matched `2.7.26.b812974` target + Scout firmware pair | **Successfully tested** |
+| Original matched `2.7.26.b812974` target + Scout firmware pair | **Successfully tested** |
+| Current hardened v2 target + Scout pair | **Source-integrated and CI-rebuilt; physical end-to-end DFU should be revalidated before remote deployment** |
 | Compact `VERSION` response with every required field under the payload limit | **Implemented in the tested `b812974` target** |
 | Physical drone flight/hover | Separate operational test; the autonomous firmware-update chain itself is proven |
 | Seeed XIAO targets | **Not supported by this branch** |
 
-The firmware system is successful. A physical flight changes range, hover time and aircraft handling; it does not change the proven target/Scout DFU protocol.
+The original matched pair proves the target/Scout DFU protocol. The v2 branch preserves that protocol while changing the target recovery core, so the new matched v2 pair should receive one repeat bench DFU before it replaces the proven `b812974` pair in the field.
 
 ## Architecture
 
@@ -144,8 +145,8 @@ Target capabilities:
 - direct-message commands
 - BLE DFU trigger
 - persistent post-update callback
-- nRF52840 internal watchdog
-- BLE/self-recovery supervisor
+- dual-channel nRF52840 watchdog protection
+- automatic HOBO BLE recovery with 30-second connect cancellation and bounded STATUS/NEWREAD retries
 
 ### Controller
 
@@ -171,7 +172,7 @@ Any normal Meshtastic radio that can directly message the target.
 
 12. The target stores the requesting controller node, channel, and current build ID.
 13. The target replies that DFU is armed.
-14. About three seconds later the target resets into `AdaDFU`.
+14. About three seconds later the target flushes pending flash writes, disables the active SoftDevice, sets the bootloader flag, and resets into `AdaDFU`.
 15. The Scout detects `AdaDFU`, connects, and flashes its embedded target image.
 16. The target validates and activates the application.
 17. The target reboots into Meshtastic.
@@ -212,7 +213,7 @@ NEXTREAD:ON NEWREAD64
 DM:ON VERSION DFU LOGGER LOCK UNLOCK READ
 BUILD:2.7.26.<gitsha>
 DFU:ON
-WDT:ON nRF52 900s
+WDT:90s+field
 DATE:<compile date>
 ```
 
@@ -230,12 +231,13 @@ WATCHDOG
 
 This reads the live self-recovery watchdog state.
 
-The RAK target uses the **nRF52840 internal WDT**:
+The hardened v2 RAK target uses the **Field-Recovery v2 nRF52840 watchdog model**:
 
-- boot settle before arming: **30 seconds**
-- timeout: **900 seconds / 15 minutes**
-- runs while CPU sleeps
-- supervisor feeds it approximately every 30 seconds
+- main-loop hardware watchdog: **90 seconds**
+- independent field-health watchdog channel: **armed**
+- both channels continue during CPU sleep/halt
+- repeated unrecoverable SX1262 or HOBO BLE failures can deliberately starve the field channel and force a hardware reset
+- a **12-hour preventive reboot** remains enabled during the v2 burn-in period
 
 ### Other target commands
 
@@ -261,6 +263,8 @@ RECOVER
 REBOOT
 PING
 ```
+
+`SCAN` and `RECONNECT` are retained as legacy diagnostic commands in v2; BLE scanner/link recovery is automatic and remains owned by the HOBO state machine.
 
 ## Command authorization and security
 
