@@ -1,11 +1,11 @@
-# RAK Water Distance + HOBO v1
+> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Water-Distance-HOBO-v1 is retained.\n\n# RAK Water Distance + HOBO v1
 
 Production combined firmware for **RAK4631 + RAK19007** field nodes that must do both:
 
 - ultrasonic water-level / stage monitoring, and
 - BLE collection from supported HOBO MX loggers.
 
-**Branch:** `RAK-Water-Distance-HOBO-v1`
+**Branch:** `RAK-Water-Distance-HOBO-v2`
 
 This branch is built from the current **RAK Water Distance v1** firmware and then adds the proven HOBO reader/recovery stack. It replaces the older combined distance/HOBO builds.
 
