@@ -30,7 +30,9 @@ static constexpr char LEGACY_CONFIG_PATH[] = "/prefs/distance_sensor.bin";
 static constexpr uint32_t LEGACY_CONFIG_MAGIC = 0x31545344UL; // "DST1"
 static constexpr uint8_t LEGACY_CONFIG_VERSION = 1;
 
-static constexpr uint32_t BOOT_SETTLE_MS = 8000UL;
+// Keep the first sensor read/LoRa transmission clear of Bluefruit/SoftDevice
+// startup, which occurs around 8 seconds on nRF52.
+static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SENSOR_RETRY_MS = 30000UL;
 static constexpr uint32_t DEFAULT_REPORT_INTERVAL_SEC = 3600UL;
 static constexpr uint8_t DISTANCE_PACKET_VERSION = 1;
