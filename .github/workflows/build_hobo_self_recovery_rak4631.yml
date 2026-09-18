@@ -1,4 +1,5 @@
 name: Build RAK HOBO Safe v2
+# Canonical hardened RAK/HOBO v2 product build.
 
 on:
   push:
