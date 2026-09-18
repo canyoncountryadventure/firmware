@@ -1148,18 +1148,17 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
         return ProcessMessage::CONTINUE;
 
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "VERSION")) {
-#if defined(HAS_HARDWARE_WATCHDOG)
-        static constexpr const char *watchdogState = "ON";
-#else
-        static constexpr const char *watchdogState = "OFF";
-#endif
-
 #if defined(RAK_4631)
         static constexpr const char *radioType = "RAK4631/RAK19007";
         static constexpr const char *dfuState = "ON";
+        // The canonical RAK HOBO target constructs HOBOSelfRecoveryModule
+        // from MX2001DiagnosticModule. That supervisor arms the nRF52840
+        // on-chip watchdog after the 30-second boot-settle period.
+        static constexpr const char *watchdogState = "ON (nRF52840 internal, 900s)";
 #else
         static constexpr const char *radioType = "nRF52840";
         static constexpr const char *dfuState = "OFF";
+        static constexpr const char *watchdogState = "OFF";
 #endif
 
         char reply[240] = {};
