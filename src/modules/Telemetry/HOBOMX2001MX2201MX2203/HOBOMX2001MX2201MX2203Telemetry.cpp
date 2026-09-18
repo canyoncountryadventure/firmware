@@ -1147,6 +1147,8 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
 
+    // Canonical VERSION responder for this target; the self-recovery
+    // supervisor intentionally leaves VERSION to this feature-aware response.
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "VERSION")) {
 #if defined(RAK_4631)
         static constexpr const char *radioType = "RAK4631/RAK19007";
