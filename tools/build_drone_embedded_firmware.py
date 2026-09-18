@@ -28,6 +28,74 @@ def cpp_bytes(data: bytes, columns: int = 16) -> str:
     return "\n".join(rows)
 
 
+def decode_like_drone_firmware(data: bytes, expected_size: int) -> bytes:
+    """Emulate the Scout's exact raw-LZ4 parser and 64 KiB history window."""
+    history = bytearray(65536)
+    output = bytearray()
+    ip = 0
+    total_out = 0
+
+    def emit(value: int) -> None:
+        nonlocal total_out
+        if total_out >= expected_size:
+            raise ValueError("decoder produced more bytes than expected")
+        history[total_out & 0xFFFF] = value
+        output.append(value)
+        total_out += 1
+
+    def read_extension(length: int) -> tuple[int, int]:
+        nonlocal ip
+        while ip < len(data):
+            value = data[ip]
+            ip += 1
+            length += value
+            if value != 255:
+                return length, ip
+        raise ValueError("truncated LZ4 length extension")
+
+    while ip < len(data):
+        token = data[ip]
+        ip += 1
+
+        literal_length = token >> 4
+        if literal_length == 15:
+            literal_length, _ = read_extension(literal_length)
+
+        if ip + literal_length > len(data):
+            raise ValueError("truncated LZ4 literal run")
+
+        for _ in range(literal_length):
+            emit(data[ip])
+            ip += 1
+
+        if ip == len(data):
+            break
+
+        if ip + 2 > len(data):
+            raise ValueError("truncated LZ4 match offset")
+
+        offset = data[ip] | (data[ip + 1] << 8)
+        ip += 2
+
+        if offset == 0 or offset > total_out:
+            raise ValueError("invalid LZ4 match offset")
+
+        match_length = token & 0x0F
+        if match_length == 15:
+            match_length, _ = read_extension(match_length)
+        match_length += 4
+
+        for _ in range(match_length):
+            emit(history[(total_out - offset) & 0xFFFF])
+
+    if total_out != expected_size:
+        raise ValueError(
+            f"decoder size mismatch: got {total_out}, expected {expected_size}"
+        )
+
+    return bytes(output)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("ota_zip", type=pathlib.Path)
@@ -49,12 +117,17 @@ def main() -> None:
         store_size=False,
     )
 
-    # Build-time verification: never embed a stream we cannot reconstruct exactly.
+    # Verify with the reference decoder and again with an implementation that
+    # mirrors the drone Scout's 64 KiB circular-history streaming decoder.
     check = lz4.block.decompress(compressed, uncompressed_size=len(firmware))
     if check != firmware:
-        raise SystemExit("LZ4 verification failed")
+        raise SystemExit("Reference LZ4 verification failed")
 
-    match = re.search(r"firmware-rak4631-([^/]+)\\.bin$", bin_name)
+    streamed_check = decode_like_drone_firmware(compressed, len(firmware))
+    if streamed_check != firmware:
+        raise SystemExit("Drone-style streaming LZ4 verification failed")
+
+    match = re.search(r"firmware-rak4631-([^/]+)\.bin$", bin_name)
     version = match.group(1) if match else bin_name
 
     args.output_header.parent.mkdir(parents=True, exist_ok=True)
@@ -95,6 +168,7 @@ static const uint8_t kEmbeddedDfuLz4[] __attribute__((aligned(4))) = {
     print(f"DAT: {len(init_packet)} bytes")
     print(f"BIN: {len(firmware)} bytes")
     print(f"LZ4: {len(compressed)} bytes ({ratio:.1f}% of original)")
+    print("Streaming decoder verification: PASS")
     print(f"Header: {args.output_header}")
 
 
