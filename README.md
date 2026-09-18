@@ -1,224 +1,287 @@
-# Meshtastic Field Firmware
+# Meshtastic Field Firmware — Field-Recovery v2
 
-If you just want firmware, start here:
+This repository contains the custom Meshtastic firmware used for the environmental sensor network, remote HOBO stations, water-level stations, soil-moisture stations, trail sensors, Heltec gateway, and remote drone flashing system.
 
-1. **[`Self-Recovery-v1s/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Self-Recovery-v1s)** — HOBO, water-distance, combined water + HOBO, and Heltec gateway firmware.
-2. **[`Trail-Sensors/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Trail-Sensors)** — trail-counter, PIR, rock telemetry, and trail HOBO firmware.
-3. **[`RAK-Soil-Moisture-HOBO-v1`](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v1)** — RAK4631/RAK19007 + SEN0308 soil moisture + optional HOBO firmware.
-4. **[`Remote-Drone-Flashing`](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing)** — successfully tested autonomous RAK4631-to-RAK4631 BLE firmware updater and matched build workflow.
+**Field-Recovery v2 is the current hardened firmware family.** The v1 builds are retained for rollback and comparison.
 
-Everything else in the repository is source code or build infrastructure.
+The complete engineering audit and implementation specification is here:
 
-## Start with the right file
+**[Field-Recovery v2 — Final Audit, Architecture, and Build Specification](docs/FIELD_RECOVERY_V2_AUDIT_AND_BUILD_SPEC.md)**
 
-| File type | Use it for | How |
-|---|---|---|
-| `.uf2` | Normal USB installation and recovery | Double-press reset, then copy the UF2 to the board's bootloader drive. |
-| `-OTA.zip` | Android BLE update | In Nordic nRF Connect choose **DFU → Distribution packet (ZIP)**. Do not unzip it. |
-| Full build `.zip` | Platform-specific bundle such as the Heltec gateway | Open its firmware folder and follow that build's README. |
+## What changed in v2
 
-Do not select a UF2 in nRF Connect, and do not copy an OTA ZIP to the bootloader drive. Routine upgrades should not use factory-erase images.
+The v2 family keeps the sensor logic from each existing firmware branch and replaces the common field reliability layer underneath it.
 
-## Self-Recovery-v1s
+The main protections are:
 
-| Firmware | Board | USB | BLE / OTA |
+- fixed SX1262 image-calibration timing with a 50 ms settle before RX-register restoration;
+- no invasive radio maintenance during active RX, active TX, queued TX, or pending IRQ state;
+- polling for missed **RX_DONE and TX_DONE** interrupts;
+- recoverable SX1262 RX/radio state instead of assert-and-die behavior;
+- actual SX1262 power-rail cycling on supported hardware such as the RAK4631;
+- an independent nRF52840 field-health watchdog channel in addition to the main-loop watchdog;
+- hardware-WDT escalation when radio/BLE recovery is exhausted;
+- HOBO connection timeout and `sd_ble_gap_connect_cancel()`;
+- HOBO STATUS/NEWREAD failures now rebuild the BLE link instead of retrying forever;
+- HOBO state machine is the sole owner of its BLE scanner lifecycle;
+- flash cache is quiesced before intentional nRF52 resets;
+- larger nRF52 main-loop, BLE-task, and callback-task stacks;
+- accurate reset-reason reporting;
+- a **12-hour preventive reboot during v2 burn-in** as an independent final fallback;
+- pinned build/framework revisions for reproducible firmware.
+
+The original Meshtastic 2.7.26 application baseline is retained rather than blindly moving the field fleet to an unvalidated major firmware revision.
+
+---
+
+## Download Field-Recovery v2
+
+### nRF52840 environmental firmware
+
+| Firmware | Board / sensors | USB UF2 | BLE DFU ZIP | Source |
+|---|---|---|---|---|
+| **RAK HOBO Safe v2** | RAK4631 / RAK19007 + HOBO MX2001/MX2201/MX2203 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-HOBO-Safe-v2.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-HOBO-Safe-v2-OTA.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/RAK-HOBO-Safe-v2) |
+| **RAK Soil Moisture + HOBO v2** | RAK4631 / RAK19007 + SEN0308 + optional HOBO | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2-OTA.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v2) |
+| **RAK Water Distance + HOBO v2** | RAK4631 + ultrasonic water distance + HOBO | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v2.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v2-OTA.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v2) |
+| **RAK Water Distance v2** | RAK4631 + ultrasonic water distance | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-v2.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-v2-OTA.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-v2) |
+| **Seeed HOBO Safe v2** | XIAO nRF52840 + Wio-SX1262 + HOBO | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v2.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v2-OTA.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/Seeed-HOBO-Safe-v2) |
+| **Seeed Water Distance + HOBO v2** | XIAO nRF52840 + Wio-SX1262 + water distance + HOBO | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v2.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v2-OTA.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v2) |
+| **Seeed Water Distance v2** | XIAO nRF52840 + Wio-SX1262 + ultrasonic water distance | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-v2.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-v2-OTA.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-v2) |
+| **Trail PIR + Rock + HOBO v2** | Seeed trail/presence/rock telemetry + HOBO | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v2.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v2-OTA.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v2) |
+| **Trail SEN0171 v2** | Dedicated fast trail counter | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-SEN0171-v2.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-SEN0171-v2-OTA.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v2) |
+
+### Canonical recovery builds
+
+These are useful for testing the common v2 recovery layer without a product-specific sensor branch.
+
+| Build | UF2 | BLE DFU ZIP | Source |
 |---|---|---|---|
-| **Seeed HOBO Safe v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-HOBO-Safe-v1/Seeed-HOBO-Safe-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-HOBO-Safe-v1/Seeed-HOBO-Safe-v1-OTA.zip) |
-| **RAK HOBO Safe v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-HOBO-Safe-v1/RAK-HOBO-Safe-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-HOBO-Safe-v1/RAK-HOBO-Safe-v1-OTA.zip) |
-| **Seeed Water Distance v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-v1/Seeed-Water-Distance-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-v1/Seeed-Water-Distance-v1-OTA.zip) |
-| **RAK Water Distance v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-v1/RAK-Water-Distance-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-v1/RAK-Water-Distance-v1-OTA.zip) |
-| **Seeed Water Distance + HOBO v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1-OTA.zip) |
-| **RAK Water Distance + HOBO v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1-OTA.zip) |
-| **RAK Soil Moisture + HOBO v1** | RAK4631 + RAK19007 + SEN0308 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v1-OTA.zip) |
-| **Heltec Gateway v1** | Heltec V4 | [Full build ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Heltec-Gateway-v1/Heltec-Gateway-v1.zip) | — |
+| **Field Self-Recovery v2 — RAK4631** | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v2-RAK4631.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v2-RAK4631-OTA.zip) | [field-self-recovery-v2](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v2) |
+| **Field Self-Recovery v2 — Seeed** | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v2-Seeed.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v2-Seeed-OTA.zip) | [field-self-recovery-v2](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v2) |
 
-Detailed soil wiring, calibration, packet format, commands, validation and troubleshooting are on the **[RAK Soil Moisture + HOBO v1 branch front page](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v1)**.
+### Remote drone flashing
 
-## Trail-Sensors
+The drone system builds a **matched target + Scout/flasher pair**. Keep files from the same v2 build together.
 
-| Firmware | Purpose | USB | BLE / OTA |
+| File | Download |
+|---|---|
+| Hardened RAK4631 target UF2 | [RAK4631-HOBO-DFU-Target-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-HOBO-DFU-Target-v2.uf2) |
+| Hardened RAK4631 target BLE DFU ZIP | [RAK4631-HOBO-DFU-Target-v2-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-HOBO-DFU-Target-v2-OTA.zip) |
+| Autonomous RAK4631 Scout / drone flasher | [RAK4631-Remote-Drone-Flasher-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-Remote-Drone-Flasher-v2.uf2) |
+| Source | [Remote-Drone-Flashing-v2](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing-v2) |
+
+The previously physically verified v1 drone pair remains available on the legacy branch and should remain the fallback until the v2 matched pair is physically field-tested.
+
+### Heltec gateway
+
+| Firmware | Board | Package | Source |
 |---|---|---|---|
-| **SEN0171 v1** | Dedicated fast trail counter | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/SEN0171/Trail-SEN0171-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/SEN0171/Trail-SEN0171-v1-OTA.zip) |
-| **PIR + Rock + HOBO v1** | PIR / presence + rock telemetry + HOBO | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1-OTA.zip) |
+| **Heltec Gateway v2** | Heltec WiFi LoRa 32 V4 | [Full build ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Heltec-Gateway-v2.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v2) |
 
-## Useful DM commands
+The Heltec gateway retains the existing mesh -> Vercel -> Neon -> dashboard pipeline and gateway-specific sensor handling. It is the matching gateway release for the v2 field fleet; it does not use nRF52840 UF2 flashing.
 
-Send these as direct Meshtastic text messages to the target node. Commands are case-insensitive; a leading `/` is optional where supported.
+---
 
-### HOBO Safe v1 — Seeed or RAK
+## Which file do I flash?
 
-| Command | What it does |
+| File | Use |
 |---|---|
-| `STATUS` | Shows overall node/HOBO health. |
-| `LOGGER` | Shows HOBO model, MAC, BLE RSSI, interval, and lock state. |
-| `READ` | Takes a fresh HOBO reading without consuming the automatic pointer. |
-| `LOCK` | Saves the identified HOBO as this station's logger. |
-| `UNLOCK` | Clears the saved logger and resumes discovery. |
-| `BLE` | Shows BLE scanning/link/recovery state. |
-| `AUTO` | Shows automatic pointer-gated HOBO record state. |
-| `POWER` | Shows battery voltage, percentage, and charging state. |
-| `WATCHDOG` | Shows watchdog state/ownership. |
-| `PING` | Quick DM/liveness test. |
-| `SCAN` | Refreshes disconnected BLE scanning. |
-| `RECONNECT` | Rebuilds the disconnected BLE scanner/link. |
-| `RECOVER` or `REBOOT` | Replies, then safely reboots without erasing Meshtastic settings. |
+| **`.uf2`** | USB installation/recovery on RAK4631 or Seeed XIAO nRF52840. Double-press reset and copy the UF2 to the bootloader drive. |
+| **`-OTA.zip`** | BLE update through Nordic nRF Connect: **DFU -> Distribution packet (ZIP)**. Do not unzip it. |
+| **Heltec full ZIP** | ESP32-S3/Heltec V4 gateway bundle. |
+| **Drone Scout UF2** | Firmware for the separate RAK4631 that performs autonomous BLE flashing of the remote target. |
 
-### Water Distance v1 — Seeed or RAK
+Do not select a UF2 as a Nordic DFU package, and do not copy the OTA ZIP to the UF2 bootloader drive.
 
-| Command | What it does |
+---
+
+## v2 recovery architecture
+
+```text
+                     FIELD-RECOVERY v2
+
+Normal LoRa operation
+        |
+        +-- missed RX/TX IRQ poll
+        |
+        +-- guarded 60 s SX1262 maintenance
+        |       |
+        |       +-- 50 ms CalibrateImage settle
+        |       +-- restore RX state / 0x8B5
+        |
+        +-- radio operation fails
+                |
+                +-- RX retry
+                +-- full SX1262 re-init
+                +-- SX1262 rail power-cycle
+                +-- retry RX
+                |
+                +-- still unhealthy
+                        |
+                        +-- field WDT channel stops feeding
+                        +-- nRF52840 hardware reset
+
+HOBO builds add:
+scan -> connect -> STATUS/NEWREAD -> reconnect/cancel -> WDT escalation
+
+Independent burn-in fallback:
+12-hour flash-safe whole-node reboot
+```
+
+On a RAK4631 reboot, v2 also explicitly cold-cycles the SX1262 power-enable rail before normal radio initialization.
+
+---
+
+## Sensor functionality retained
+
+The v2 branches were **not** created by flattening everything into one generic build. Each v2 branch starts with its matching sensor branch and receives the same hardened core underneath it.
+
+| Product | Existing function retained in v2 |
 |---|---|
-| `STATUS` | Shows sensor, interval, calibration, and readiness. |
-| `RAW` | Takes a fresh raw distance reading. |
-| `READ` | Takes a fresh reading and reports calculated stage if calibrated. |
-| `VERIFY` | Takes multiple fresh readings and reports median/range/spread. |
-| `SENSOR A01NYUB` | Selects the SEN0313/A01NYUB sensor. |
-| `SENSOR A02YYUW` | Selects the SEN0311/A02YYUW sensor. |
-| `SENSOR SEN0590` | Selects the SEN0590 sensor. |
-| `SENSOR AUTO` | Automatically tries supported distance-sensor drivers. |
-| `INTERVAL 1H` | Saves a 1-hour automatic report interval. |
-| `CAL STAGE 1.42FT` | Calibrates from the independently measured stage and locks calibration. |
-| `CAL STATUS` | Shows calibration/reference/lock state. |
-| `CAL UNLOCK CONFIRM` | Unlocks calibration without erasing it. |
-| `CAL RESET CONFIRM` | Clears calibration only; sensor and interval remain saved. |
-| `TELEMETRY NOW` | Immediately sends a fresh water telemetry packet. |
-| `RESET WATER CONFIRM` | Resets only the water subsystem to defaults. |
-| `POWER` | Shows battery/power status. |
-| `WATCHDOG` | Shows watchdog status. |
-| `RECOVER` or `REBOOT` | Safely reboots without factory-erasing the node. |
+| HOBO Safe | MX2001 / MX2201 / MX2203 STATUS pointer tracking, NEWREAD, LOCK/UNLOCK, manual READ |
+| Soil Moisture + HOBO | SEN0308 ADC reading/calibration + HOBO |
+| Water Distance | existing UART distance drivers, stage calibration, verification, interval persistence |
+| Water Distance + HOBO | both water and HOBO subsystems |
+| Trail PIR/Rock/HOBO | presence/PIR, rock telemetry, HOBO |
+| SEN0171 | dedicated trail-count detection |
+| Remote Drone | embedded OTA target + autonomous BLE target updater |
+| Heltec Gateway | Wi-Fi gateway, mesh ingest, Vercel/Neon forwarding and gateway sensor support |
 
-### Combined Water Distance + HOBO v1
+---
 
-Use the explicit `WATER` prefix for water commands to avoid ambiguity:
+## HOBO v2 DM commands
 
-| Command | What it does |
+Commands are case-insensitive. A leading `/` is optional where supported.
+
+| Command | Function |
 |---|---|
-| `WATER STATUS` | Shows water sensor/calibration/readiness. |
-| `WATER READ` | Takes a fresh water reading. |
-| `WATER RAW` | Shows raw water-sensor distance. |
-| `WATER VERIFY` | Runs the multi-reading installation check. |
-| `WATER INTERVAL 1H` | Saves hourly water telemetry. |
-| `WATER CAL STAGE 1.42FT` | Calibrates and locks water stage. |
-| `WATER CAL STATUS` | Shows saved water calibration state. |
-| `WATER CAL RESET CONFIRM` | Clears only water calibration. |
-| `WATER TELEMETRY NOW` | Sends water telemetry immediately. |
-| `LOGGER` | Shows the HOBO logger identity/state. |
-| `READ` | Requests a fresh HOBO reading. |
-| `LOCK` / `UNLOCK` | Saves or clears the HOBO logger assignment. |
-| `BLE` | Shows HOBO BLE state. |
-| `SCAN` / `RECONNECT` | Refreshes or rebuilds the disconnected HOBO BLE path. |
-| `POWER` | Shows battery/power state. |
-| `WATCHDOG` | Shows watchdog state. |
-| `RECOVER` / `REBOOT` | Safely reboots the node. |
+| `PING` | Radio/application liveness check |
+| `STATUS` / `HEALTH` | Uptime, power, BLE link count, TX/recovery information, reset reason |
+| `LOGGER` | HOBO identity/model/MAC/interval/lock information |
+| `READ` | Fresh HOBO read without consuming the automatic pointer |
+| `LOCK` / `UNLOCK` | Persist or clear logger assignment |
+| `POWER` | Battery and charging status |
+| `BLE` | BLE central-link/scanner state |
+| `AUTO` | Automatic pointer-gated telemetry status |
+| `WATCHDOG` | Main + field watchdog information |
+| `STATS` | TX and radio-recovery counters |
+| `NODES` | Mesh node count |
+| `UPTIME` | Uptime |
+| `VERSION` | v2/platform/recovery identity |
+| `RECOVER` / `REBOOT` | Flash-safe whole-node reboot |
 
-### RAK Soil Moisture + HOBO v1
+In v2, stale scanner/link recovery is automatic. The HOBO state machine owns scanner lifecycle rather than allowing a second recovery thread to manipulate it concurrently.
 
-SEN0308 wiring on the RAK19007:
+---
 
-| SEN0308 lead | RAK19007 |
-|---|---|
-| Red | `VDD` (regulated 3.3 V; **not VBAT**) |
-| Yellow | `AIN1` |
-| Black | `GND` |
-| Black | `GND` |
+## Water distance commands
 
-`AIN1` maps to RAK4631 A1 / P0.31 / AIN7. Current soil calibration is ADC10 580 = 0% and ADC10 0 = 100%, with 20 samples averaged per reading and automatic telemetry once per hour.
+The existing water command surface remains available. Combined HOBO builds use the explicit `WATER` prefix when needed.
 
-| Command | What it does |
-|---|---|
-| `SOIL` / `SOIL READ` | Fresh DM-only moisture percentage and raw ADC10. |
-| `SOIL STATUS` | Last reading, one-hour interval, input pin and endpoints. |
-| `SOIL TX` | Fresh reading plus standard soil telemetry and compact raw packet. |
-| `SOIL CAL` | Shows the fixed endpoints and direction. |
-| `SOIL HELP` | Lists soil commands. |
-| `LOGGER` / `READ` | Shows or reads the optional HOBO logger. |
-| `LOCK` / `UNLOCK` | Saves or clears the HOBO assignment. |
-| `WATCHDOG` | Shows the live nRF52840 watchdog state. |
-
-The percentage is a field-calibrated index, not laboratory volumetric water content. The standard `soil_moisture` telemetry is app-compatible; the raw `PRIVATE_APP` packet retains ADC10 for custom ingestion and later recalibration.
-
-### Trail PIR + Rock + HOBO
-
-| Command | What it does |
-|---|---|
-| `STATUS` | Shows uptime, battery, PIR state/counts, alert destination, and HOBO hint. |
-| `ALERTS HERE` | Saves the sender as the private PIR/power/boot alert destination. |
-| `ALERTS STATUS` | Shows the saved alert destination. |
-| `ALERTS CLEAR` | Clears the private alert destination. |
-| `PIR STATUS` | Shows live PIR state, totals, last detection, and TX state. |
-| `PIR COUNT` | Shows cumulative and since-boot detections. |
-| `PIR ON` / `PIR OFF` | Enables or disables PIR monitoring persistently. |
-| `PIR TX ON` / `PIR TX OFF` | Enables or disables private PIR alert transmissions. |
-| `POWER` | Shows battery state and trend. |
-| `POWER HISTORY` | Shows stored voltage checkpoints/min/max. |
-| `LOGGER` | Shows the HOBO logger identity/state. |
-| `READ` | Takes a fresh HOBO reading. |
-| `LOCK` / `UNLOCK` | Saves or clears the HOBO assignment. |
-
-The dedicated **SEN0171 trail-counter** build currently has no custom plain-text DM command parser; it automatically sends `PERSON WALKED BY #...` messages for detected events.
-
-### Heltec Gateway v1
-
-The current Heltec gateway does not yet expose custom gateway-control text DMs. Planned direct-HOBO commands are `LOGGER`, `READ`, `LOCK`, and `UNLOCK`; do not rely on them until direct HOBO BLE support is merged and validated.
-
-## Water-distance field setup
-
-The water builds support A01NYUB / SEN0313 by default, plus A02YYUW / SEN0311 and SEN0590. A typical field sequence is:
+Common commands include:
 
 ```text
 STATUS
 RAW
+READ
 VERIFY
+SENSOR A01NYUB
+SENSOR A02YYUW
+SENSOR SEN0590
+SENSOR AUTO
 INTERVAL 1H
 CAL STAGE 1.42FT
 CAL STATUS
-TELEMETRY NOW
-```
-
-Replace `1.42FT` with the independently measured stage. After calibration, fully remove power, reconnect, then verify `STATUS`, `CAL STATUS`, and `READ`.
-
-To discard a bench calibration without changing the saved interval:
-
-```text
+CAL UNLOCK CONFIRM
 CAL RESET CONFIRM
+TELEMETRY NOW
+RESET WATER CONFIRM
 ```
 
-## Safe flashing
-
-For nRF52840 boards:
-
-- **UF2** = normal USB drag-and-drop firmware update.
-- **BLE / OTA ZIP** = Nordic nRF Connect **Distribution packet (ZIP)**; leave the ZIP unopened.
-- **Do not use factory-erase images for routine upgrades.**
-
-Normal updates are intended to preserve Meshtastic identity, channels, keys, NodeDB, and saved application settings.
-
-If a legacy BLE update reaches 100% but stalls during validation or activation, recover with the matching UF2 over USB rather than repeatedly forcing BLE attempts.
-
-## Remote Drone Flashing
-
-The **[Remote-Drone-Flashing branch](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing)** builds a matched pair:
-
-- a normal RAK4631 Meshtastic + HOBO target with the `DFU` DM command; and
-- a dedicated BLE-only RAK4631 Scout carrying a compressed copy of that exact target application.
-
-For the exact physically verified firmware, use **[`remote-drone-flashing-12` from the successful `b812974` workflow run](https://github.com/canyoncountryadventure/firmware/actions/runs/35312994634)**. The **[latest workflow runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing)** are newer development builds until their exact target/Scout pair is retested. Always keep the target and Scout files from the same run together. The package contains:
+For a combined build:
 
 ```text
-RAK4631-HOBO-DFU-Target.uf2
-RAK4631-HOBO-DFU-Target-OTA.zip
-RAK4631-Remote-Drone-Flasher.uf2
-BUILD.txt
+WATER STATUS
+WATER READ
+WATER VERIFY
+WATER INTERVAL 1H
+WATER CAL STAGE 1.42FT
+WATER TELEMETRY NOW
 ```
 
-The complete autonomous update chain is successful: embedded-image transfer, validation, activation, target reboot, return to Meshtastic and LoRa callback. The retained verified pair is target + Scout build **`2.7.26.b812974`** from **[workflow run 35312994634](https://github.com/canyoncountryadventure/firmware/actions/runs/35312994634)**. Once flashing worked, the last fix shortened the target's `VERSION` DM so all required identity/capability fields fit reliably in one Meshtastic payload. Read the branch README for the exact tested filenames, SHA-256 hashes and operating procedure.
+---
 
-## Common RAK three-blink diagnosis
+## RAK soil moisture wiring
 
-Three LED flashes, a pause, then three flashes again means the nRF52840 measured its regulated VDD rail below the firmware's **2.7-V safe-boot threshold**. The application stops before Meshtastic, sensor code and the USB console start.
+For the SEN0308 on the RAK19007:
 
-1. Disconnect battery, solar and sensors.
-2. Leave the LoRa antenna attached.
-3. Power the RAK19007 from a known-good 5-V USB-C source and press reset once.
-4. If the pattern continues, remove power, reseat the RAK4631 firmly, and retry.
+| SEN0308 | RAK19007 |
+|---|---|
+| Red | `VDD` regulated 3.3 V |
+| Yellow | `AIN1` |
+| Black | `GND` |
 
-The project remains pinned to the validated **Meshtastic 2.7.26** base unless an upgrade is explicitly tested and approved.
+The soil firmware retains its hourly automatic telemetry and raw ADC value for later recalibration.
+
+---
+
+## Build/source branches
+
+| Branch | Role |
+|---|---|
+| [field-self-recovery-v2](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v2) | canonical common RAK/Seeed v2 recovery baseline |
+| [RAK-HOBO-Safe-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-HOBO-Safe-v2) | RAK HOBO |
+| [RAK-Soil-Moisture-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v2) | RAK soil + HOBO |
+| [RAK-Water-Distance-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v2) | RAK water + HOBO |
+| [RAK-Water-Distance-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-v2) | RAK water |
+| [Seeed-HOBO-Safe-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-HOBO-Safe-v2) | Seeed HOBO |
+| [Seeed-Water-Distance-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v2) | Seeed water + HOBO |
+| [Seeed-Water-Distance-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-v2) | Seeed water |
+| [Trail-Sensors-v2](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v2) | PIR/Rock/HOBO + SEN0171 |
+| [Remote-Drone-Flashing-v2](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing-v2) | drone/Scout + matched hardened target |
+| [Heltec-Gateway-v2](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v2) | Heltec V4 gateway |
+
+---
+
+## Reproducibility
+
+The nRF52 v2 builds pin the Meshtastic Adafruit nRF52 framework revision to:
+
+```text
+0fd295f13203e93df19d578073646ec32f2bf45a
+```
+
+The product workflows that invoke the Meshtastic firmware build action directly pin:
+
+```text
+39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
+```
+
+This is intentional. A firmware filename should not silently change because an external `main` branch moved.
+
+---
+
+## Legacy / rollback firmware
+
+The v1 builds remain in the repository and are not being deleted. The previous front-page distribution directory remains available at:
+
+**[Self-Recovery-v1s](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Self-Recovery-v1s)**
+
+The proven v1 remote-drone pair also remains available on:
+
+**[Remote-Drone-Flashing](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing)**
+
+Use legacy firmware when intentionally rolling back or when comparing v1/v2 behavior during field testing.
+
+---
+
+## Known limits
+
+Firmware cannot recover a station from:
+- actual loss of electrical power;
+- failed MCU or failed SX1262;
+- damaged antenna/feedline;
+- destroyed/corrupt bootloader;
+- physical/environmental damage severe enough to prevent boot.
+
+Field-Recovery v2 is intended to prevent a **powered, electrically functional** station from remaining indefinitely stranded because of recoverable LoRa state loss, missed IRQs, stale BLE state, stuck HOBO connections, or ordinary firmware runtime failure.
