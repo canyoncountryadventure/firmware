@@ -9,6 +9,35 @@ This branch builds a matched pair:
 
 The Scout needs no laptop, phone, SD card, ESP32, LoRa antenna, or USB connection during flight.
 
+## Project and download links
+
+| Item | Link |
+|---|---|
+| Source branch | [Remote-Drone-Flashing](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing) |
+| **Matched build downloads** | **[Latest Remote Drone Flasher workflow runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing)** |
+| Workflow source | [build_remote_drone_flasher.yml](.github/workflows/build_remote_drone_flasher.yml) |
+| Technical design | [RAK_REMOTE_DFU.md](docs/RAK_REMOTE_DFU.md) |
+| Scout source | [rak4631_drone_flasher.cpp](src/experimental/rak4631_drone_flasher.cpp) |
+| Target HOBO + DFU source | [HOBOMX2001MX2201MX2203Telemetry.cpp](src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp) |
+
+To download a build, open the workflow-runs link, choose the newest successful green run, and download its `remote-drone-flashing-<run number>` artifact. GitHub may require sign-in to download Actions artifacts. The artifact contains the target UF2, target OTA ZIP, Scout UF2 and `BUILD.txt`.
+
+**Keep the target and Scout files from the same workflow artifact together.** The Scout contains a compressed copy of that exact target application. Mixing files from different runs defeats the matched-pair design.
+
+## Current validation status
+
+| Capability | Status |
+|---|---|
+| LoRa `DFU` command stores the requester/build marker and reboots target into `AdaDFU` | **Bench proven** |
+| Scout finds `AdaDFU`, transfers the full embedded image, validates, activates and triggers reboot | **Bench proven** |
+| Target returns to Meshtastic and sends the stored LoRa callback | **Bench proven** |
+| Same-build result reports `DFU RESULT: BUILD UNCHANGED` | **Bench proven** |
+| Different-build callback reports old and new build IDs | Implemented; **not yet proven in a build-to-build bench test** |
+| Actual airborne hover/update mission | **Not yet field proven** |
+| Seeed XIAO targets | **Not supported by this branch** |
+
+That distinction matters: this is a functioning autonomous bench prototype, not yet a completed airborne deployment validation.
+
 ## Architecture
 
 ```text
@@ -112,26 +141,43 @@ Any normal Meshtastic radio that can directly message the target.
 
 ## Field procedure
 
-1. Flash the latest matched **target UF2** onto the field target.
-2. Flash the matching **Drone Flasher UF2** onto the Scout.
-3. Power the Scout before takeoff.
-4. Fly the Scout close to the target.
-5. Hover near the target.
-6. Direct-message the target:
+1. Download one successful workflow artifact and read its `BUILD.txt`.
+2. Flash its **target UF2** onto the field target.
+3. Flash the **Drone Flasher UF2 from that same artifact** onto the Scout.
+4. Boot the target and direct-message `VERSION`; record the current `BUILD:` line.
+5. Confirm the target answers `WATCHDOG`, `LOGGER` and `PING` normally.
+6. Bench-power the Scout and confirm its waiting blink before attaching it to the drone.
+7. Confirm the matching target UF2 is available for USB recovery before leaving the bench.
+8. Power the Scout before takeoff.
+9. Fly the Scout close to the target.
+10. Hover near the target.
+11. Direct-message the target:
 
    ```text
    DFU
    ```
 
-7. The target stores the requesting controller node, channel, and current build ID.
-8. The target replies that DFU is armed.
-9. About three seconds later the target resets into `AdaDFU`.
-10. The Scout detects `AdaDFU`, connects, and flashes its embedded target image.
-11. The target validates and activates the application.
-12. The target reboots into Meshtastic.
-13. If the build changed, the controller receives `UPDATE SUCCESS`.
+12. The target stores the requesting controller node, channel, and current build ID.
+13. The target replies that DFU is armed.
+14. About three seconds later the target resets into `AdaDFU`.
+15. The Scout detects `AdaDFU`, connects, and flashes its embedded target image.
+16. The target validates and activates the application.
+17. The target reboots into Meshtastic.
+18. If the build changed, the controller receives `UPDATE SUCCESS` with old and new build IDs.
 
-For field use, keep the Scout near the target until the expected post-update callback arrives.
+For field use, keep the Scout near the target until the Scout shows solid-success and the controller receives the expected post-update callback. Do not treat a brief target LED flash as proof that DFU started.
+
+## Flashing the matched pair at the bench
+
+### Target RAK4631
+
+Use `RAK4631-HOBO-DFU-Target.uf2` for USB installation. Double-press reset, copy the UF2 to the RAK4631 bootloader drive, and let it reboot.
+
+`RAK4631-HOBO-DFU-Target-OTA.zip` is the phone/nRF Connect alternative. Select the unopened ZIP as a **Distribution packet (ZIP)**; do not extract it and do not select the UF2 in nRF Connect.
+
+### Scout RAK4631
+
+Use `RAK4631-Remote-Drone-Flasher.uf2`. Double-press reset and copy it to the Scout's RAK4631 bootloader drive. Once flashed, the Scout is a dedicated BLE flasher—not a Meshtastic node.
 
 ## Target commands
 
@@ -203,6 +249,12 @@ RECOVER
 REBOOT
 PING
 ```
+
+## Command authorization and security
+
+The target currently checks that `DFU` is a successfully decoded direct text message addressed to that node. It does **not** maintain a separate DFU sender allowlist or require a Meshtastic remote-admin key inside this command handler.
+
+Therefore, any mesh node whose direct message the target can successfully decrypt may be able to arm DFU. Deploy the target only on the intended private channel/key arrangement, protect node private keys, and do not advertise this command on a public channel. A sender allowlist is future hardening, not a current feature.
 
 ## Drone Scout behavior
 
@@ -313,6 +365,10 @@ RAK4631-Remote-Drone-Flasher.uf2
 The update is application-only. It does not intentionally replace the SoftDevice or bootloader.
 
 An interrupted transfer can leave the application invalid. During development, keep the matching target UF2 available for USB recovery.
+
+If the target returns to `AdaDFU` but no application boots, land/recover the Scout and install the matching target UF2 over USB. Do not factory-erase unless the intent is to remove the node's identity, channel configuration, keys and application state.
+
+If the target gives three flashes followed by a pause repeatedly, it is in the nRF52840 low-VDD safe-boot loop, not waiting for the Scout. Test it from a known-good 5-V USB-C source with battery, solar and accessories disconnected, then reseat the RAK4631 if the pattern remains.
 
 ## Source
 
