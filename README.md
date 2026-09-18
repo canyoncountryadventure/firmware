@@ -10,7 +10,7 @@ The normal field firmware stays on its own target branch. Every supported target
 - a normal **BLE DFU OTA ZIP**
 - the built-in mesh **`DFU` hook** that stores the requester/build marker and safely reboots the target into AdaDFU
 
-Seeed dual-role targets use a RAM-safe peripheral bandwidth while retaining the required central HOBO link; this prevents the XIAO SoftDevice reset loop during BLE startup.
+Seeed dual-role targets use low-bandwidth peripheral/central links, reserve additional SoftDevice RAM, and fail safely if Bluefruit cannot initialize while retaining the required central HOBO link.
 
 The **compressed drone/Scout firmware lives only on this branch**. Each Scout UF2 embeds the LZ4-compressed OTA application from exactly one target configuration.
 
