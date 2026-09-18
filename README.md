@@ -4,7 +4,7 @@
 
 Autonomous **RAK4631-to-RAK4631 firmware updating over BLE** for remote Meshtastic field stations.
 
-**Status: successful end-to-end autonomous flash.** The matched `2.7.26.b812974` target and Scout pair completed the DFU transfer, validation, activation, reboot and return to Meshtastic. After the flash path was working, the final fix was shortening the target's `VERSION` DM so every required field fits reliably inside one Meshtastic text payload.
+**Validation status:** the original matched `2.7.26.b812974` target + Scout pair completed the full physical DFU transfer, validation, activation, reboot and return to Meshtastic. The current hardened v2 pair preserves that protocol but has changed target recovery/persistence code, so it must receive one repeat end-to-end bench DFU before replacing the proven pair in remote field use.
 
 This branch builds a matched pair:
 
@@ -19,7 +19,10 @@ The Scout needs no laptop, phone, SD card, ESP32, LoRa antenna, or USB connectio
 |---|---|
 | Source branch | [Remote-Drone-Flashing-v2](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing-v2) |
 | **Verified successful `b812974` build** | **[Workflow run and `remote-drone-flashing-12` artifact](https://github.com/canyoncountryadventure/firmware/actions/runs/35312994634)** |
-| **Matched build downloads** | **[Latest Remote Drone Flasher workflow runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing-v2)** |
+| **Current v2 target UF2** | **[RAK4631-HOBO-DFU-Target-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-HOBO-DFU-Target-v2.uf2)** |
+| **Current v2 target BLE DFU ZIP** | **[RAK4631-HOBO-DFU-Target-v2-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-HOBO-DFU-Target-v2-OTA.zip)** |
+| **Current v2 Scout UF2** | **[RAK4631-Remote-Drone-Flasher-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-Remote-Drone-Flasher-v2.uf2)** |
+| **Matched build workflow** | **[Latest Remote Drone Flasher workflow runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing-v2)** |
 | Workflow source | [build_remote_drone_flasher.yml](.github/workflows/build_remote_drone_flasher.yml) |
 | Technical design | [RAK_REMOTE_DFU.md](docs/RAK_REMOTE_DFU.md) |
 | Scout source | [rak4631_drone_flasher.cpp](src/experimental/rak4631_drone_flasher.cpp) |
@@ -47,7 +50,7 @@ The target UF2 contains build `2.7.26.b812974` and the compact `RADIO / SENSORS 
 | Target returns to Meshtastic and sends the stored LoRa callback | **Bench proven** |
 | Original matched `2.7.26.b812974` target + Scout firmware pair | **Successfully tested** |
 | Current hardened v2 target + Scout pair | **Source-integrated and CI-rebuilt; physical end-to-end DFU should be revalidated before remote deployment** |
-| Compact `VERSION` response with every required field under the payload limit | **Implemented in the tested `b812974` target** |
+| Compact `VERSION` response with every required field under the payload limit | **Bench proven in `b812974`; restored in current hardened v2 source** |
 | Physical drone flight/hover | Separate operational test; the autonomous firmware-update chain itself is proven |
 | Seeed XIAO targets | **Not supported by this branch** |
 
@@ -184,13 +187,13 @@ For field use, keep the Scout near the target until the Scout shows solid-succes
 
 ### Target RAK4631
 
-Use `RAK4631-HOBO-DFU-Target.uf2` for USB installation. Double-press reset, copy the UF2 to the RAK4631 bootloader drive, and let it reboot.
+Use `RAK4631-HOBO-DFU-Target-v2.uf2` for USB installation. Double-press reset, copy the UF2 to the RAK4631 bootloader drive, and let it reboot.
 
-`RAK4631-HOBO-DFU-Target-OTA.zip` is the phone/nRF Connect alternative. Select the unopened ZIP as a **Distribution packet (ZIP)**; do not extract it and do not select the UF2 in nRF Connect.
+`RAK4631-HOBO-DFU-Target-v2-OTA.zip` is the phone/nRF Connect alternative. Select the unopened ZIP as a **Distribution packet (ZIP)**; do not extract it and do not select the UF2 in nRF Connect.
 
 ### Scout RAK4631
 
-Use `RAK4631-Remote-Drone-Flasher.uf2`. Double-press reset and copy it to the Scout's RAK4631 bootloader drive. Once flashed, the Scout is a dedicated BLE flasher—not a Meshtastic node.
+Use `RAK4631-Remote-Drone-Flasher-v2.uf2`. Double-press reset and copy it to the Scout's RAK4631 bootloader drive. Once flashed, the Scout is a dedicated BLE flasher—not a Meshtastic node.
 
 ## Target commands
 
