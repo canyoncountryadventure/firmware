@@ -1,4 +1,6 @@
-> **Remote Drone Flashing v2:** the proven embedded-flasher workflow is retained, but its embedded RAK target now carries the Field-Recovery v2 radio/watchdog core and HOBO recovery stack.\n\n# Remote Drone Flashing
+> **Remote Drone Flashing v2:** the proven embedded-flasher workflow is retained, but its embedded RAK target now carries the Field-Recovery v2 radio/watchdog core and HOBO recovery stack.
+
+# Remote Drone Flashing v2
 
 Autonomous **RAK4631-to-RAK4631 firmware updating over BLE** for remote Meshtastic field stations.
 
