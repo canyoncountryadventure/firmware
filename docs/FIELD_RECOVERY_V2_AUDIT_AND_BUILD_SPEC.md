@@ -366,3 +366,39 @@ After v2 proves stable in the field:
 - v1 branches: preserved legacy/rollback sources.
 
 Do not merge sensor products by replacing their branch trees with the canonical branch. The intended process is always **sensor branch first, shared hardening overlaid second**.
+
+
+---
+
+## 13. Upstream references used by the audit
+
+These are the primary upstream reports and fixes that informed Field-Recovery v2:
+
+- [Meshtastic firmware issue #10823 — RAK4631 becomes unresponsive on 2.7.26 while older firmware remains reliable](https://github.com/meshtastic/firmware/issues/10823)
+- [Meshtastic firmware issue #8462 — RAK4631 LoRa communication stops while the MCU remains alive](https://github.com/meshtastic/firmware/issues/8462)
+- [Meshtastic PR #9705 — SX126x periodic calibration / AGC-maintenance implementation](https://github.com/meshtastic/firmware/pull/9705)
+- [Meshtastic PR #11774 — allow CalibrateImage to settle before restoring SX126x RX registers](https://github.com/meshtastic/firmware/pull/11774)
+- [Meshtastic PR #11676 — recover SX126x runtime state loss with a full chip reinitialization](https://github.com/meshtastic/firmware/pull/11676)
+- [Meshtastic PR #11678 — extend radio-state recovery into normal RX/TX paths](https://github.com/meshtastic/firmware/pull/11678)
+- [Meshtastic PR #11872 — serialize nRF52 flash writers and quiesce flash before reset](https://github.com/meshtastic/firmware/pull/11872)
+- [Meshtastic RAK4631 variant definition](https://github.com/meshtastic/firmware/blob/develop/variants/nrf52840/rak4631/variant.h) — confirms the separately controllable SX126x reset/power hardware used by the recovery ladder.
+- [Adafruit nRF52 Arduino core reset implementation](https://github.com/adafruit/Adafruit_nRF52_Arduino/blob/master/cores/nRF5/wiring.c) — reference for reset reason caching and SoftDevice-aware reset behavior.
+- [Nordic nRF52 watchdog documentation](https://docs.nordicsemi.com/) — reference for multiple watchdog reload channels and run-in-sleep behavior.
+
+The project intentionally backports the narrowly relevant reliability changes instead of rebasing the entire sensor fleet onto an unvalidated major Meshtastic development branch.
+
+---
+
+## 14. Production release rule
+
+A v2 source branch is considered deployable only when all of the following are true:
+
+1. its current source tree retains the intended product/sensor module;
+2. the shared radio/nRF52 recovery files match the canonical v2 recovery core;
+3. its GitHub Actions build completes successfully;
+4. the expected UF2 and/or DFU package is generated;
+5. the stable alias is published into the default branch `downloads/` directory;
+6. the default README contains the correct board/sensor description and download link;
+7. the corresponding v1 branch remains untouched as a rollback baseline.
+
+For HOBO and Remote Drone products, a successful CI build is still followed by physical field validation before replacing the known-good v1 image on every remote station.
