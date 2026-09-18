@@ -1,4 +1,6 @@
-> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from Seeed-Water-Distance-v1 is retained.\n\n# Seeed Water Distance v1
+> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from Seeed-Water-Distance-v1 is retained.
+
+# Seeed Water Distance v2
 
 Production water-level / stage firmware for **Seeed XIAO nRF52840 + Wio-SX1262** Meshtastic field nodes.
 
