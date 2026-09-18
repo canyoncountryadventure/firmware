@@ -17,7 +17,7 @@ This build combines the proven HOBO next-record telemetry path, SEN0308 analog s
 | **USB firmware (UF2)** | **[Download RAK-Soil-Moisture-HOBO-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2.uf2)** |
 | **BLE DFU firmware (ZIP)** | **[Download RAK-Soil-Moisture-HOBO-v2-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2-OTA.zip)** |
 | Source branch | [RAK-Soil-Moisture-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v2) |
-| Build workflow runs | [Build RAK Soil Moisture HOBO v1](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_soil_moisture_hobo_rak4631.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v2) |
+| Build workflow runs | [Build RAK Soil Moisture HOBO v2](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_soil_moisture_hobo_rak4631.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v2) |
 | Workflow source | [build_soil_moisture_hobo_rak4631.yml](.github/workflows/build_soil_moisture_hobo_rak4631.yml) |
 | Soil module source | [SEN0308SoilMoisture.cpp](src/modules/Telemetry/SoilMoisture/SEN0308SoilMoisture.cpp) |
 
@@ -180,28 +180,30 @@ Send commands as a direct Meshtastic text message to the node. Commands are case
 | `HELP` | Shows the existing HOBO/recovery command summary. Use `SOIL HELP` for soil commands. |
 | `STATUS` / `HEALTH` | Compact node and self-recovery health. |
 | `POWER` / `BATTERY` | Battery voltage, percentage, battery-present and charging state. |
-| `BLE` | BLE scanner/link state, disconnected age and restart count. |
-| `WATCHDOG` | Shows watchdog state, owner and timeout. |
+| `BLE` | Shows central-link count, scanner state, and confirms that the HOBO state machine owns scanner/link lifecycle. |
+| `WATCHDOG` | Shows the 90-second core watchdog, independent field-health watchdog channel, and sleep/halt behavior. |
 | `STATS` | Recovery counts and boot/reset information. |
 | `NODES` | Meshtastic NodeDB count. |
 | `UPTIME` | Node uptime. |
 | `VERSION` | Self-recovery firmware/platform identity. |
 | `PING` / `WAKE` | End-to-end DM/liveness check. |
-| `SCAN` | Refreshes BLE scanning when disconnected. |
-| `RECONNECT` | Rebuilds the disconnected BLE scanner/link. |
+| `SCAN` | Legacy diagnostic command; v2 reports that BLE recovery is automatic and does not manipulate the scanner. |
+| `RECONNECT` | Legacy diagnostic command; v2 does not force a link rebuild because scanner/link lifecycle is owned by the HOBO state machine. |
 | `RECOVER` / `REBOOT` | Replies, then performs a safe non-destructive reboot. |
 
 ## Watchdog and unattended recovery
 
-This branch retains the **nRF52840 hardware watchdog** from `RAK-HOBO-Safe-v1`.
+This branch uses the **Field-Recovery v2 nRF52840 recovery model**.
 
-- If the Meshtastic core already owns the watchdog, the self-recovery module leaves ownership unchanged.
-- Otherwise it arms the on-chip watchdog for **15 minutes**.
-- The watchdog remains active during sleep.
-- The self-recovery supervisor feeds it during healthy operation.
-- BLE scanning is periodically refreshed while disconnected.
-- A BLE stack that remains disconnected/stale for six hours triggers a safe reboot.
-- `RECOVER` / `REBOOT` provides the same non-destructive reboot path remotely.
+- The normal main-loop hardware watchdog is **90 seconds**.
+- A second, independent field-health watchdog channel is allocated from the same nRF52840 WDT and can be deliberately starved when radio/BLE recovery is exhausted.
+- Both watchdog channels run during CPU sleep/halt in these always-on environmental builds.
+- A BLE connection attempt is cancelled after **30 seconds** if it does not complete.
+- Three consecutive `STATUS` failures/timeouts or three automatic `NEWREAD64` timeouts rebuild the BLE link.
+- Five exhausted BLE recovery cycles trip the independent field watchdog and force a hardware reset.
+- Repeated unrecoverable SX1262 state loss also escalates to the field watchdog.
+- A **12-hour preventive reboot** remains enabled during v2 burn-in as an independent final fallback.
+- `RECOVER` / `REBOOT` schedules the same flash-safe, non-destructive whole-node reboot remotely.
 
 Routine recovery must preserve:
 
@@ -246,7 +248,7 @@ For HOBO validation, lock the correct logger, reboot, confirm `LOGGER` restores 
 | Reboot | Meshtastic identity, channel configuration and locked HOBO assignment remain intact. |
 | One-hour run | A new automatic soil telemetry event is received. |
 | HOBO interval | A HOBO packet is generated only after the logger write pointer advances. |
-| `WATCHDOG` after 30 seconds | Reports the nRF52840 watchdog running. |
+| `WATCHDOG` after 30 seconds | Reports `core=90s`, the field channel armed, and run-in-sleep enabled. |
 
 ## Troubleshooting
 
