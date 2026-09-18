@@ -30,22 +30,6 @@ jobs:
           pio_env: rak4631
           pio_target: build
 
-      - name: Build matched autonomous drone flasher
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade platformio lz4
-          OTA="$(find release -maxdepth 1 -type f -name 'firmware-rak4631-*-ota.zip' | head -n 1)"
-          test -n "$OTA"
-          python tools/build_drone_embedded_firmware.py "$OTA" src/experimental/embedded_dfu_image.h
-          export PLATFORMIO_BUILD_DIR="$RUNNER_TEMP/pio-drone-build"
-          export PLATFORMIO_LIBDEPS_DIR="$RUNNER_TEMP/pio-drone-libdeps"
-          pio run -e rak4631_drone_flasher 2>&1 | tee drone-flasher-build.log
-          mkdir -p drone-out
-          SCOUT="$(find "$PLATFORMIO_BUILD_DIR/rak4631_drone_flasher" -maxdepth 1 -type f -name '*.uf2' | head -n1)"
-          test -n "$SCOUT"
-          cp "$SCOUT" drone-out/scout.uf2
-
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -60,7 +44,6 @@ jobs:
             release/*.map
             release/*.mt.json
             drone-out/*.uf2
-            drone-flasher-build.log
 
       - name: Prepare permanent downloads
         shell: bash
@@ -71,12 +54,9 @@ jobs:
           test -n "$UF2"
           test -n "$OTA"
           SCOUT="drone-out/scout.uf2"
-          test -n "$SCOUT"
-          test "$(stat -c%s "$SCOUT")" -gt 500000
           mkdir -p export
           cp "$UF2" export/RAK-Water-Distance-v2.uf2
           cp "$OTA" export/RAK-Water-Distance-v2-OTA.zip
-          cp "$SCOUT" export/RAK-Water-Distance-v2-Drone-Flasher.uf2
 
       - name: Checkout firmware download branch
         uses: actions/checkout@v7
@@ -100,8 +80,6 @@ jobs:
             mkdir -p downloads
             cp ../export/RAK-Water-Distance-v2.uf2 downloads/
             cp ../export/RAK-Water-Distance-v2-OTA.zip downloads/
-            cp ../export/RAK-Water-Distance-v2-Drone-Flasher.uf2 downloads/
-            git add downloads/RAK-Water-Distance-v2.uf2 downloads/RAK-Water-Distance-v2-OTA.zip downloads/RAK-Water-Distance-v2-Drone-Flasher.uf2
             if git diff --cached --quiet; then
               echo "Downloads already current"
               exit 0
