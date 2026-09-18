@@ -1,16 +1,16 @@
 # Remote Drone Flashing v2
 
-Autonomous **RAK4631-to-RAK4631 firmware updating over BLE** for the RAK v2 field configurations.
+Autonomous **RAK4631 Scout-to-nRF52840 target firmware updating over BLE** for supported field configurations.
 
 ## Correct firmware layout
 
-The normal field firmware stays on its own RAK branch. Every RAK target branch builds:
+The normal field firmware stays on its own target branch. Every supported target branch builds:
 
 - a normal **USB UF2**
 - a normal **BLE DFU OTA ZIP**
 - the built-in mesh **`DFU` hook** that stores the requester/build marker and safely reboots the target into AdaDFU
 
-The **compressed drone/Scout firmware lives only on this branch**. Each Scout UF2 embeds the LZ4-compressed OTA application from exactly one RAK target configuration.
+The **compressed drone/Scout firmware lives only on this branch**. Each Scout UF2 embeds the LZ4-compressed OTA application from exactly one target configuration.
 
 Do **not** flash a `Drone-*.uf2` onto the field target. It goes on the separate RAK4631 carried by the drone.
 
@@ -23,6 +23,7 @@ Do **not** flash a `Drone-*.uf2` onto the field target. It goes on the separate 
 | RAK Water Distance v2 | [RAK-Water-Distance-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-v2) | [Drone-RAK-Water-Distance-v2.uf2](downloads/Drone-RAK-Water-Distance-v2.uf2) |
 | RAK Water Distance + HOBO v2 | [RAK-Water-Distance-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v2) | [Drone-RAK-Water-Distance-HOBO-v2.uf2](downloads/Drone-RAK-Water-Distance-HOBO-v2.uf2) |
 | Canonical Field Self-Recovery v2 — RAK4631 | [field-self-recovery-v2](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v2) | [Drone-Field-Self-Recovery-v2-RAK4631.uf2](downloads/Drone-Field-Self-Recovery-v2-RAK4631.uf2) |
+| Seeed Water Distance + HOBO v2 | [Seeed-Water-Distance-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v2) | [Drone-Seeed-Water-Distance-HOBO-v2.uf2](downloads/Drone-Seeed-Water-Distance-HOBO-v2.uf2) |
 
 Each `Drone-*.uf2.txt` file in [downloads](downloads/) records the target branch, exact target commit, Scout size, and checksum used for that compressed image.
 
@@ -48,12 +49,12 @@ Remote-Drone-Flashing-v2
 
 Field update procedure:
 
-1. The field target is already running its normal RAK v2 firmware with the `DFU` hook.
+1. The field target is already running its normal v2 firmware with the `DFU` hook.
 2. Flash the **matching `Drone-*.uf2`** from this branch onto the drone RAK4631.
 3. Fly/position the Scout near the target.
 4. Direct-message the field target `DFU`.
-5. The target persists and verifies its callback marker, quiesces flash state, disables the active SoftDevice, sets `GPREGRET=0xA8`, and reboots into AdaDFU.
-6. The Scout detects AdaDFU and transfers its embedded compressed application image.
+5. The target persists and verifies its callback marker, quiesces flash state, disables the active SoftDevice, sets `GPREGRET=0xA8`, and reboots into its Nordic/Adafruit BLE OTA bootloader.
+6. The Scout detects the Legacy DFU service UUID (including `4631_DFU`, `XIAO_DFU`, or compatible generic advertising names) and transfers its embedded compressed application image.
 7. The updated target returns to Meshtastic and sends its stored update-result callback.
 
 The original physically proven `2.7.26.b812974` target/Scout pair remains the hardware validation reference. The new multi-configuration v2 Scout images are CI-built and packaged successfully; one repeat physical end-to-end bench DFU remains the validation boundary before relying on the new images for inaccessible field nodes.
@@ -69,7 +70,7 @@ The original physically proven `2.7.26.b812974` target/Scout pair remains the ha
 | Current hardened v2 target + Scout pair | **Source-integrated and CI-rebuilt; physical end-to-end DFU should be revalidated before remote deployment** |
 | Compact `VERSION` response with every required field under the payload limit | **Bench proven in `b812974`; restored in current hardened v2 source** |
 | Physical drone flight/hover | Separate operational test; the autonomous firmware-update chain itself is proven |
-| Seeed XIAO targets | **Not supported by this branch** |
+| Seeed XIAO Water Distance + HOBO v2 target | **CI-built with target `DFU` hook and matched compressed Scout image; physical bench DFU still required** |
 
 The original matched pair proves the target/Scout DFU protocol. The v2 branch preserves that protocol while changing the target recovery core, so the new matched v2 pair should receive one repeat bench DFU before it replaces the proven `b812974` pair in the field.
 
