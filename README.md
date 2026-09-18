@@ -201,7 +201,7 @@ The **[Remote-Drone-Flashing branch](https://github.com/canyoncountryadventure/f
 - a normal RAK4631 Meshtastic + HOBO target with the `DFU` DM command; and
 - a dedicated BLE-only RAK4631 Scout carrying a compressed copy of that exact target application.
 
-Use the **[latest successful Remote Drone Flasher workflow run](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing)** and download its `remote-drone-flashing-<run>` artifact. Keep the target and Scout files from the same run together. The package contains:
+For the exact physically verified firmware, use **[`remote-drone-flashing-12` from the successful `b812974` workflow run](https://github.com/canyoncountryadventure/firmware/actions/runs/35312994634)**. The **[latest workflow runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing)** are newer development builds until their exact target/Scout pair is retested. Always keep the target and Scout files from the same run together. The package contains:
 
 ```text
 RAK4631-HOBO-DFU-Target.uf2
