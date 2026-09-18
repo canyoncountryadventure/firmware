@@ -422,3 +422,35 @@ The important result is that the product-specific sensor implementations were **
 - **HOBO-only products:** MX2001/MX2201/MX2203 STATUS/NEWREAD behavior is retained, with intentional changes only to connection timeout, stale-link recovery, diagnostics, watchdog escalation, and removal of the temporary field-check test responder.
 
 This verification is also reflected in the Git compare history: non-HOBO soil, distance, trail, and gateway sensor source files do not appear as replacements in the v1-to-v2 diffs.
+
+
+---
+
+## 16. Final CI verification
+
+The final **source-changing** Field-Recovery v2 revisions were compiled in GitHub Actions on 2026-09-18. Every product target cleared its applicable compile/package path.
+
+| Product | Final source validation | Result |
+|---|---|---|
+| RAK HOBO Safe v2 | RAK4631 build + UF2/DFU package + stable publish | PASS |
+| RAK Soil Moisture + HOBO v2 | RAK4631 build + UF2/DFU package + stable publish | PASS |
+| RAK Water Distance + HOBO v2 | RAK4631 build + UF2/DFU package + stable publish | PASS |
+| RAK Water Distance v2 | RAK4631 build + UF2/DFU package + stable publish | PASS |
+| Seeed HOBO Safe v2 | XIAO nRF52840 build + UF2/DFU package + stable publish | PASS |
+| Seeed Water Distance + HOBO v2 | XIAO nRF52840 build + UF2/DFU package + stable publish | PASS |
+| Seeed Water Distance v2 | XIAO nRF52840 build + UF2/DFU package + stable publish | PASS |
+| Trail PIR/Rock/HOBO v2 | XIAO nRF52840 build + settings-safe OTA + stable publish | PASS |
+| Trail SEN0171 v2 | XIAO nRF52840 build + UF2/DFU package + stable publish | PASS |
+| Canonical Field Self-Recovery v2 RAK4631 | build + stable canonical aliases | PASS |
+| Canonical Field Self-Recovery v2 Seeed | build + stable canonical aliases | PASS |
+| Remote Drone Flashing v2 | hardened target build + embedded image generation + Scout build + package + stable publish | PASS |
+| Heltec Gateway v2 | ESP32-S3/Heltec V4 build + package + stable publish | PASS |
+
+The default branch was then re-audited after concurrent artifact publication:
+- every firmware filename advertised in the front-page v2 tables exists in `downloads/`;
+- the front-page README remains intact;
+- the detailed audit document remains intact;
+- all nRF52840 product branches share byte-identical common recovery-core files;
+- Heltec Gateway v2 shares the same hardened radio-core files while retaining its ESP32-S3 platform layer.
+
+Documentation-only commits made after these builds do not change firmware source or artifact contents.
