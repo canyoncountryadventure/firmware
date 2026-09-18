@@ -39,6 +39,7 @@
 #if defined(ARCH_NRF52)
 #include "Nrf52SaadcLock.h"
 #include "concurrency/LockGuard.h"
+#include <nrf_sdm.h>
 #endif
 
 #if defined(DEBUG_HEAP_MQTT) && !MESHTASTIC_EXCLUDE_MQTT
@@ -765,7 +766,12 @@ void Power::reboot()
 #if defined(ARCH_ESP32)
     ESP.restart();
 #elif defined(ARCH_NRF52)
+    // Field-safe reset: first serialize/drain flash, then shut down the SoftDevice
+    // so the next boot does not inherit a partially active BLE stack.
     nrf52FlashQuiesce();
+    uint8_t softdeviceEnabled = 0;
+    if (sd_softdevice_is_enabled(&softdeviceEnabled) == NRF_SUCCESS && softdeviceEnabled)
+        (void)sd_softdevice_disable();
     NVIC_SystemReset();
 #elif defined(ARCH_RP2040)
     rp2040.reboot();
