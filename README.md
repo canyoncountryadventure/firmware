@@ -98,14 +98,15 @@ Sensor changes are blocked while calibration is locked. `RESET WATER CONFIRM` re
 
 UART distance reads discard queued stale frames before each requested or scheduled sample. `VERIFY` takes multiple fresh readings and reports median/spread. Three consecutive sensor read failures trigger sensor-interface reinitialization.
 
-The inherited field-recovery foundation retains:
+The Field-Recovery v2 foundation adds:
 
-- nRF52840 watchdog protection
-- remote reboot/recovery support
-- battery/device telemetry
-- low-voltage and solar recovery behavior
-- persistent Meshtastic identity/configuration
-- non-destructive routine recovery
+- a 90-second nRF52840 main-loop watchdog plus an independent field-health watchdog channel
+- watchdog operation during CPU sleep/halt
+- missed RX/TX IRQ polling and guarded SX1262 calibration
+- full SX1262 state recovery with radio-rail power cycling where supported
+- flash-safe remote reboot/recovery through the centralized nRF52 reset path
+- a 12-hour preventive whole-node reboot during v2 burn-in
+- battery/device telemetry, low-voltage/solar recovery, and persistent Meshtastic identity/configuration
 
 ## A01NYUB LED / power note
 
@@ -136,7 +137,7 @@ The A01NYUB ranges continuously whenever powered, so its blue LED continues blin
 | `TELEMETRY NOW` | Immediately sends a fresh water telemetry packet. |
 | `RESET WATER CONFIRM` | Resets only the water subsystem to defaults; Meshtastic settings are preserved. |
 | `POWER` | Reports battery/power status. |
-| `WATCHDOG` | Reports watchdog state/ownership. |
+| `WATCHDOG` | Reports the 90-second core watchdog, independent field-health channel, sleep/halt behavior, and reset reason. |
 | `REBOOT` | Performs a safe non-destructive reboot after replying. |
 | `RECOVER` | Alias for the safe recovery reboot. |
 
