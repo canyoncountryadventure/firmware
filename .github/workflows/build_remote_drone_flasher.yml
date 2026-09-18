@@ -1,19 +1,17 @@
-name: Build Remote Drone Flasher v2
+name: Build Remote Drone Flasher Catalog v2
 
 on:
   push:
     branches:
       - Remote-Drone-Flashing-v2
     paths:
-      # The Scout embeds the target application, so any source/config change
-      # that can alter either side must rebuild the matched pair.
-      - 'src/**'
+      - '.github/workflows/build_remote_drone_flasher.yml'
+      - 'src/experimental/rak4631_drone_flasher.cpp'
+      - 'src/experimental/embedded_dfu_image.h'
       - 'tools/build_drone_embedded_firmware.py'
-      - 'variants/nrf52840/rak4631/**'
-      - 'platformio.ini'
+      - 'variants/nrf52840/rak4631/platformio.ini'
       - 'README.md'
       - 'docs/RAK_REMOTE_DFU.md'
-      - '.github/workflows/build_remote_drone_flasher.yml'
   workflow_dispatch:
 
 permissions:
@@ -21,119 +19,161 @@ permissions:
   actions: read
 
 concurrency:
-  group: remote-drone-flasher-${{ github.ref }}
+  group: remote-drone-flasher-catalog-v2
   cancel-in-progress: true
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: rak-hobo-safe
+            target_branch: RAK-HOBO-Safe-v2
+            output_name: Drone-RAK-HOBO-Safe-v2.uf2
+          - key: rak-soil-hobo
+            target_branch: RAK-Soil-Moisture-HOBO-v2
+            output_name: Drone-RAK-Soil-Moisture-HOBO-v2.uf2
+          - key: rak-water
+            target_branch: RAK-Water-Distance-v2
+            output_name: Drone-RAK-Water-Distance-v2.uf2
+          - key: rak-water-hobo
+            target_branch: RAK-Water-Distance-HOBO-v2
+            output_name: Drone-RAK-Water-Distance-HOBO-v2.uf2
+          - key: canonical-rak
+            target_branch: field-self-recovery-v2
+            output_name: Drone-Field-Self-Recovery-v2-RAK4631.uf2
+
     runs-on: ubuntu-latest
-    name: build-autonomous-drone-flasher
+    name: build-${{ matrix.key }}
 
     steps:
-      - name: Checkout triggering commit
+      - name: Checkout drone branch
         uses: actions/checkout@v7
         with:
+          ref: Remote-Drone-Flashing-v2
+          path: drone
+          submodules: recursive
+
+      - name: Checkout target branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target_branch }}
+          path: target
           submodules: recursive
 
       - name: Install build tools
         run: |
           python -m pip install --upgrade platformio lz4
 
-      - name: Build target application
+      - name: Build normal target firmware
         shell: bash
         run: |
           set -euo pipefail
+          cd target
           pio run -e rak4631
 
-      - name: Generate embedded target image
+      - name: Locate target OTA and record target commit
+        id: target
         shell: bash
         run: |
           set -euo pipefail
-          OTA="$(find .pio/build/rak4631 -maxdepth 1 -type f -name 'firmware-rak4631-*.zip' | sort | head -n 1)"
+          TARGET_SHA="$(git -C target rev-parse HEAD)"
+          OTA="$(find target/.pio/build/rak4631 -maxdepth 1 -type f -name 'firmware-rak4631-*.zip' | sort | head -n 1)"
           test -n "$OTA"
-          echo "Embedding target OTA: $OTA"
-          python tools/build_drone_embedded_firmware.py             "$OTA"             src/experimental/embedded_dfu_image.h
+          test -f "$OTA"
+          echo "sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo "ota=$OTA" >> "$GITHUB_OUTPUT"
+          echo "Target branch: ${{ matrix.target_branch }}"
+          echo "Target commit: $TARGET_SHA"
+          echo "Target OTA: $OTA"
+
+      - name: Compress and embed exact target OTA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python drone/tools/build_drone_embedded_firmware.py             "${{ steps.target.outputs.ota }}"             drone/src/experimental/embedded_dfu_image.h
 
       - name: Build autonomous drone flasher
         shell: bash
         run: |
           set -euo pipefail
-          pio run -e rak4631_drone_flasher 2>&1 | tee remote-drone-flasher-build.log
+          cd drone
+          pio run -e rak4631_drone_flasher 2>&1 | tee ../drone-flasher-build.log
 
-      - name: Package validated outputs
+      - name: Package compressed drone UF2
         shell: bash
         run: |
           set -euo pipefail
+          SCOUT="$(find drone/.pio/build/rak4631_drone_flasher -maxdepth 1 -type f -name '*.uf2' | sort | head -n 1)"
+          test -n "$SCOUT"
+          test -f "$SCOUT"
+          test "$(stat -c%s "$SCOUT")" -gt 500000
           mkdir -p export
-
-          TARGET_UF2="$(find .pio/build/rak4631 -maxdepth 1 -type f -name 'firmware-rak4631-*.uf2' | sort | head -n 1)"
-          TARGET_OTA="$(find .pio/build/rak4631 -maxdepth 1 -type f -name 'firmware-rak4631-*.zip' | sort | head -n 1)"
-          DRONE_UF2="$(find .pio/build/rak4631_drone_flasher -maxdepth 1 -type f -name '*.uf2' | sort | head -n 1)"
-
-          test -n "$TARGET_UF2"
-          test -n "$TARGET_OTA"
-          test -n "$DRONE_UF2"
-
-          TARGET_UF2_SIZE="$(stat -c%s "$TARGET_UF2")"
-          TARGET_OTA_SIZE="$(stat -c%s "$TARGET_OTA")"
-          DRONE_UF2_SIZE="$(stat -c%s "$DRONE_UF2")"
-
-          test "$TARGET_UF2_SIZE" -gt 1000000
-          test "$TARGET_OTA_SIZE" -gt 500000
-          test "$DRONE_UF2_SIZE" -gt 500000
-
-          TARGET_VERSION="$(basename "$TARGET_UF2" .uf2)"
-          TARGET_VERSION="${TARGET_VERSION#firmware-rak4631-}"
-
-          cp "$TARGET_UF2" "export/RAK4631-HOBO-DFU-Target-${TARGET_VERSION}.uf2"
-          cp "$TARGET_OTA" "export/RAK4631-HOBO-DFU-Target-${TARGET_VERSION}-OTA.zip"
-          cp "$DRONE_UF2" "export/RAK4631-Remote-Drone-Flasher-embeds-${TARGET_VERSION}.uf2"
-
-          # Stable aliases for users who do not need the version in the filename.
-          cp "$TARGET_UF2" export/RAK4631-HOBO-DFU-Target-v2.uf2
-          cp "$TARGET_OTA" export/RAK4631-HOBO-DFU-Target-v2-OTA.zip
-          cp "$DRONE_UF2" export/RAK4631-Remote-Drone-Flasher-v2.uf2
-          cp remote-drone-flasher-build.log export/
-
+          cp "$SCOUT" "export/${{ matrix.output_name }}"
           {
-            echo "Remote Drone Flashing matched build"
-            echo "Commit: ${GITHUB_SHA}"
-            echo "Target version: ${TARGET_VERSION}"
-            echo "Target UF2: ${TARGET_UF2_SIZE} bytes"
-            echo "Target OTA: ${TARGET_OTA_SIZE} bytes"
-            echo "Drone UF2: ${DRONE_UF2_SIZE} bytes"
-            echo "Drone embeds target: ${TARGET_VERSION}"
-          } > export/BUILD.txt
+            echo "Drone flasher: ${{ matrix.output_name }}"
+            echo "Target branch: ${{ matrix.target_branch }}"
+            echo "Target commit: ${{ steps.target.outputs.sha }}"
+            echo "Embedded payload: LZ4-compressed application OTA"
+            echo "Scout UF2 bytes: $(stat -c%s "$SCOUT")"
+            sha256sum "$SCOUT"
+          } > "export/${{ matrix.output_name }}.txt"
 
-      - name: Upload Remote Drone Flashing package
+      - name: Upload compressed drone artifact
         uses: actions/upload-artifact@v7
         with:
-          name: remote-drone-flashing-${{ github.run_number }}
+          name: drone-${{ matrix.key }}
           overwrite: true
           retention-days: 30
-          if-no-files-found: error
           path: export/*
 
+  publish:
+    name: Publish drone firmware catalog
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
 
-      - name: Publish stable v2 drone downloads
+    steps:
+      - name: Checkout drone branch for publishing
+        uses: actions/checkout@v7
+        with:
+          ref: Remote-Drone-Flashing-v2
+          path: publish
+          fetch-depth: 0
+
+      - name: Download all matched drone images
+        uses: actions/download-artifact@v7
+        with:
+          pattern: drone-*
+          path: built
+          merge-multiple: true
+
+      - name: Publish compressed drone UF2 catalog
         shell: bash
         run: |
           set -euo pipefail
-          git clone --branch field-self-recovery "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" publish
           cd publish
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for attempt in 1 2 3 4 5; do
-            git fetch origin field-self-recovery
-            git reset --hard origin/field-self-recovery
-            mkdir -p downloads
-            cp ../export/RAK4631-HOBO-DFU-Target-v2.uf2 downloads/
-            cp ../export/RAK4631-HOBO-DFU-Target-v2-OTA.zip downloads/
-            cp ../export/RAK4631-Remote-Drone-Flasher-v2.uf2 downloads/
-            git add downloads/RAK4631-*-v2*
-            if git diff --cached --quiet; then exit 0; fi
-            git commit -m "Publish Remote Drone Flashing v2 downloads"
-            if git push origin HEAD:field-self-recovery; then exit 0; fi
-            sleep $((attempt * 3))
-          done
-          exit 1
+
+          latest_source_sha="$(git ls-remote origin refs/heads/Remote-Drone-Flashing-v2 | awk '{print $1}')"
+          if [[ "$latest_source_sha" != "$GITHUB_SHA" ]]; then
+            echo "Skipping stale drone catalog publish: run=$GITHUB_SHA latest=$latest_source_sha"
+            exit 0
+          fi
+
+          mkdir -p downloads
+          cp ../built/Drone-*.uf2 downloads/
+          cp ../built/Drone-*.uf2.txt downloads/
+
+          git add downloads/Drone-*.uf2 downloads/Drone-*.uf2.txt
+          if git diff --cached --quiet; then
+            echo "Drone catalog already current"
+            exit 0
+          fi
+
+          git commit -m "Publish compressed drone firmware catalog v2"
+          git push origin HEAD:Remote-Drone-Flashing-v2
