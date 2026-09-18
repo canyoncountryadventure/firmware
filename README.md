@@ -1,4 +1,6 @@
-> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-HOBO-Safe-v1 is retained.\n\n# RAK HOBO Safe v1
+> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-HOBO-Safe-v1 is retained.
+
+# RAK HOBO Safe v2
 
 Production HOBO-only self-recovery firmware for **RAK4631 + RAK19007/RAK19003-class WisBlock nodes**.
 
