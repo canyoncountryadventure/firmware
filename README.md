@@ -1,4 +1,6 @@
-> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Water-Distance-v1 is retained.\n\n# RAK Water Distance v1
+> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Water-Distance-v1 is retained.
+
+# RAK Water Distance v2
 
 Production water-level / stage firmware for **RAK4631 + RAK19007** Meshtastic field nodes.
 
