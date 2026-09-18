@@ -46,7 +46,7 @@ jobs:
           echo "Packaging full application UF2: $UF2 ($UF2_SIZE bytes)"
           cp "$UF2" export/RAK4631-Meshtastic-HOBO-BLE-DFU-Target.uf2
 
-          OTA="$(find .pio/build/rak4631 -maxdepth 1 -type f -name 'firmware-rak4631-*-ota.zip' | sort | head -n 1 || true)"
+          OTA="$(find release -maxdepth 1 -type f -name 'firmware-rak4631-*-ota.zip' | sort | head -n 1 || true)"
           test -n "$OTA"
           OTA_SIZE="$(stat -c%s "$OTA")"
           test "$OTA_SIZE" -gt 500000
