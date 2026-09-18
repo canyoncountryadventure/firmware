@@ -986,6 +986,13 @@ void setup()
 #endif
 #endif
 
+    // S140 must claim its interrupts before the SX1262/GPIOTE driver is initialized.
+    // Starting it after LoRa can make sd_softdevice_enable reject the active IRQ layout
+    // and leave USB disabled inside Bluefruit.begin().
+#if defined(ARCH_NRF52) && defined(HOBO_BLE_CENTRAL_ONLY)
+    setBluetoothEnable(true);
+#endif
+
     auto rIf = initLoRa();
 
     lateInitVariant(); // Do board specific init (see extra_variants/README.md for documentation)
