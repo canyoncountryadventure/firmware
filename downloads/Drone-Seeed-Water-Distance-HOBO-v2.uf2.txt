@@ -1,6 +1,6 @@
 Drone flasher: Drone-Seeed-Water-Distance-HOBO-v2.uf2
 Target branch: Seeed-Water-Distance-HOBO-v2
-Target commit: 275b7e23f1b479eab88997c8c1881b1c7dbe978e
+Target commit: 13059dedf3361d18ee5e6a426f72f0f7b561ebc9
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1262592
-be83b52d430c2bbb4d3a484a43e8c7360a46e60d6cee9c585e4649e0098fab30  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.924a347.uf2
+160c4cf4c7839f6e4fede3e085478422e1aea9946bed2e649225124a6f248751  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.da8629a.uf2

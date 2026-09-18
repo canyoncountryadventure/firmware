@@ -3,4 +3,4 @@ Target branch: RAK-Water-Distance-v2
 Target commit: d290354e7dcf55517c6266b84f54c9085a3e2a44
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1310208
-ee345e4cf127e969f59158efe6c147fa1ac1760cce55dbe6b902741063203b20  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.924a347.uf2
+8cc1e2a76618851f06458194fef8f0b2c30b90b69833465924c6485f683ffa63  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.da8629a.uf2
