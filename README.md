@@ -23,7 +23,7 @@ The Scout needs no laptop, phone, SD card, ESP32, LoRa antenna, or USB connectio
 | Scout source | [rak4631_drone_flasher.cpp](src/experimental/rak4631_drone_flasher.cpp) |
 | Target HOBO + DFU source | [HOBOMX2001MX2201MX2203Telemetry.cpp](src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp) |
 
-To download a build, open the workflow-runs link, choose the newest successful green run, and download its `remote-drone-flashing-<run number>` artifact. GitHub may require sign-in to download Actions artifacts. The artifact contains the target UF2, target OTA ZIP, Scout UF2 and `BUILD.txt`.
+For the **verified successful pair**, open the `b812974` workflow-run link and download its `remote-drone-flashing-12` artifact. Use the general workflow-runs link only for newer development builds; a green CI result proves that the pair built and packaged correctly, not that the new commit has repeated the physical end-to-end test. GitHub may require sign-in to download Actions artifacts. Each artifact contains the target UF2, target OTA ZIP, Scout UF2 and `BUILD.txt`.
 
 **Keep the target and Scout files from the same workflow artifact together.** The Scout contains a compressed copy of that exact target application. Mixing files from different runs defeats the matched-pair design.
 
