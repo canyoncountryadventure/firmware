@@ -183,10 +183,16 @@ uint16_t measurementSequence = 0;
 #if defined(RAK_4631)
 bool otaDfuRebootPending = false;
 uint32_t otaDfuRebootAtMs = 0;
+#define DFU_STRINGIFY_INNER(x) #x
+#define DFU_STRINGIFY(x) DFU_STRINGIFY_INNER(x)
+
 bool otaDfuBootConfirmPending = false;
 uint32_t otaDfuBootConfirmDestination = 0;
 uint8_t otaDfuBootConfirmChannel = 0;
 uint32_t otaDfuBootConfirmDueMs = 0;
+static constexpr size_t OTA_DFU_BUILD_ID_MAX = 20;
+char otaDfuPreviousBuild[OTA_DFU_BUILD_ID_MAX + 1] = {};
+static constexpr char OTA_DFU_CURRENT_BUILD[] = DFU_STRINGIFY(APP_VERSION);
 static constexpr uint32_t OTA_DFU_REBOOT_DELAY_MS = 3000;
 static constexpr uint32_t OTA_DFU_BOOT_CONFIRM_DELAY_MS = 5000;
 static constexpr uint32_t OTA_DFU_BOOT_CONFIRM_RETRY_MS = 30000;
@@ -274,11 +280,10 @@ bool saveOtaDfuPending(uint32_t destination, uint8_t channel)
     if (destination == 0)
         return false;
 
-    uint8_t record[12] = {
-        'D', 'F', 'U', '1', 1,
+    uint8_t record[32] = {
+        'D', 'F', 'U', '2', 2,
         0, 0, 0, 0,
         channel,
-        0,
         0
     };
 
@@ -286,7 +291,14 @@ bool saveOtaDfuPending(uint32_t destination, uint8_t channel)
     record[6] = static_cast<uint8_t>(destination >> 8);
     record[7] = static_cast<uint8_t>(destination >> 16);
     record[8] = static_cast<uint8_t>(destination >> 24);
-    record[11] = lockChecksum(record, 11);
+
+    size_t buildLength = strlen(OTA_DFU_CURRENT_BUILD);
+    if (buildLength > OTA_DFU_BUILD_ID_MAX)
+        buildLength = OTA_DFU_BUILD_ID_MAX;
+
+    record[10] = static_cast<uint8_t>(buildLength);
+    memcpy(&record[11], OTA_DFU_CURRENT_BUILD, buildLength);
+    record[31] = lockChecksum(record, 31);
 
     concurrency::LockGuard g(spiLock);
     File file = FSCom.open(OTA_DFU_PENDING_FILE_PATH, FILE_O_WRITE);
@@ -306,10 +318,14 @@ bool saveOtaDfuPending(uint32_t destination, uint8_t channel)
 
     otaDfuBootConfirmDestination = destination;
     otaDfuBootConfirmChannel = channel;
+    memset(otaDfuPreviousBuild, 0, sizeof(otaDfuPreviousBuild));
+    memcpy(otaDfuPreviousBuild, OTA_DFU_CURRENT_BUILD, buildLength);
+
     LOG_INFO(
-        "RAK DFU: saved post-update confirmation destination=0x%08lX channel=%u",
+        "RAK DFU: saved post-update confirmation destination=0x%08lX channel=%u build=%s",
         static_cast<unsigned long>(destination),
-        channel);
+        channel,
+        otaDfuPreviousBuild);
     return true;
 }
 
@@ -319,6 +335,7 @@ void clearOtaDfuPending()
     otaDfuBootConfirmDestination = 0;
     otaDfuBootConfirmChannel = 0;
     otaDfuBootConfirmDueMs = 0;
+    memset(otaDfuPreviousBuild, 0, sizeof(otaDfuPreviousBuild));
 
     concurrency::LockGuard g(spiLock);
     FSCom.remove(OTA_DFU_PENDING_FILE_PATH);
@@ -330,8 +347,9 @@ void loadOtaDfuPending()
     otaDfuBootConfirmDestination = 0;
     otaDfuBootConfirmChannel = 0;
     otaDfuBootConfirmDueMs = 0;
+    memset(otaDfuPreviousBuild, 0, sizeof(otaDfuPreviousBuild));
 
-    uint8_t record[12] = {};
+    uint8_t record[32] = {};
     size_t readLength = 0;
 
     {
@@ -346,9 +364,10 @@ void loadOtaDfuPending()
 
     if (readLength != sizeof(record) ||
         record[0] != 'D' || record[1] != 'F' ||
-        record[2] != 'U' || record[3] != '1' ||
-        record[4] != 1 ||
-        record[11] != lockChecksum(record, 11)) {
+        record[2] != 'U' || record[3] != '2' ||
+        record[4] != 2 ||
+        record[10] > OTA_DFU_BUILD_ID_MAX ||
+        record[31] != lockChecksum(record, 31)) {
         LOG_WARN("RAK DFU: ignoring invalid pending-confirmation marker");
         clearOtaDfuPending();
         return;
@@ -360,21 +379,25 @@ void loadOtaDfuPending()
         (static_cast<uint32_t>(record[7]) << 16) |
         (static_cast<uint32_t>(record[8]) << 24);
 
-    if (destination == 0) {
-        LOG_WARN("RAK DFU: pending-confirmation marker has invalid destination");
+    if (destination == 0 || record[10] == 0) {
+        LOG_WARN("RAK DFU: pending-confirmation marker has invalid destination/build");
         clearOtaDfuPending();
         return;
     }
 
     otaDfuBootConfirmDestination = destination;
     otaDfuBootConfirmChannel = record[9];
+    memcpy(otaDfuPreviousBuild, &record[11], record[10]);
+    otaDfuPreviousBuild[record[10]] = '\0';
     otaDfuBootConfirmPending = true;
     otaDfuBootConfirmDueMs = millis() + OTA_DFU_BOOT_CONFIRM_DELAY_MS;
 
     LOG_INFO(
-        "RAK DFU: post-update boot confirmation pending destination=0x%08lX channel=%u",
+        "RAK DFU: post-update confirmation pending destination=0x%08lX channel=%u old_build=%s current_build=%s",
         static_cast<unsigned long>(otaDfuBootConfirmDestination),
-        otaDfuBootConfirmChannel);
+        otaDfuBootConfirmChannel,
+        otaDfuPreviousBuild,
+        OTA_DFU_CURRENT_BUILD);
 }
 #endif
 
@@ -1345,20 +1368,43 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
     if (otaDfuBootConfirmPending &&
         otaDfuBootConfirmDestination != 0 &&
         reached(now, otaDfuBootConfirmDueMs)) {
+        const bool buildChanged =
+            otaDfuPreviousBuild[0] != '\0' &&
+            strcmp(otaDfuPreviousBuild, OTA_DFU_CURRENT_BUILD) != 0;
+
+        char reply[220] = {};
+        if (buildChanged) {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "UPDATE SUCCESS\nRAK4631 booted new firmware after BLE DFU\nOld: %s\nNew: %s",
+                otaDfuPreviousBuild,
+                OTA_DFU_CURRENT_BUILD);
+        } else {
+            snprintf(
+                reply,
+                sizeof(reply),
+                "DFU NOT CONFIRMED\nPrevious firmware resumed\nBuild: %s",
+                OTA_DFU_CURRENT_BUILD);
+        }
+
         const bool queued = sendTextReply(
             otaDfuBootConfirmDestination,
             otaDfuBootConfirmChannel,
-            "UPDATE SUCCESS\nRAK4631 application booted after BLE DFU\nMeshtastic 2.7.26 + HOBO");
+            reply);
 
         if (queued) {
             LOG_INFO(
-                "RAK DFU: post-update boot confirmation queued to=0x%08lX channel=%u",
+                "RAK DFU: post-DFU boot result queued to=0x%08lX channel=%u changed=%s old=%s new=%s",
                 static_cast<unsigned long>(otaDfuBootConfirmDestination),
-                otaDfuBootConfirmChannel);
+                otaDfuBootConfirmChannel,
+                buildChanged ? "yes" : "no",
+                otaDfuPreviousBuild,
+                OTA_DFU_CURRENT_BUILD);
             clearOtaDfuPending();
         } else {
             otaDfuBootConfirmDueMs = now + OTA_DFU_BOOT_CONFIRM_RETRY_MS;
-            LOG_WARN("RAK DFU: post-update confirmation enqueue failed; retry scheduled");
+            LOG_WARN("RAK DFU: post-DFU result enqueue failed; retry scheduled");
         }
     }
 #endif
