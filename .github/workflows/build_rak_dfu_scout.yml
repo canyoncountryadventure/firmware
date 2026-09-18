@@ -6,6 +6,7 @@ on:
       - esp-32-testing
     paths:
       - 'src/experimental/rak4631_dfu_scout.cpp'
+      - 'tools/rak_dfu_serial_upload.py'
       - 'variants/nrf52840/rak4631/platformio.ini'
       - '.github/workflows/build_rak_dfu_scout.yml'
   workflow_dispatch:
@@ -49,8 +50,9 @@ jobs:
           UF2="$(find .pio/build/rak4631_dfu_scout -maxdepth 1 -type f -name '*.uf2' | head -n 1)"
           OTA="$(find .pio/build/rak4631_dfu_scout -maxdepth 1 -type f -name '*-ota.zip' | head -n 1)"
           test -n "$UF2"
-          cp "$UF2" export/RAK4631-DFU-Scout-USB.uf2
-          if [ -n "$OTA" ]; then cp "$OTA" export/RAK4631-DFU-Scout-USB-OTA.zip; fi
+          cp "$UF2" export/RAK4631-DFU-Scout-Phase2-Serial-Bridge.uf2
+          if [ -n "$OTA" ]; then cp "$OTA" export/RAK4631-DFU-Scout-Phase2-Serial-Bridge-OTA.zip; fi
+          cp tools/rak_dfu_serial_upload.py export/rak_dfu_serial_upload.py
 
       - name: Upload DFU scout outputs and build log
         if: always()
