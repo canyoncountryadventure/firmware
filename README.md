@@ -1,4 +1,6 @@
-> **Heltec Gateway v2:** gateway ingestion, direct HOBO BLE, mesh forwarding, OTA, and Vercel/Neon behavior are retained. v2 is the matching gateway release for the hardened field-node family.\n\n# CCA Heltec Sensor Gateway
+> **Heltec Gateway v2:** gateway ingestion, direct HOBO BLE, mesh forwarding, OTA, and Vercel/Neon behavior are retained. v2 is the matching gateway release for the hardened field-node family.
+
+# CCA Heltec Sensor Gateway v2
 
 **Canonical Heltec branch:** `Heltec-Gateway-v2`  
 **Gateway hardware:** Heltec WiFi LoRa 32 V4 OLED  
