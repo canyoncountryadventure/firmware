@@ -1164,13 +1164,24 @@ void loop()
             RadioLibInterface::instance->pollMissedIrqs();
         }
 
-        // Periodic AGC reset — warm sleep + recalibrate to prevent stuck AGC gain
+        // Field-v2 maintenance: recover offline RX first, otherwise run guarded calibration.
         static uint32_t lastAgcReset;
         if (!Throttle::isWithinTimespanMs(lastAgcReset, AGC_RESET_INTERVAL_MS)) {
             lastAgcReset = millis();
-            RadioLibInterface::instance->resetAGC();
+            RadioLibInterface::instance->periodicRadioMaintenance();
         }
     }
+
+#if defined(ARCH_NRF52) && defined(FIELD_RECOVERY_V2)
+    static const uint32_t fieldBootMs = millis();
+    static bool fieldScheduledRebootArmed = true;
+    if (fieldScheduledRebootArmed && (uint32_t)(millis() - fieldBootMs) >= (12UL * 60UL * 60UL * 1000UL)) {
+        fieldScheduledRebootArmed = false;
+        LOG_WARN("Field v2: 12-hour preventive reboot due");
+        if (rebootAtMsec == 0)
+            rebootAtMsec = millis() + 5000UL;
+    }
+#endif
 
 #ifdef DEBUG_STACK
     static uint32_t lastPrint = 0;

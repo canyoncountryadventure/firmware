@@ -1,13 +1,13 @@
-name: Build Seeed Water Distance HOBO v1
+name: Build Seeed Water Distance HOBO v2
 
 on:
   push:
     branches:
-      - Seeed-Water-Distance-HOBO-v1
+      - Seeed-Water-Distance-HOBO-v2
   workflow_dispatch:
 
 concurrency:
-  group: Seeed-Water-Distance-HOBO-v1
+  group: Seeed-Water-Distance-HOBO-v2
   cancel-in-progress: true
 
 permissions:
@@ -17,14 +17,14 @@ jobs:
   build-seeed-water-distance-hobo:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Seeed Water Distance HOBO v1 branch
+      - name: Checkout Seeed Water Distance HOBO v2 branch
         uses: actions/checkout@v7
         with:
-          ref: Seeed-Water-Distance-HOBO-v1
+          ref: Seeed-Water-Distance-HOBO-v2
           submodules: recursive
 
       - name: Build Seeed XIAO nRF52840 Kit
-        uses: meshtastic/gh-action-firmware@main
+        uses: meshtastic/gh-action-firmware@39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
         with:
           pio_platform: nrf52840
           pio_env: seeed_xiao_nrf52840_kit
@@ -33,7 +33,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: Seeed-Water-Distance-HOBO-v1-${{ github.run_number }}
+          name: Seeed-Water-Distance-HOBO-v2-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
@@ -53,8 +53,8 @@ jobs:
           test -n "$UF2"
           test -n "$OTA"
           mkdir -p export
-          cp "$UF2" export/Seeed-Water-Distance-HOBO-v1.uf2
-          cp "$OTA" export/Seeed-Water-Distance-HOBO-v1-OTA.zip
+          cp "$UF2" export/Seeed-Water-Distance-HOBO-v2.uf2
+          cp "$OTA" export/Seeed-Water-Distance-HOBO-v2-OTA.zip
 
       - name: Checkout firmware download branch
         uses: actions/checkout@v7
@@ -73,21 +73,21 @@ jobs:
           for attempt in 1 2 3 4 5; do
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
-            mkdir -p downloads Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1
-            cp ../export/Seeed-Water-Distance-HOBO-v1.uf2 downloads/
-            cp ../export/Seeed-Water-Distance-HOBO-v1-OTA.zip downloads/
-            cp ../export/Seeed-Water-Distance-HOBO-v1.uf2 Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/
-            cp ../export/Seeed-Water-Distance-HOBO-v1-OTA.zip Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/
+            mkdir -p downloads Self-Recovery-v2s/Seeed-Water-Distance-HOBO-v2
+            cp ../export/Seeed-Water-Distance-HOBO-v2.uf2 downloads/
+            cp ../export/Seeed-Water-Distance-HOBO-v2-OTA.zip downloads/
+            cp ../export/Seeed-Water-Distance-HOBO-v2.uf2 Self-Recovery-v2s/Seeed-Water-Distance-HOBO-v2/
+            cp ../export/Seeed-Water-Distance-HOBO-v2-OTA.zip Self-Recovery-v2s/Seeed-Water-Distance-HOBO-v2/
             git add \
-              downloads/Seeed-Water-Distance-HOBO-v1.uf2 \
-              downloads/Seeed-Water-Distance-HOBO-v1-OTA.zip \
-              Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1.uf2 \
-              Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1-OTA.zip
+              downloads/Seeed-Water-Distance-HOBO-v2.uf2 \
+              downloads/Seeed-Water-Distance-HOBO-v2-OTA.zip \
+              Self-Recovery-v2s/Seeed-Water-Distance-HOBO-v2/Seeed-Water-Distance-HOBO-v2.uf2 \
+              Self-Recovery-v2s/Seeed-Water-Distance-HOBO-v2/Seeed-Water-Distance-HOBO-v2-OTA.zip
             if git diff --cached --quiet; then
               echo "Downloads and user-facing folder already current"
               exit 0
             fi
-            git commit -m "Publish Seeed Water Distance HOBO v1 downloads"
+            git commit -m "Publish Seeed Water Distance HOBO v2 downloads"
             if git push origin HEAD:field-self-recovery; then
               exit 0
             fi

@@ -27,7 +27,9 @@
 #include <power/PowerHAL.h>
 
 #include "Nrf52SaadcLock.h"
+#include "SPILock.h"
 #include "concurrency/LockGuard.h"
+#include "flash/flash_nrf5x.h"
 #include <hal/nrf_lpcomp.h>
 
 #ifdef BQ25703A_ADDR
@@ -60,6 +62,34 @@ void variant_nrf52LoopHook(void) {}
 
 static nrfx_wdt_t nrfx_wdt = NRFX_WDT_INSTANCE(0);
 static nrfx_wdt_channel_id nrfx_wdt_channel_id_nrf52_main;
+#if defined(FIELD_RECOVERY_V2)
+static nrfx_wdt_channel_id nrfx_wdt_channel_id_field;
+static volatile bool fieldWatchdogFeedAllowed = true;
+#endif
+
+void nrf52FieldWatchdogTrip()
+{
+#if defined(FIELD_RECOVERY_V2)
+    fieldWatchdogFeedAllowed = false;
+    LOG_ERROR("Field v2: health watchdog deliberately starved; hardware reset pending");
+#endif
+}
+
+bool nrf52FieldWatchdogIsArmed()
+{
+#if defined(FIELD_RECOVERY_V2)
+    return true;
+#else
+    return false;
+#endif
+}
+
+void nrf52FlashQuiesce()
+{
+    spiLock->lock();
+    InternalFS._lockFS();
+    flash_nrf5x_flush();
+}
 
 // This is a public global so that the debugger can set it to false automatically from our gdbinit
 // @phaseloop comment: most part of codebase, including filesystem flash driver depend on softdevice
@@ -338,6 +368,10 @@ void nrf52Loop()
         }
     }
     nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_nrf52_main);
+#if defined(FIELD_RECOVERY_V2)
+    if (fieldWatchdogFeedAllowed)
+        nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_field);
+#endif
 
     checkSDEvents();
     reportLittleFSCorruptionOnce();
@@ -378,7 +412,7 @@ void nrf52Setup()
     pinMode(ADC_V, INPUT);
 #endif
 
-    uint32_t why = NRF_POWER->RESETREAS;
+    uint32_t why = readResetReason();
     // per
     // https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.nrf52832.ps.v1.1%2Fpower.html
     LOG_DEBUG("Reset reason: 0x%x", why);
@@ -412,7 +446,12 @@ void nrf52Setup()
     // the first time through the main loop), so that other threads can
     // allocate their own wdt channel to protect themselves from hangs.
     nrfx_wdt_config_t wdt0_config = {
-        .behaviour = NRF_WDT_BEHAVIOUR_PAUSE_SLEEP_HALT, .reload_value = APP_WATCHDOG_SECS * 1000,
+#if defined(FIELD_RECOVERY_V2)
+        .behaviour = NRF_WDT_BEHAVIOUR_RUN_SLEEP_HALT,
+#else
+        .behaviour = NRF_WDT_BEHAVIOUR_PAUSE_SLEEP_HALT,
+#endif
+        .reload_value = APP_WATCHDOG_SECS * 1000,
         // Note: Not using wdt interrupts.
         // .interrupt_priority = NRFX_WDT_DEFAULT_CONFIG_IRQ_PRIORITY
     };
@@ -423,6 +462,10 @@ void nrf52Setup()
 
     r = nrfx_wdt_channel_alloc(&nrfx_wdt, &nrfx_wdt_channel_id_nrf52_main);
     assert(r == NRFX_SUCCESS);
+#if defined(FIELD_RECOVERY_V2)
+    r = nrfx_wdt_channel_alloc(&nrfx_wdt, &nrfx_wdt_channel_id_field);
+    assert(r == NRFX_SUCCESS);
+#endif
 }
 
 void cpuDeepSleep(uint32_t msecToWake)
