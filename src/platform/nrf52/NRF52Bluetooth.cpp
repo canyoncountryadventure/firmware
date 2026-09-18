@@ -1,6 +1,7 @@
 #include "NRF52Bluetooth.h"
 #include "BLEDfuSecure.h"
 #include "BluetoothCommon.h"
+#include "memGet.h"
 #include "HardwareRNG.h"
 #include "PowerFSM.h"
 #include "configuration.h"
@@ -263,7 +264,11 @@ void NRF52Bluetooth::setup()
     // Initialise the Bluefruit module
     LOG_INFO("Init the Bluefruit nRF52 module");
     Bluefruit.autoConnLed(false);
-bool bluefruitReady = false;
+    extern uint32_t __data_start__[];
+    LOG_INFO("Bluefruit preflight bootloader=%s app_ram=0x%08lX free_heap=%lu", getBootloaderVersion(),
+             static_cast<unsigned long>(reinterpret_cast<uintptr_t>(__data_start__)),
+             static_cast<unsigned long>(memGet.getFreeHeap()));
+    bool bluefruitReady = false;
 #if defined(HOBO_BLE_CENTRAL_ONLY)
     // The XIAO/S140 combination resets inside Bluefruit.begin(1, 1), even with
     // LOW bandwidth and additional SoftDevice RAM.  Give the field logger one
