@@ -1157,6 +1157,24 @@ void loop()
 #endif
     power->powerCommandsCheck();
 
+#if defined(ARCH_NRF52) && defined(CCA_FIELD_HARDENED_V2)
+    // Second watchdog channel is the field-health heartbeat. A live CPU is not enough:
+    // once the radio recovery ladder declares a hard failure, stop feeding this channel.
+    extern void nrf52FieldHealthWatchdogFeed(bool healthy);
+    nrf52FieldHealthWatchdogFeed(RadioLibInterface::instance == nullptr ||
+                                 RadioLibInterface::instance->shouldFeedFieldWatchdog());
+
+    // Burn-in insurance: rebuild the entire software/radio state every 12 hours.
+    // Use the normal reboot scheduler so Power::reboot() can quiesce nRF52 flash first.
+    static uint32_t fieldBootMs = millis();
+    static bool fieldRebootScheduled = false;
+    if (!fieldRebootScheduled && (uint32_t)(millis() - fieldBootMs) >= (12UL * 60UL * 60UL * 1000UL)) {
+        fieldRebootScheduled = true;
+        LOG_WARN("Field v2 scheduled 12-hour maintenance reboot");
+        rebootAtMsec = millis() + 5000;
+    }
+#endif
+
     if (RadioLibInterface::instance != nullptr) {
         static uint32_t lastRadioMissedIrqPoll;
         if (!Throttle::isWithinTimespanMs(lastRadioMissedIrqPoll, 1000)) {
