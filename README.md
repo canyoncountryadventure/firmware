@@ -86,6 +86,7 @@ Every RAK v2 target branch keeps its **normal UF2 + normal OTA ZIP** and contain
 | RAK Water Distance v2 | [Drone-RAK-Water-Distance-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-v2.uf2) |
 | RAK Water Distance + HOBO v2 | [Drone-RAK-Water-Distance-HOBO-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v2.uf2) |
 | Canonical Field Self-Recovery v2 — RAK4631 | [Drone-Field-Self-Recovery-v2-RAK4631.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v2-RAK4631.uf2) |
+| Seeed Water Distance + HOBO v2 | [Drone-Seeed-Water-Distance-HOBO-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v2.uf2) |
 
 Each Scout UF2 embeds an **LZ4-compressed copy of the matching target branch's application OTA**. Flash the normal target firmware onto the field node; flash the matching `Drone-*.uf2` onto the separate RAK4631 carried by the drone.
 
