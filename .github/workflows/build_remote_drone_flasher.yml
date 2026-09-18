@@ -16,7 +16,9 @@ on:
       - '.github/workflows/build_remote_drone_flasher.yml'
   workflow_dispatch:
 
-permissions: read-all
+permissions:
+  contents: write
+  actions: read
 
 concurrency:
   group: remote-drone-flasher-${{ github.ref }}
