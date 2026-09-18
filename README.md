@@ -1,154 +1,185 @@
-# Meshtastic Field Firmware
+# RAK4631 Remote DFU / Drone Flasher
 
-If you just want firmware, use **these two folders**:
+Experimental remote-firmware-update work for **RAK4631 / nRF52840 Meshtastic field nodes**.
 
-1. **[`Self-Recovery-v1s/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Self-Recovery-v1s)** — HOBO, water-distance, combined water + HOBO, and Heltec gateway firmware.
-2. **[`Trail-Sensors/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Trail-Sensors)** — trail-counter, PIR, rock telemetry, and trail HOBO firmware.
+This branch proves that a field RAK4631 can be commanded over Meshtastic to enter its Adafruit/Nordic BLE DFU bootloader, then receive a complete application update from a nearby RAK4631 over Bluetooth.
 
-Everything else in the repository is source code or build infrastructure.
+> **Branch:** `esp-32-testing`  
+> **Meshtastic base:** 2.7.26  
+> **Target hardware:** RAK4631 on RAK19007 / compatible WisBlock base  
+> **DFU protocol actually used by the target:** Nordic **Legacy DFU** / `AdaDFU` (`0x1530` service)
 
-## Self-Recovery-v1s
+## Current status
 
-| Firmware | Board | USB | BLE / OTA |
-|---|---|---|---|
-| **Seeed HOBO Safe v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-HOBO-Safe-v1/Seeed-HOBO-Safe-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-HOBO-Safe-v1/Seeed-HOBO-Safe-v1-OTA.zip) |
-| **RAK HOBO Safe v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-HOBO-Safe-v1/RAK-HOBO-Safe-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-HOBO-Safe-v1/RAK-HOBO-Safe-v1-OTA.zip) |
-| **Seeed Water Distance v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-v1/Seeed-Water-Distance-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-v1/Seeed-Water-Distance-v1-OTA.zip) |
-| **RAK Water Distance v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-v1/RAK-Water-Distance-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-v1/RAK-Water-Distance-v1-OTA.zip) |
-| **Seeed Water Distance + HOBO v1** | Seeed XIAO nRF52840 + Wio-SX1262 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Seeed-Water-Distance-HOBO-v1/Seeed-Water-Distance-HOBO-v1-OTA.zip) |
-| **RAK Water Distance + HOBO v1** | RAK4631 + RAK19007 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/RAK-Water-Distance-HOBO-v1/RAK-Water-Distance-HOBO-v1-OTA.zip) |
-| **Heltec Gateway v1** | Heltec V4 | [Full build ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Self-Recovery-v1s/Heltec-Gateway-v1/Heltec-Gateway-v1.zip) | — |
-
-## Trail-Sensors
-
-| Firmware | Purpose | USB | BLE / OTA |
-|---|---|---|---|
-| **SEN0171 v1** | Dedicated fast trail counter | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/SEN0171/Trail-SEN0171-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/SEN0171/Trail-SEN0171-v1-OTA.zip) |
-| **PIR + Rock + HOBO v1** | PIR / presence + rock telemetry + HOBO | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1.uf2) | [ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/Trail-Sensors/PIR-Rock-HOBO/Trail-PIR-Rock-HOBO-v1-OTA.zip) |
-
-## Useful DM commands
-
-Send these as direct Meshtastic text messages to the target node. Commands are case-insensitive; a leading `/` is optional where supported.
-
-### HOBO Safe v1 — Seeed or RAK
-
-| Command | What it does |
+| Capability | Status |
 |---|---|
-| `STATUS` | Shows overall node/HOBO health. |
-| `LOGGER` | Shows HOBO model, MAC, BLE RSSI, interval, and lock state. |
-| `READ` | Takes a fresh HOBO reading without consuming the automatic pointer. |
-| `LOCK` | Saves the identified HOBO as this station's logger. |
-| `UNLOCK` | Clears the saved logger and resumes discovery. |
-| `BLE` | Shows BLE scanning/link/recovery state. |
-| `AUTO` | Shows automatic pointer-gated HOBO record state. |
-| `POWER` | Shows battery voltage, percentage, and charging state. |
-| `WATCHDOG` | Shows watchdog state/ownership. |
-| `PING` | Quick DM/liveness test. |
-| `SCAN` | Refreshes disconnected BLE scanning. |
-| `RECONNECT` | Rebuilds the disconnected BLE scanner/link. |
-| `RECOVER` or `REBOOT` | Replies, then safely reboots without erasing Meshtastic settings. |
+| Direct Meshtastic `DFU` command to target | ✅ Bench verified |
+| Target reboot into `AdaDFU` from software | ✅ Bench verified |
+| Scout detects `AdaDFU` | ✅ Bench verified |
+| Scout connects to Legacy DFU service `0x1530` | ✅ Bench verified |
+| Transfer init packet (`.dat`) | ✅ Bench verified |
+| Transfer full application image (`.bin`) | ✅ **778,048-byte image verified** |
+| Nordic RECEIVE / VALIDATE / ACTIVATE / RESET | ✅ Bench verified |
+| Target boots flashed Meshtastic + HOBO application | ✅ Bench verified |
+| Persist requester before DFU and report successful boot over mesh | ✅ Implemented in target source |
+| Scout carries firmware without a PC | ⏳ Next step |
+| Scout runs normal Meshtastic and DFU client in one image | ⏳ Next step |
+| Final two-RAK field architecture | ⏳ Integration step |
 
-### Water Distance v1 — Seeed or RAK
+The successful Phase 2 bench run reached `100%`, returned `RECEIVE_FW status=0x1`, `VALIDATE status=0x1`, sent `ACTIVATE`, disconnected during reboot, and reported `DFU SUCCESS`.
 
-| Command | What it does |
-|---|---|
-| `STATUS` | Shows sensor, interval, calibration, and readiness. |
-| `RAW` | Takes a fresh raw distance reading. |
-| `READ` | Takes a fresh reading and reports calculated stage if calibrated. |
-| `VERIFY` | Takes multiple fresh readings and reports median/range/spread. |
-| `SENSOR A01NYUB` | Selects the SEN0313/A01NYUB sensor. |
-| `SENSOR A02YYUW` | Selects the SEN0311/A02YYUW sensor. |
-| `SENSOR SEN0590` | Selects the SEN0590 sensor. |
-| `SENSOR AUTO` | Automatically tries supported distance-sensor drivers. |
-| `INTERVAL 1H` | Saves a 1-hour automatic report interval. |
-| `CAL STAGE 1.42FT` | Calibrates from the independently measured stage and locks calibration. |
-| `CAL STATUS` | Shows calibration/reference/lock state. |
-| `CAL UNLOCK CONFIRM` | Unlocks calibration without erasing it. |
-| `CAL RESET CONFIRM` | Clears calibration only; sensor and interval remain saved. |
-| `TELEMETRY NOW` | Immediately sends a fresh water telemetry packet. |
-| `RESET WATER CONFIRM` | Resets only the water subsystem to defaults. |
-| `POWER` | Shows battery/power status. |
-| `WATCHDOG` | Shows watchdog status. |
-| `RECOVER` or `REBOOT` | Safely reboots without factory-erasing the node. |
+## Quick links
 
-### Combined Water Distance + HOBO v1
+- **[Detailed architecture and test notes](docs/RAK_REMOTE_DFU.md)**
+- **[Scout source](src/experimental/rak4631_dfu_scout.cpp)**
+- **[Target DFU + HOBO source](src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp)**
+- **[PC → Scout uploader](tools/rak_dfu_serial_upload.py)**
+- **[Scout build workflow](.github/workflows/build_rak_dfu_scout.yml)**
+- **[Target build workflow](.github/workflows/build_rak_ble_dfu_target.yml)**
+- **[RAK4631 PlatformIO environments](variants/nrf52840/rak4631/platformio.ini)**
+- **[Scout Actions runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_dfu_scout.yml?query=branch%3Aesp-32-testing)**
+- **[Target Actions runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_ble_dfu_target.yml?query=branch%3Aesp-32-testing)**
+- **[Production field-firmware branch](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery)**
 
-Use the explicit `WATER` prefix for water commands to avoid ambiguity:
+## What happens on the target
 
-| Command | What it does |
-|---|---|
-| `WATER STATUS` | Shows water sensor/calibration/readiness. |
-| `WATER READ` | Takes a fresh water reading. |
-| `WATER RAW` | Shows raw water-sensor distance. |
-| `WATER VERIFY` | Runs the multi-reading installation check. |
-| `WATER INTERVAL 1H` | Saves hourly water telemetry. |
-| `WATER CAL STAGE 1.42FT` | Calibrates and locks water stage. |
-| `WATER CAL STATUS` | Shows saved water calibration state. |
-| `WATER CAL RESET CONFIRM` | Clears only water calibration. |
-| `WATER TELEMETRY NOW` | Sends water telemetry immediately. |
-| `LOGGER` | Shows the HOBO logger identity/state. |
-| `READ` | Requests a fresh HOBO reading. |
-| `LOCK` / `UNLOCK` | Saves or clears the HOBO logger assignment. |
-| `BLE` | Shows HOBO BLE state. |
-| `SCAN` / `RECONNECT` | Refreshes or rebuilds the disconnected HOBO BLE path. |
-| `POWER` | Shows battery/power state. |
-| `WATCHDOG` | Shows watchdog state. |
-| `RECOVER` / `REBOOT` | Safely reboots the node. |
-
-### Trail PIR + Rock + HOBO
-
-| Command | What it does |
-|---|---|
-| `STATUS` | Shows uptime, battery, PIR state/counts, alert destination, and HOBO hint. |
-| `ALERTS HERE` | Saves the sender as the private PIR/power/boot alert destination. |
-| `ALERTS STATUS` | Shows the saved alert destination. |
-| `ALERTS CLEAR` | Clears the private alert destination. |
-| `PIR STATUS` | Shows live PIR state, totals, last detection, and TX state. |
-| `PIR COUNT` | Shows cumulative and since-boot detections. |
-| `PIR ON` / `PIR OFF` | Enables or disables PIR monitoring persistently. |
-| `PIR TX ON` / `PIR TX OFF` | Enables or disables private PIR alert transmissions. |
-| `POWER` | Shows battery state and trend. |
-| `POWER HISTORY` | Shows stored voltage checkpoints/min/max. |
-| `LOGGER` | Shows the HOBO logger identity/state. |
-| `READ` | Takes a fresh HOBO reading. |
-| `LOCK` / `UNLOCK` | Saves or clears the HOBO assignment. |
-
-The dedicated **SEN0171 trail-counter** build currently has no custom plain-text DM command parser; it automatically sends `PERSON WALKED BY #...` messages for detected events.
-
-### Heltec Gateway v1
-
-The current Heltec gateway does not yet expose custom gateway-control text DMs. Planned direct-HOBO commands are `LOGGER`, `READ`, `LOCK`, and `UNLOCK`; do not rely on them until direct HOBO BLE support is merged and validated.
-
-## Water-distance field setup
-
-The water builds support A01NYUB / SEN0313 by default, plus A02YYUW / SEN0311 and SEN0590. A typical field sequence is:
+A direct Meshtastic text message:
 
 ```text
-STATUS
-RAW
-VERIFY
-INTERVAL 1H
-CAL STAGE 1.42FT
-CAL STATUS
-TELEMETRY NOW
+DFU
 ```
 
-Replace `1.42FT` with the independently measured stage. After calibration, fully remove power, reconnect, then verify `STATUS`, `CAL STATUS`, and `READ`.
+causes the target to:
 
-To discard a bench calibration without changing the saved interval:
+1. Save the requesting node ID and channel to persistent storage.
+2. Reply that BLE OTA DFU is armed.
+3. Set nRF52 `GPREGRET = 0xA8`.
+4. Reset into the Adafruit `AdaDFU` BLE bootloader.
+5. Accept an **application-only** Legacy DFU update.
+6. Validate and activate the image.
+7. Reboot into Meshtastic.
+8. After Meshtastic is running, send the saved requester:
 
 ```text
-CAL RESET CONFIRM
+UPDATE SUCCESS
+RAK4631 application booted after BLE DFU
+Meshtastic 2.7.26 + HOBO
 ```
 
-## Safe flashing
+The pending marker is removed only after the confirmation message is successfully queued.
 
-For nRF52840 boards:
+## Phase 2 bench architecture
 
-- **UF2** = normal USB drag-and-drop firmware update.
-- **BLE / OTA ZIP** = nRF Connect / BLE DFU update.
-- **Do not use factory-erase images for routine upgrades.**
+The current proven transfer path is:
 
-Normal updates are intended to preserve Meshtastic identity, channels, keys, NodeDB, and saved application settings.
+```text
+Meshtastic sender
+      |
+      | LoRa: "DFU"
+      v
+Target RAK4631
+      |
+      | reboots as AdaDFU
+      v
+Scout RAK4631 <--- USB ---> PC
+      |
+      | BLE Legacy DFU
+      v
+Target RAK4631
+```
 
-The project remains pinned to the validated **Meshtastic 2.7.26** base unless an upgrade is explicitly tested and approved.
+The PC currently supplies the OTA ZIP to the Scout over USB serial. The Scout extracts nothing itself; the Python helper reads the OTA ZIP and streams the target `.dat` and `.bin` as requested.
+
+### Final intended architecture
+
+```text
+Phone / controller
+      |
+      | Meshtastic
+      v
+Scout RAK4631
+      |
+      | LoRa: DFU command
+      v
+Target RAK4631
+      |
+      | AdaDFU BLE
+      v
+Scout RAK4631
+      |
+      | BLE firmware transfer
+      v
+Target reboots
+      |
+      | LoRa: UPDATE SUCCESS
+      v
+Scout / controller
+```
+
+That final design does **not require an ESP32**.
+
+## Phase 2 files
+
+The Scout build produces:
+
+- `RAK4631-DFU-Scout-Phase2-Serial-Bridge.uf2`
+- `rak_dfu_serial_upload.py`
+
+The target build produces:
+
+- `RAK4631-Meshtastic-HOBO-BLE-DFU-Target.uf2`
+- `RAK4631-Meshtastic-HOBO-BLE-DFU-Target-OTA.zip`
+
+Download the newest files from the corresponding Actions run links above.
+
+## Phase 2 usage
+
+1. Flash the latest Scout UF2 onto the Scout RAK4631.
+2. Send `DFU` directly to the target over Meshtastic.
+3. Confirm the target begins advertising as `AdaDFU`.
+4. Connect the Scout to the PC by USB.
+5. Run:
+
+```powershell
+python .\tools\rak_dfu_serial_upload.py COM45 .\RAK4631-Meshtastic-HOBO-BLE-DFU-Target-OTA.zip
+```
+
+Replace `COM45` with the Scout's COM port.
+
+A successful transfer ends with:
+
+```text
+PROGRESS 100%
+RECEIVE_FW status=0x1
+VALIDATE status=0x1
+ACTIVATE sent
+DFU SUCCESS: target accepted image and rebooted
+```
+
+With the current target source, a successful post-update application boot then queues the Meshtastic confirmation back to the node that originally sent `DFU`.
+
+## Safety / recovery
+
+- Phase 2 writes the **application image only**.
+- It does not intentionally replace the SoftDevice or bootloader.
+- An interrupted application transfer can leave the application invalid.
+- The Adafruit/RAK bootloader should remain available for USB UF2 recovery.
+- Keep a known-good target UF2 available during development.
+- Do not remove power during VALIDATE / ACTIVATE.
+
+## Important implementation detail
+
+The RAK4631 bootloader observed in testing does **not** advertise Nordic Secure DFU `0xFE59`. It advertises:
+
+```text
+Name: AdaDFU
+Service: 00001530-1212-EFDE-1523-785FEABCD123
+Control Point: 00001531-1212-EFDE-1523-785FEABCD123
+Packet: 00001532-1212-EFDE-1523-785FEABCD123
+```
+
+The Scout supports the actual Legacy DFU path used by this target.
+
+## Repository scope
+
+This repository is a Meshtastic firmware fork and therefore still contains the normal Meshtastic source tree. Files specific to this remote-DFU project are concentrated in the links above. Production environmental-monitoring binaries remain on the **[`field-self-recovery` branch](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery)**.
