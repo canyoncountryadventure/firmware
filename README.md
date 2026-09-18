@@ -31,13 +31,13 @@ HOBO side:
 - MX2201
 - MX2203
 - BLE scanning/collection using the existing universal HOBO reader
-- HOBO field check and self-recovery helpers
+- HOBO v2 diagnostics plus automatic BLE link recovery owned by the HOBO telemetry state machine
 
 Trail-counter logic is intentionally excluded.
 
 ## Recovery ownership
 
-The combined build uses **one recovery supervisor**: the HOBO self-recovery module. The standalone distance recovery supervisor is not instantiated in this combined build. This avoids duplicate watchdog/reboot command handlers while retaining watchdog, BLE recovery, remote recovery commands, and field diagnostics.
+The combined build uses **one node-recovery command/diagnostic module**: the HOBO self-recovery module. The standalone distance recovery supervisor is not instantiated. BLE scanner/link lifecycle remains owned by the HOBO telemetry state machine, which handles connection timeouts and repeated STATUS/NEWREAD failures. This avoids competing BLE owners and duplicate reboot command handlers while retaining the independent Field-Recovery v2 watchdog escalation path.
 
 Water configuration persistence remains handled by the Water Distance v1 module.
 
@@ -125,12 +125,12 @@ A01NYUB ranges continuously while powered, so its blue LED keeps blinking even w
 | `READ` | Requests an immediate fresh HOBO reading without consuming the automatic pointer. |
 | `LOCK` | Saves the currently identified HOBO as this station's logger. |
 | `UNLOCK` | Clears the saved HOBO assignment and resumes discovery. |
-| `BLE` | Reports BLE link/scanning state and recovery information. |
+| `BLE` | Reports central-link count, scanner state, and HOBO state-machine ownership. |
 | `AUTO` | Reports the HOBO automatic-record / pointer-gated state. |
-| `SCAN` | Refreshes BLE scanning when disconnected. |
-| `RECONNECT` | Rebuilds the disconnected BLE scanner/link. |
+| `SCAN` | Legacy diagnostic command; v2 reports that BLE recovery is automatic and does not manipulate the scanner. |
+| `RECONNECT` | Legacy diagnostic command; v2 does not force a link rebuild because the HOBO telemetry state machine owns scanner/link lifecycle. |
 | `POWER` | Reports battery/power status. |
-| `WATCHDOG` | Reports watchdog state/ownership. |
+| `WATCHDOG` | Reports the 90-second core watchdog, independent field-health channel, and sleep/halt behavior. |
 | `PING` | Quick end-to-end DM/liveness test. |
 | `REBOOT` | Performs a safe non-destructive reboot after replying. |
 | `RECOVER` | Alias for the safe recovery reboot. |
