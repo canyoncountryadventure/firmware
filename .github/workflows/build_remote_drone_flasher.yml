@@ -5,11 +5,12 @@ on:
     branches:
       - Remote-Drone-Flashing
     paths:
-      - 'src/experimental/rak4631_drone_flasher.cpp'
-      - 'src/experimental/embedded_dfu_image.h'
+      # The Scout embeds the target application, so any source/config change
+      # that can alter either side must rebuild the matched pair.
+      - 'src/**'
       - 'tools/build_drone_embedded_firmware.py'
-      - 'src/modules/Telemetry/HOBOMX2001MX2201MX2203/**'
-      - 'variants/nrf52840/rak4631/platformio.ini'
+      - 'variants/nrf52840/rak4631/**'
+      - 'platformio.ini'
       - '.github/workflows/build_remote_drone_flasher.yml'
   workflow_dispatch:
 
@@ -77,17 +78,27 @@ jobs:
           test "$TARGET_OTA_SIZE" -gt 500000
           test "$DRONE_UF2_SIZE" -gt 500000
 
-          cp "$TARGET_UF2" export/RAK4631-Target-Confirmation-Firmware.uf2
-          cp "$TARGET_OTA" export/RAK4631-Target-Confirmation-Firmware-OTA.zip
+          TARGET_VERSION="$(basename "$TARGET_UF2" .uf2)"
+          TARGET_VERSION="${TARGET_VERSION#firmware-rak4631-}"
+
+          cp "$TARGET_UF2" "export/RAK4631-HOBO-DFU-Target-${TARGET_VERSION}.uf2"
+          cp "$TARGET_OTA" "export/RAK4631-HOBO-DFU-Target-${TARGET_VERSION}-OTA.zip"
+          cp "$DRONE_UF2" "export/RAK4631-Remote-Drone-Flasher-embeds-${TARGET_VERSION}.uf2"
+
+          # Stable aliases for users who do not need the version in the filename.
+          cp "$TARGET_UF2" export/RAK4631-HOBO-DFU-Target.uf2
+          cp "$TARGET_OTA" export/RAK4631-HOBO-DFU-Target-OTA.zip
           cp "$DRONE_UF2" export/RAK4631-Remote-Drone-Flasher.uf2
           cp remote-drone-flasher-build.log export/
 
           {
-            echo "Remote Drone Flashing build"
+            echo "Remote Drone Flashing matched build"
             echo "Commit: ${GITHUB_SHA}"
+            echo "Target version: ${TARGET_VERSION}"
             echo "Target UF2: ${TARGET_UF2_SIZE} bytes"
             echo "Target OTA: ${TARGET_OTA_SIZE} bytes"
             echo "Drone UF2: ${DRONE_UF2_SIZE} bytes"
+            echo "Drone embeds target: ${TARGET_VERSION}"
           } > export/BUILD.txt
 
       - name: Upload Remote Drone Flashing package
