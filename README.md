@@ -21,7 +21,7 @@ This branch proves that a field RAK4631 can be commanded over Meshtastic to ente
 | Transfer full application image (`.bin`) | ✅ **778,048-byte image verified** |
 | Nordic RECEIVE / VALIDATE / ACTIVATE / RESET | ✅ Bench verified |
 | Target boots flashed Meshtastic + HOBO application | ✅ Bench verified |
-| Persist requester before DFU and report successful boot over mesh | ✅ Implemented in target source |
+| Persist requester/build before DFU and report verified new-build boot over mesh | ✅ Implemented in target source |
 | Scout carries firmware without a PC | ⏳ Next step |
 | Scout runs normal Meshtastic and DFU client in one image | ⏳ Next step |
 | Final two-RAK field architecture | ⏳ Integration step |
@@ -58,15 +58,25 @@ causes the target to:
 5. Accept an **application-only** Legacy DFU update.
 6. Validate and activate the image.
 7. Reboot into Meshtastic.
-8. After Meshtastic is running, send the saved requester:
+8. Compare the running firmware's `APP_VERSION` (Meshtastic version + 7-character Git SHA) with the build saved before DFU.
+9. If the build changed, send the saved requester:
 
 ```text
 UPDATE SUCCESS
-RAK4631 application booted after BLE DFU
-Meshtastic 2.7.26 + HOBO
+RAK4631 booted new firmware after BLE DFU
+Old: 2.7.26.<oldsha>
+New: 2.7.26.<newsha>
 ```
 
-The pending marker is removed only after the confirmation message is successfully queued.
+If the old application simply resumes without a different build being installed, the target instead sends:
+
+```text
+DFU NOT CONFIRMED
+Previous firmware resumed
+Build: 2.7.26.<sha>
+```
+
+The pending marker is removed only after one of those result messages is successfully queued.
 
 ## Phase 2 bench architecture
 
