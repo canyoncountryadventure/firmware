@@ -6,7 +6,6 @@
 
 #include "modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.h"
 #include "modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.h"
-#include "modules/Telemetry/HOBOSelfRecovery/HOBOFieldCheck.h"
 #include "modules/Telemetry/SoilMoisture/SEN0308SoilMoisture.h"
 
 // Preserve the existing Meshtastic RAK hook name while running the universal
@@ -18,7 +17,6 @@ class MX2001DiagnosticModule : public HOBOMX2001MX2201MX2203TelemetryModule
     MX2001DiagnosticModule() : HOBOMX2001MX2201MX2203TelemetryModule()
     {
         new HOBOSelfRecoveryModule();
-        new HOBOFieldCheckModule();
         new SEN0308SoilMoistureModule();
     }
 };
