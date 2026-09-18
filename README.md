@@ -78,7 +78,7 @@ The previously physically verified v1 drone pair remains available on the legacy
 |---|---|---|---|
 | **Heltec Gateway v2** | Heltec WiFi LoRa 32 V4 | [Full build ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Heltec-Gateway-v2.zip) | [branch](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v2) |
 
-The Heltec gateway retains the existing mesh -> Vercel -> Neon -> dashboard pipeline and gateway-specific sensor handling. It is the matching gateway release for the v2 field fleet; it does not use nRF52840 UF2 flashing.
+The Heltec gateway retains the existing mesh -> Vercel -> Neon -> dashboard pipeline and gateway-specific sensor handling. Its v2 branch also carries the shared SX1262 calibration, missed-IRQ, and radio-state recovery core. The nRF52840-only dual-WDT/flash-reset logic does not apply to the ESP32-S3 gateway.
 
 ---
 
