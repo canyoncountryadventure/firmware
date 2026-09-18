@@ -171,6 +171,10 @@ ProcessMessage DistanceSelfRecoveryModule::handleReceived(const meshtastic_MeshP
     }
 
     if (isCommand(command, "WATCHDOG")) {
+#if defined(FIELD_RECOVERY_V2)
+        snprintf(reply, sizeof(reply), "WATCHDOG:core=90s field-channel=%s run-in-sleep=YES reset=0x%08lX",
+                 nrf52FieldWatchdogIsArmed() ? "ARMED" : "OFF", static_cast<unsigned long>(resetReasonAtBoot));
+#else
         if (watchdogOwned) {
             snprintf(reply, sizeof(reply), "WATCHDOG:running=YES owner=WATER timeout=%lus reset=0x%08lX",
                      static_cast<unsigned long>(WDT_TIMEOUT_SECONDS), static_cast<unsigned long>(resetReasonAtBoot));
@@ -178,18 +182,24 @@ ProcessMessage DistanceSelfRecoveryModule::handleReceived(const meshtastic_MeshP
             snprintf(reply, sizeof(reply), "WATCHDOG:running=%s owner=CORE/OTHER custom_timeout=N/A reset=0x%08lX",
                      NRF_WDT->RUNSTATUS ? "YES" : "NO", static_cast<unsigned long>(resetReasonAtBoot));
         }
+#endif
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
     if (isCommand(command, "RECOVER") || isCommand(command, "REBOOT")) {
         commandRecoveryCount++;
+#if defined(FIELD_RECOVERY_V2)
+        if (rebootAtMsec == 0)
+            rebootAtMsec = millis() + 2000UL;
+#else
         rebootPending = true;
         rebootDueMs = millis() + 2000UL;
         feedWatchdog();
-        sendTextReply(mp.from, mp.channel,
-                      "RECOVERY:safe reboot in 2 sec. Meshtastic identity/keys/channels and WATER calibration/settings are preserved.");
         setIntervalFromNow(100);
+#endif
+        sendTextReply(mp.from, mp.channel,
+                      "RECOVERY:flash-safe reboot in 2 sec. Meshtastic identity/keys/channels and WATER calibration/settings are preserved.");
         return ProcessMessage::CONTINUE;
     }
 
@@ -224,13 +234,15 @@ int32_t DistanceSelfRecoveryModule::runOnce()
 {
     const uint32_t now = millis();
 
+#if !defined(FIELD_RECOVERY_V2)
     if (rebootPending && reached(now, rebootDueMs)) {
-        LOG_WARN("Water recovery: executing safe reboot after command #%lu", static_cast<unsigned long>(commandRecoveryCount));
+        LOG_WARN("Water recovery: executing legacy reboot after command #%lu", static_cast<unsigned long>(commandRecoveryCount));
         feedWatchdog();
         delay(20);
         NVIC_SystemReset();
         return 1000;
     }
+#endif
 
     if (now < BOOT_SETTLE_MS)
         return 5000;
