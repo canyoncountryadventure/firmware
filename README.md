@@ -1,45 +1,62 @@
-> **Remote Drone Flashing v2:** the proven embedded-flasher workflow is retained, but its embedded RAK target now carries the Field-Recovery v2 radio/watchdog core and HOBO recovery stack.
-
 # Remote Drone Flashing v2
 
-Autonomous **RAK4631-to-RAK4631 firmware updating over BLE** for remote Meshtastic field stations.
+Autonomous **RAK4631-to-RAK4631 firmware updating over BLE** for the RAK v2 field configurations.
 
-**Validation status:** the original matched `2.7.26.b812974` target + Scout pair completed the full physical DFU transfer, validation, activation, reboot and return to Meshtastic. The current hardened v2 pair preserves that protocol but has changed target recovery/persistence code, so it must receive one repeat end-to-end bench DFU before replacing the proven pair in remote field use.
+## Correct firmware layout
 
-This branch builds a matched pair:
+The normal field firmware stays on its own RAK branch. Every RAK target branch builds:
 
-- **Target firmware** — normal Meshtastic + HOBO field firmware with remote DFU, self-recovery, watchdog, version reporting, and post-update callback.
-- **Drone Scout firmware** — BLE-only RAK4631 firmware carrying a compressed copy of that exact target application in its own internal flash.
+- a normal **USB UF2**
+- a normal **BLE DFU OTA ZIP**
+- the built-in mesh **`DFU` hook** that stores the requester/build marker and safely reboots the target into AdaDFU
 
-The Scout needs no laptop, phone, SD card, ESP32, LoRa antenna, or USB connection during flight.
+The **compressed drone/Scout firmware lives only on this branch**. Each Scout UF2 embeds the LZ4-compressed OTA application from exactly one RAK target configuration.
 
-## Project and download links
+Do **not** flash a `Drone-*.uf2` onto the field target. It goes on the separate RAK4631 carried by the drone.
 
-| Item | Link |
-|---|---|
-| Source branch | [Remote-Drone-Flashing-v2](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing-v2) |
-| **Verified successful `b812974` build** | **[Workflow run and `remote-drone-flashing-12` artifact](https://github.com/canyoncountryadventure/firmware/actions/runs/35312994634)** |
-| **Current v2 target UF2** | **[RAK4631-HOBO-DFU-Target-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-HOBO-DFU-Target-v2.uf2)** |
-| **Current v2 target BLE DFU ZIP** | **[RAK4631-HOBO-DFU-Target-v2-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-HOBO-DFU-Target-v2-OTA.zip)** |
-| **Current v2 Scout UF2** | **[RAK4631-Remote-Drone-Flasher-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK4631-Remote-Drone-Flasher-v2.uf2)** |
-| **Matched build workflow** | **[Latest Remote Drone Flasher workflow runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_remote_drone_flasher.yml?query=branch%3ARemote-Drone-Flashing-v2)** |
-| Workflow source | [build_remote_drone_flasher.yml](.github/workflows/build_remote_drone_flasher.yml) |
-| Technical design | [RAK_REMOTE_DFU.md](docs/RAK_REMOTE_DFU.md) |
-| Scout source | [rak4631_drone_flasher.cpp](src/experimental/rak4631_drone_flasher.cpp) |
-| Target HOBO + DFU source | [HOBOMX2001MX2201MX2203Telemetry.cpp](src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp) |
+## Target branches and matching drone UF2
 
-For the **verified successful pair**, open the `b812974` workflow-run link and download its `remote-drone-flashing-12` artifact. Use the general workflow-runs link only for newer development builds; a green CI result proves that the pair built and packaged correctly, not that the new commit has repeated the physical end-to-end test. GitHub may require sign-in to download Actions artifacts. Each artifact contains the target UF2, target OTA ZIP, Scout UF2 and `BUILD.txt`.
+| Field target configuration | Normal target source | Matching compressed drone/Scout UF2 |
+|---|---|---|
+| RAK HOBO Safe v2 | [RAK-HOBO-Safe-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-HOBO-Safe-v2) | [Drone-RAK-HOBO-Safe-v2.uf2](downloads/Drone-RAK-HOBO-Safe-v2.uf2) |
+| RAK Soil Moisture + HOBO v2 | [RAK-Soil-Moisture-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v2) | [Drone-RAK-Soil-Moisture-HOBO-v2.uf2](downloads/Drone-RAK-Soil-Moisture-HOBO-v2.uf2) |
+| RAK Water Distance v2 | [RAK-Water-Distance-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-v2) | [Drone-RAK-Water-Distance-v2.uf2](downloads/Drone-RAK-Water-Distance-v2.uf2) |
+| RAK Water Distance + HOBO v2 | [RAK-Water-Distance-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v2) | [Drone-RAK-Water-Distance-HOBO-v2.uf2](downloads/Drone-RAK-Water-Distance-HOBO-v2.uf2) |
+| Canonical Field Self-Recovery v2 — RAK4631 | [field-self-recovery-v2](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v2) | [Drone-Field-Self-Recovery-v2-RAK4631.uf2](downloads/Drone-Field-Self-Recovery-v2-RAK4631.uf2) |
 
-**Keep the target and Scout files from the same workflow artifact together.** The Scout contains a compressed copy of that exact target application. Mixing files from different runs defeats the matched-pair design.
+Each `Drone-*.uf2.txt` file in [downloads](downloads/) records the target branch, exact target commit, Scout size, and checksum used for that compressed image.
 
-### Verified successful pair
+## How the pairing works
 
-| File | SHA-256 |
-|---|---|
-| `RAK4631-HOBO-DFU-Target-2.7.26.b812974.uf2` | `ccaf267071f7c05ca354c98bb3fea39f0be7471673ab345b79342352db7feb99` |
-| `RAK4631-Remote-Drone-Flasher-embeds-2.7.26.b812974.uf2` | `ead3da235a1e96d14ecfc4afd9a120721cd71a0bdf7e488588a2fa95fd37fd27` |
+```text
+RAK target branch
+    |
+    +-- normal UF2  ----------> flash field target normally
+    |
+    +-- normal OTA ZIP
+            |
+            +-- LZ4 compressed + embedded
+                    |
+                    v
+Remote-Drone-Flashing-v2
+                    |
+                    +-- Drone-<matching-config>.uf2
+                            |
+                            v
+                      flash drone Scout
+```
 
-The target UF2 contains build `2.7.26.b812974` and the compact `RADIO / SENSORS / NEXTREAD / DM / BUILD / DFU / WDT / DATE` response. The Scout UF2 identifies the same embedded target build and contains the autonomous `AdaDFU` transfer path.
+Field update procedure:
+
+1. The field target is already running its normal RAK v2 firmware with the `DFU` hook.
+2. Flash the **matching `Drone-*.uf2`** from this branch onto the drone RAK4631.
+3. Fly/position the Scout near the target.
+4. Direct-message the field target `DFU`.
+5. The target persists and verifies its callback marker, quiesces flash state, disables the active SoftDevice, sets `GPREGRET=0xA8`, and reboots into AdaDFU.
+6. The Scout detects AdaDFU and transfers its embedded compressed application image.
+7. The updated target returns to Meshtastic and sends its stored update-result callback.
+
+The original physically proven `2.7.26.b812974` target/Scout pair remains the hardware validation reference. The new multi-configuration v2 Scout images are CI-built and packaged successfully; one repeat physical end-to-end bench DFU remains the validation boundary before relying on the new images for inaccessible field nodes.
 
 ## Current validation status
 
