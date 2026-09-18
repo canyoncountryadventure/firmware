@@ -20,6 +20,23 @@ Controller RAK                  Target RAK4631
 
 The **drone Scout does not need a laptop, phone, SD card, ESP32, LoRa antenna, or USB connection during flight**.
 
+## Validated autonomous build
+
+The autonomous build has compiled successfully with the target image embedded and the exact streaming decoder verified against the original target firmware.
+
+| Item | Validated value |
+|---|---:|
+| Embedded target build | `2.7.26.3e23bdb` |
+| Target application BIN | 780,080 bytes |
+| Embedded LZ4 image | 570,664 bytes |
+| Drone application flash | 690,012 / 815,104 bytes (84.7%) |
+| Drone RAM | 84,828 / 248,832 bytes (34.1%) |
+| Drone UF2 | 1,380,352 bytes |
+| Streaming LZ4 verification | **PASS** |
+
+That leaves about **125 KB of application-flash headroom** and **164 KB of RAM headroom**.
+
+
 ## Hardware
 
 ### Drone Scout
