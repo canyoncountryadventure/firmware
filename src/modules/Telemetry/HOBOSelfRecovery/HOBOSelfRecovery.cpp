@@ -200,12 +200,6 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(payload, payloadSize, "VERSION")) {
-        snprintf(reply, sizeof(reply), "%s\nPlatform: %s\nNEWREAD/AUTO + self-recovery", FIRMWARE_LABEL, platformName());
-        sendTextReply(mp.from, mp.channel, reply);
-        return ProcessMessage::CONTINUE;
-    }
-
     if (isCommand(payload, payloadSize, "UPTIME")) {
         snprintf(reply, sizeof(reply), "UPTIME: %lu sec", static_cast<unsigned long>(millis() / 1000UL));
         sendTextReply(mp.from, mp.channel, reply);
