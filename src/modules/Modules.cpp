@@ -4,6 +4,9 @@
 #include "modules/SystemCommandsModule.h"
 #endif
 #include "modules/StatusLEDModule.h"
+#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+#include "modules/SeeedRemoteDfuModule.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_REPLYBOT
 #include "ReplyBotModule.h"
 #endif
@@ -126,6 +129,9 @@ void setupModules()
     }
 #endif
     statusLEDModule = new StatusLEDModule();
+#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
+    new SeeedRemoteDfuModule();
+#endif
 #if !MESHTASTIC_EXCLUDE_REPLYBOT
     new ReplyBotModule();
 #endif

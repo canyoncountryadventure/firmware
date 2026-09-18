@@ -146,3 +146,17 @@ Meshtastic base remains pinned to the validated **2.7.26** baseline.
 Use normal Seeed UF2 or BLE DFU packages for routine updates. **Do not use factory-erase images for normal upgrades.**
 
 A successful compile is required, but field deployment still requires real sensor, HOBO BLE, calibration-persistence, telemetry, and recovery testing on the actual assembled node.
+
+
+## Drone flashing
+
+This build includes a direct-message `DFU` hook for remote drone updates.
+
+- Send the field node a direct mesh message: `DFU`.
+- The target persists and verifies the requester/build callback marker.
+- It quiesces flash state, safely disables the active SoftDevice, sets `GPREGRET=0xA8`, and resets into the XIAO nRF52840 BLE OTA bootloader.
+- Meshtastic's OTAFIX bootloader advertises XIAO OTA mode as `XIAO_DFU`; older compatible Adafruit bootloaders may use a generic DFU name. The drone Scout keys on the Legacy DFU service UUID rather than the advertising name.
+- Flash the separate drone RAK4631 with the matching `Drone-Seeed-Water-Distance-HOBO-v2.uf2` from the `Remote-Drone-Flashing-v2` branch.
+- After the update, the Seeed target boots Meshtastic and sends the stored requester an update-result callback.
+
+The field target still uses the normal `Seeed-Water-Distance-HOBO-v2.uf2` or `Seeed-Water-Distance-HOBO-v2-OTA.zip`. The `Drone-*.uf2` goes only on the separate RAK4631 Scout carried by the drone.

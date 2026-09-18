@@ -96,7 +96,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     if (isCommand(payload, payloadSize, "HELP")) {
         sendTextReply(mp.from, mp.channel,
-                      "CMDS: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BLE AUTO STATS NODES UPTIME VERSION WATCHDOG RECOVER REBOOT PING HELP");
+                      "CMDS: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BLE AUTO STATS NODES UPTIME VERSION WATCHDOG RECOVER REBOOT DFU PING HELP");
         return ProcessMessage::CONTINUE;
     }
 
