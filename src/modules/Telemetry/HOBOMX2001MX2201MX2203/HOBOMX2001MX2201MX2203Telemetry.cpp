@@ -309,19 +309,56 @@ bool saveOtaDfuPending(uint32_t destination, uint8_t channel)
     memcpy(&record[11], OTA_DFU_CURRENT_BUILD, buildLength);
     record[31] = lockChecksum(record, 31);
 
-    concurrency::LockGuard g(spiLock);
-    File file = FSCom.open(OTA_DFU_PENDING_FILE_PATH, FILE_O_WRITE);
-    if (!file) {
-        LOG_WARN("RAK DFU: failed to open pending-confirmation marker for write");
-        return false;
-    }
+    size_t written = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(OTA_DFU_PENDING_FILE_PATH, FILE_O_WRITE);
+        if (!file) {
+            LOG_WARN("RAK DFU: failed to open pending-confirmation marker for write");
+            return false;
+        }
 
-    const size_t written = file.write(record, sizeof(record));
-    file.flush();
-    file.close();
+        // Adafruit LittleFS FILE_O_WRITE opens an existing file at EOF. A stale
+        // marker from an interrupted DFU must be replaced, never appended.
+        if (!file.seek(0) || !file.truncate()) {
+            LOG_WARN("RAK DFU: failed to truncate pending-confirmation marker");
+            file.close();
+            return false;
+        }
+
+        written = file.write(record, sizeof(record));
+        file.flush();
+        file.close();
+    }
 
     if (written != sizeof(record)) {
         LOG_WARN("RAK DFU: pending-confirmation marker short write");
+        return false;
+    }
+
+    // Re-open and verify the complete marker before allowing a remote reboot
+    // into AdaDFU. This prevents a partial flash write from losing the callback
+    // destination/build record after the target leaves Meshtastic.
+    uint8_t verify[sizeof(record)] = {};
+    size_t verifiedLength = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(OTA_DFU_PENDING_FILE_PATH, FILE_O_READ);
+        if (!file) {
+            LOG_WARN("RAK DFU: failed to reopen pending-confirmation marker");
+            return false;
+        }
+        verifiedLength = file.read(verify, sizeof(verify));
+        const bool extraData = file.available();
+        file.close();
+        if (extraData) {
+            LOG_WARN("RAK DFU: pending-confirmation marker has trailing data");
+            return false;
+        }
+    }
+
+    if (verifiedLength != sizeof(record) || memcmp(record, verify, sizeof(record)) != 0) {
+        LOG_WARN("RAK DFU: pending-confirmation marker read-back verification failed");
         return false;
     }
 
