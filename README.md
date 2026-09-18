@@ -145,18 +145,20 @@ VERSION
 
 The response is intentionally kept comfortably below Meshtastic's **233-byte Data payload limit** so it remains reliable over a weak link.
 
-It reports:
+For the RAK target it reports this compact format:
 
 ```text
-RADIO: RAK4631/RAK19007
-SENSORS: HOBO MX2001/MX2201/MX2203
-NEXTREAD: ON (NEWREAD64)
-DM: ON VERSION,DFU,LOGGER,LOCK,UNLOCK,READ
-BUILD: 2.7.26.<gitsha>
-DFU: ON
-WDT: ON (nRF52840 internal, 900s)
-DATE: <compile date>
+RADIO:RAK4631/19007
+SENSORS:HOBO MX2001/2201/2203
+NEXTREAD:ON NEWREAD64
+DM:ON VERSION DFU LOGGER LOCK UNLOCK READ
+BUILD:2.7.26.<gitsha>
+DFU:ON
+WDT:ON nRF52 900s
+DATE:<compile date>
 ```
+
+The RAK response is about **176 bytes**, leaving substantial margin below the 233-byte Meshtastic Data payload ceiling and avoiding the longer response that proved unreliable in the phone client.
 
 A brief target LED flash when a direct message is received/processed is normal radio/status activity; it does not by itself mean DFU mode was entered.
 
