@@ -5,7 +5,7 @@ If you just want firmware, start here:
 1. **[`Self-Recovery-v1s/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Self-Recovery-v1s)** — HOBO, water-distance, combined water + HOBO, and Heltec gateway firmware.
 2. **[`Trail-Sensors/`](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/Trail-Sensors)** — trail-counter, PIR, rock telemetry, and trail HOBO firmware.
 3. **[`RAK-Soil-Moisture-HOBO-v1`](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v1)** — RAK4631/RAK19007 + SEN0308 soil moisture + optional HOBO firmware.
-4. **[`Remote-Drone-Flashing`](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing)** — autonomous RAK4631-to-RAK4631 BLE firmware-update prototype and matched build workflow.
+4. **[`Remote-Drone-Flashing`](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing)** — successfully tested autonomous RAK4631-to-RAK4631 BLE firmware updater and matched build workflow.
 
 Everything else in the repository is source code or build infrastructure.
 
@@ -210,7 +210,7 @@ RAK4631-Remote-Drone-Flasher.uf2
 BUILD.txt
 ```
 
-Bench validation has proven the autonomous embedded-image transfer, validation, activation, target reboot and LoRa callback using a same-build reflash. A true different-build callback and an airborne hover/update mission remain unproven. Read the branch README before treating it as field-ready.
+The complete autonomous update chain is successful: embedded-image transfer, validation, activation, target reboot, return to Meshtastic and LoRa callback. The retained verified pair is target + Scout build **`2.7.26.b812974`** from **[workflow run 35312994634](https://github.com/canyoncountryadventure/firmware/actions/runs/35312994634)**. Once flashing worked, the last fix shortened the target's `VERSION` DM so all required identity/capability fields fit reliably in one Meshtastic payload. Read the branch README for the exact tested filenames, SHA-256 hashes and operating procedure.
 
 ## Common RAK three-blink diagnosis
 
