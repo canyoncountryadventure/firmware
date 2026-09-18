@@ -264,10 +264,11 @@ void NRF52Bluetooth::setup()
     LOG_INFO("Init the Bluefruit nRF52 module");
     Bluefruit.autoConnLed(false);
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-#if defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631)
+#if (defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631)) && !defined(DISTANCE_SENSOR_NODE)
     // HOBO integrations: keep one BLE peripheral link for the
     // Meshtastic phone connection and add one BLE central link
-    // for the HOBO logger.
+    // for the HOBO logger. Water-distance builds do not use a BLE central
+    // connection and must keep the standard one-link SoftDevice layout.
     Bluefruit.configCentralBandwidth(BANDWIDTH_LOW);
     Bluefruit.begin(1, 1);
 #else
