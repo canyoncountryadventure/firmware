@@ -30,19 +30,28 @@ jobs:
         include:
           - key: rak-hobo-safe
             target_branch: RAK-HOBO-Safe-v2
+            target_env: rak4631
             output_name: Drone-RAK-HOBO-Safe-v2.uf2
           - key: rak-soil-hobo
             target_branch: RAK-Soil-Moisture-HOBO-v2
+            target_env: rak4631
             output_name: Drone-RAK-Soil-Moisture-HOBO-v2.uf2
           - key: rak-water
             target_branch: RAK-Water-Distance-v2
+            target_env: rak4631
             output_name: Drone-RAK-Water-Distance-v2.uf2
           - key: rak-water-hobo
             target_branch: RAK-Water-Distance-HOBO-v2
+            target_env: rak4631
             output_name: Drone-RAK-Water-Distance-HOBO-v2.uf2
           - key: canonical-rak
             target_branch: field-self-recovery-v2
+            target_env: rak4631
             output_name: Drone-Field-Self-Recovery-v2-RAK4631.uf2
+          - key: seeed-water-hobo
+            target_branch: Seeed-Water-Distance-HOBO-v2
+            target_env: seeed_xiao_nrf52840_kit
+            output_name: Drone-Seeed-Water-Distance-HOBO-v2.uf2
 
     runs-on: ubuntu-latest
     name: build-${{ matrix.key }}
@@ -71,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           cd target
-          pio run -e rak4631
+          pio run -e ${{ matrix.target_env }}
 
       - name: Locate target OTA and record target commit
         id: target
@@ -79,7 +88,7 @@ jobs:
         run: |
           set -euo pipefail
           TARGET_SHA="$(git -C target rev-parse HEAD)"
-          OTA="$(find target/.pio/build/rak4631 -maxdepth 1 -type f -name 'firmware-rak4631-*.zip' | sort | head -n 1)"
+          OTA="$(find \"target/.pio/build/${{ matrix.target_env }}\" -maxdepth 1 -type f -name 'firmware-*-ota.zip' | sort | head -n 1)"
           test -n "$OTA"
           test -f "$OTA"
           echo "sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
