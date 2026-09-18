@@ -1,4 +1,4 @@
-> **Heltec Gateway v2:** gateway ingestion, direct HOBO BLE, mesh forwarding, OTA, and Vercel/Neon behavior are retained. v2 is the matching gateway release for the hardened field-node family.
+> **Heltec Gateway v2:** gateway ingestion, mesh forwarding, Wi-Fi OTA, and Vercel/Neon behavior are retained. The shared SX1262 v2 recovery changes are included; direct local HOBO BLE remains a future gateway feature.
 
 # CCA Heltec Sensor Gateway v2
 
