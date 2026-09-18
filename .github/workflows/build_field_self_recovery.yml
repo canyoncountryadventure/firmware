@@ -40,6 +40,17 @@ jobs:
           pio_env: ${{ matrix.env }}
           pio_target: build
 
+      - name: Build matched RAK drone flasher
+        if: matrix.label == 'rak4631'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade platformio lz4
+          OTA="$(find release -maxdepth 1 -type f -name 'firmware-rak4631-*-ota.zip' | head -n 1)"
+          test -n "$OTA"
+          python tools/build_drone_embedded_firmware.py "$OTA" src/experimental/embedded_dfu_image.h
+          pio run -e rak4631_drone_flasher 2>&1 | tee drone-flasher-build.log
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -53,6 +64,8 @@ jobs:
             release/*.elf
             release/*.map
             release/*.mt.json
+            .pio/build/rak4631_drone_flasher/*.uf2
+            drone-flasher-build.log
 
       - name: Prepare stable canonical downloads
         shell: bash
@@ -65,8 +78,12 @@ jobs:
           test -n "$OTA"
           test "$(stat -c%s "$UF2")" -gt 500000
           if [[ "${{ matrix.label }}" == "rak4631" ]]; then
+            SCOUT="$(find .pio/build/rak4631_drone_flasher -maxdepth 1 -type f -name '*.uf2' | head -n1)"
+            test -n "$SCOUT"
+            test "$(stat -c%s "$SCOUT")" -gt 500000
             cp "$UF2" export/Field-Self-Recovery-v2-RAK4631.uf2
             cp "$OTA" export/Field-Self-Recovery-v2-RAK4631-OTA.zip
+            cp "$SCOUT" export/Field-Self-Recovery-v2-RAK4631-Drone-Flasher.uf2
           else
             cp "$UF2" export/Field-Self-Recovery-v2-Seeed.uf2
             cp "$OTA" export/Field-Self-Recovery-v2-Seeed-OTA.zip
@@ -86,6 +103,11 @@ jobs:
           cd publish
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          latest_source_sha="$(git ls-remote origin refs/heads/field-self-recovery-v2 | awk '{print $1}')"
+          if [[ "$latest_source_sha" != "$GITHUB_SHA" ]]; then
+            echo "Skipping stale canonical publish"
+            exit 0
+          fi
           for attempt in 1 2 3 4 5; do
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
