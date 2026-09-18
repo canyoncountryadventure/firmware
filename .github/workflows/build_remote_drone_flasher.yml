@@ -68,10 +68,6 @@ jobs:
             target_branch: Seeed-Water-Distance-v2
             target_env: seeed_xiao_nrf52840_kit
             output_name: Drone-Seeed-Water-Distance-v2.uf2
-          - key: seeed-water-hobo
-            target_branch: Seeed-Water-Distance-HOBO-v2
-            target_env: seeed_xiao_nrf52840_kit
-            output_name: Drone-Seeed-Water-Distance-HOBO-v2.uf2
 
     runs-on: ubuntu-latest
     name: build-${{ matrix.key }}
