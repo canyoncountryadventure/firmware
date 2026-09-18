@@ -37,7 +37,7 @@ scan
   -> field watchdog reset
 ```
 
-A 12-hour preventive reboot is retained during burn-in as an independent insurance mechanism.
+A 12-hour preventive reboot is retained during burn-in as an independent insurance mechanism. The production implementation is deliberately unconditional once due: it is not allowed to wait forever for an idle TX/sensor state, because a stuck queue or transport is exactly the condition this ultimate fallback must defeat.
 
 ---
 
@@ -114,6 +114,7 @@ v2 intentional reboot paths therefore:
 - lock SPI;
 - lock InternalFS;
 - flush the nRF52 flash cache;
+- disable the active SoftDevice when present;
 - only then perform the MCU reset.
 
 ### 1.10 nRF52 stack headroom
