@@ -18,12 +18,17 @@ Do **not** flash a `Drone-*.uf2` onto the field target. It goes on the separate 
 
 | Field target configuration | Normal target source | Matching compressed drone/Scout UF2 |
 |---|---|---|
+| Canonical Field Self-Recovery — RAK4631 | [field-self-recovery-v2](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v2) | [Drone-Field-Self-Recovery-v2-RAK4631.uf2](downloads/Drone-Field-Self-Recovery-v2-RAK4631.uf2) |
+| Canonical Field Self-Recovery — Seeed XIAO | [field-self-recovery-v2](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v2) | [Drone-Field-Self-Recovery-v2-Seeed.uf2](downloads/Drone-Field-Self-Recovery-v2-Seeed.uf2) |
 | RAK HOBO Safe v2 | [RAK-HOBO-Safe-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-HOBO-Safe-v2) | [Drone-RAK-HOBO-Safe-v2.uf2](downloads/Drone-RAK-HOBO-Safe-v2.uf2) |
 | RAK Soil Moisture + HOBO v2 | [RAK-Soil-Moisture-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v2) | [Drone-RAK-Soil-Moisture-HOBO-v2.uf2](downloads/Drone-RAK-Soil-Moisture-HOBO-v2.uf2) |
 | RAK Water Distance v2 | [RAK-Water-Distance-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-v2) | [Drone-RAK-Water-Distance-v2.uf2](downloads/Drone-RAK-Water-Distance-v2.uf2) |
 | RAK Water Distance + HOBO v2 | [RAK-Water-Distance-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v2) | [Drone-RAK-Water-Distance-HOBO-v2.uf2](downloads/Drone-RAK-Water-Distance-HOBO-v2.uf2) |
-| Canonical Field Self-Recovery v2 — RAK4631 | [field-self-recovery-v2](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v2) | [Drone-Field-Self-Recovery-v2-RAK4631.uf2](downloads/Drone-Field-Self-Recovery-v2-RAK4631.uf2) |
+| Seeed HOBO Safe v2 | [Seeed-HOBO-Safe-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-HOBO-Safe-v2) | [Drone-Seeed-HOBO-Safe-v2.uf2](downloads/Drone-Seeed-HOBO-Safe-v2.uf2) |
+| Seeed Water Distance v2 | [Seeed-Water-Distance-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-v2) | [Drone-Seeed-Water-Distance-v2.uf2](downloads/Drone-Seeed-Water-Distance-v2.uf2) |
 | Seeed Water Distance + HOBO v2 | [Seeed-Water-Distance-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v2) | [Drone-Seeed-Water-Distance-HOBO-v2.uf2](downloads/Drone-Seeed-Water-Distance-HOBO-v2.uf2) |
+| Trail PIR + Rock + HOBO v2 | [Trail-Sensors-v2](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v2) | [Drone-Trail-PIR-Rock-HOBO-v2.uf2](downloads/Drone-Trail-PIR-Rock-HOBO-v2.uf2) |
+| Trail SEN0171 v2 | [Trail-Sensors-v2](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v2) | [Drone-Trail-SEN0171-v2.uf2](downloads/Drone-Trail-SEN0171-v2.uf2) |
 
 Each `Drone-*.uf2.txt` file in [downloads](downloads/) records the target branch, exact target commit, Scout size, and checksum used for that compressed image.
 
