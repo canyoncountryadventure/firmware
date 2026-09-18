@@ -30,30 +30,44 @@ The tested bootloader advertises as `AdaDFU`.
 
 ## Persistent callback marker
 
-The callback record intentionally lives outside the application image so it survives an application-only OTA update.
+The callback record intentionally lives outside the application image so it survives an application-only OTA update. It also stores the firmware build that was running when DFU was armed.
 
 Record layout:
 
 | Offset | Length | Meaning |
 |---|---:|---|
-| 0–3 | 4 | Magic `DFU1` |
-| 4 | 1 | Record version |
+| 0–3 | 4 | Magic `DFU2` |
+| 4 | 1 | Record format version (`2`) |
 | 5–8 | 4 | Requester node ID, little-endian |
 | 9 | 1 | Meshtastic channel |
-| 10 | 1 | Reserved |
-| 11 | 1 | XOR checksum of bytes 0–10 |
+| 10 | 1 | Saved build-ID length |
+| 11–30 | 20 | Saved pre-DFU `APP_VERSION` text |
+| 31 | 1 | XOR checksum of bytes 0–30 |
+
+Meshtastic's build system defines `APP_VERSION` as the semantic version plus the 7-character Git SHA, for example `2.7.26.6e91722`.
 
 The target refuses to enter DFU if this record cannot be written.
 
-After the updated application boots, the HOBO/DFU module loads the marker, waits for normal Meshtastic startup, and queues:
+After an application boots, the HOBO/DFU module loads the marker and compares the saved pre-DFU build ID with the currently running build.
+
+If the build changed, it queues:
 
 ```text
 UPDATE SUCCESS
-RAK4631 application booted after BLE DFU
-Meshtastic 2.7.26 + HOBO
+RAK4631 booted new firmware after BLE DFU
+Old: 2.7.26.<oldsha>
+New: 2.7.26.<newsha>
 ```
 
-Only after that text packet is successfully allocated and queued is the marker deleted.
+If the same build simply resumes (for example after an aborted DFU/reset), it queues:
+
+```text
+DFU NOT CONFIRMED
+Previous firmware resumed
+Build: 2.7.26.<sha>
+```
+
+Only after the result text packet is successfully allocated and queued is the marker deleted.
 
 If packet allocation fails, the marker remains and another send is scheduled 30 seconds later.
 
@@ -153,6 +167,8 @@ DFU SUCCESS: target accepted image and rebooted
 ```
 
 The target then booted the flashed Meshtastic + HOBO application.
+
+The current branch adds build-aware post-DFU confirmation so a future run can distinguish a genuinely new flashed application from merely returning to the pre-DFU build.
 
 ### Fixed transfer bug
 
