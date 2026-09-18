@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - Heltec-Gateway-v1
+      - Heltec-Gateway-v2
     paths:
       - 'src/**'
       - 'variants/**'
@@ -20,7 +20,7 @@ jobs:
     uses: ./.github/workflows/build_firmware.yml
     secrets: inherit
     with:
-      version: cca-v1-${{ github.run_number }}
+      version: cca-v2-${{ github.run_number }}
       pio_env: heltec-v4
       platform: esp32s3
 
@@ -34,7 +34,7 @@ jobs:
       - name: Download Heltec firmware artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: firmware-esp32s3-heltec-v4-cca-v1-*
+          pattern: firmware-esp32s3-heltec-v4-cca-v2-*
           path: heltec-firmware
           merge-multiple: true
 
@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$(find heltec-firmware -type f -print -quit)"
-          zip -j -r Heltec-Gateway-v1.zip heltec-firmware/*
+          zip -j -r Heltec-Gateway-v2.zip heltec-firmware/*
 
       - name: Checkout firmware download branch
         uses: actions/checkout@v7
@@ -63,13 +63,13 @@ jobs:
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
             mkdir -p downloads
-            cp ../Heltec-Gateway-v1.zip downloads/
-            git add downloads/Heltec-Gateway-v1.zip
+            cp ../Heltec-Gateway-v2.zip downloads/
+            git add downloads/Heltec-Gateway-v2.zip
             if git diff --cached --quiet; then
               echo "Download already current"
               exit 0
             fi
-            git commit -m "Publish Heltec Gateway v1 download"
+            git commit -m "Publish Heltec Gateway v2 download"
             if git push origin HEAD:field-self-recovery; then
               exit 0
             fi
