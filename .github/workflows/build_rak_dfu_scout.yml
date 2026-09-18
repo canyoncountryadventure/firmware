@@ -22,10 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     name: build-rak4631-dfu-scout
     steps:
-      - name: Checkout ESP32 testing branch
+      - name: Checkout triggering commit
         uses: actions/checkout@v7
         with:
-          ref: esp-32-testing
           submodules: recursive
 
       - name: Install PlatformIO
@@ -50,6 +49,9 @@ jobs:
           UF2="$(find .pio/build/rak4631_dfu_scout -maxdepth 1 -type f -name '*.uf2' | head -n 1)"
           OTA="$(find .pio/build/rak4631_dfu_scout -maxdepth 1 -type f -name '*-ota.zip' | head -n 1)"
           test -n "$UF2"
+          UF2_SIZE="$(stat -c%s "$UF2")"
+          test "$UF2_SIZE" -gt 200000
+          echo "Packaging Scout UF2: $UF2 ($UF2_SIZE bytes)"
           cp "$UF2" export/RAK4631-DFU-Scout-Phase2-Serial-Bridge.uf2
           if [ -n "$OTA" ]; then cp "$OTA" export/RAK4631-DFU-Scout-Phase2-Serial-Bridge-OTA.zip; fi
           cp tools/rak_dfu_serial_upload.py export/rak_dfu_serial_upload.py
