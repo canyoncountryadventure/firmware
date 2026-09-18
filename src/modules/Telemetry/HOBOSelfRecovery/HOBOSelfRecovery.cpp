@@ -96,7 +96,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     if (isCommand(payload, payloadSize, "HELP")) {
         sendTextReply(mp.from, mp.channel,
-                      "CMDS: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BLE AUTO STATS NODES UPTIME VERSION WATCHDOG RECOVER REBOOT PING HELP");
+                      "CMDS: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BLE AUTO STATS NODES UPTIME VERSION DFU WATCHDOG RECOVER REBOOT PING HELP");
         return ProcessMessage::CONTINUE;
     }
 
@@ -107,12 +107,9 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(payload, payloadSize, "VERSION")) {
-        snprintf(reply, sizeof(reply), "%s\nPlatform:%s\nSX1262+BLE+dual-WDT+12h safety reset",
-                 FIRMWARE_LABEL, platformName());
-        sendTextReply(mp.from, mp.channel, reply);
-        return ProcessMessage::CONTINUE;
-    }
+    // VERSION is intentionally handled by the RAK HOBO/DFU target module on
+    // this branch so the proven compact build/DFU capability response is sent
+    // exactly once and stays below the Meshtastic text payload limit.
 
     if (isCommand(payload, payloadSize, "UPTIME")) {
         snprintf(reply, sizeof(reply), "UPTIME: %lu sec", static_cast<unsigned long>(millis() / 1000UL));
