@@ -102,11 +102,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p export
-          PIR_UF2="$(find pir -type f -name '*.uf2' | head -n1)"
+          PIR_UF2="$(find pir -type f -name 'firmware-*.uf2' | head -n1)"
           PIR_OTA="$(find pir -type f -name '*-ota.zip' | head -n1)"
-          SEN_UF2="$(find sen -type f -name '*.uf2' | head -n1)"
+          SEN_UF2="$(find sen -type f -name 'firmware-*.uf2' | head -n1)"
           SEN_OTA="$(find sen -type f -name '*-ota.zip' | head -n1)"
           test -n "$PIR_UF2"; test -n "$PIR_OTA"; test -n "$SEN_UF2"; test -n "$SEN_OTA"
+          test "$(stat -c%s "$PIR_UF2")" -gt 500000
+          test "$(stat -c%s "$SEN_UF2")" -gt 500000
           cp "$PIR_UF2" export/Trail-PIR-Rock-HOBO-v2.uf2
           cp "$PIR_OTA" export/Trail-PIR-Rock-HOBO-v2-OTA.zip
           cp "$SEN_UF2" export/Trail-SEN0171-v2.uf2
