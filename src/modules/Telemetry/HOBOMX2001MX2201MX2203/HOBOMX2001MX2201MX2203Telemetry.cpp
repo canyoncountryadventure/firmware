@@ -14,6 +14,7 @@
 #include "pb_encode.h"
 
 #include <bluefruit.h>
+#include <ble_gap.h>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -127,6 +128,9 @@ bool initialized = false;
 bool connecting = false;
 bool connected = false;
 uint16_t connectionHandle = BLE_CONN_HANDLE_INVALID;
+uint32_t connectAttemptStartedMs = 0;
+uint8_t bleRecoveryCycles = 0;
+uint8_t consecutiveReadTimeouts = 0;
 
 LoggerType loggerType = LoggerType::UNKNOWN;
 MetaProfile activeMetaProfile = MetaProfile::NONE;
@@ -193,6 +197,8 @@ static constexpr uint32_t POINTER_FINE_POLL_MS = 500;
 static constexpr uint32_t POINTER_INITIAL_SYNC_POLL_MS = 1000;
 static constexpr uint32_t STATUS_RECOVERY_RETRY_MS = 5000;
 static constexpr uint8_t STATUS_TIMEOUT_LIMIT = 3;
+static constexpr uint8_t READ_TIMEOUT_LIMIT = 3;
+static constexpr uint32_t CONNECT_ATTEMPT_TIMEOUT_MS = 30000UL;
 static constexpr uint32_t REJECT_RETRY_MS = 60000;
 static constexpr uint32_t TRANSIENT_RETRY_MS = 5000;
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
@@ -753,10 +759,12 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
         loggerLockEnabled ? " LOCKED-TARGET" : "");
 
     connecting = true;
+    connectAttemptStartedMs = millis();
     Bluefruit.Scanner.stop();
 
     if (!Bluefruit.Central.connect(report)) {
         connecting = false;
+        connectAttemptStartedMs = 0;
         LOG_WARN("HOBO universal: BLE connection request failed");
         Bluefruit.Scanner.start(0);
     }
@@ -765,6 +773,7 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
 void connectCallback(uint16_t connHandle)
 {
     connecting = false;
+    connectAttemptStartedMs = 0;
     connected = true;
     connectionHandle = connHandle;
 
@@ -856,6 +865,7 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 
     connected = false;
     connecting = false;
+    connectAttemptStartedMs = 0;
     connectionHandle = BLE_CONN_HANDLE_INVALID;
     loggerType = LoggerType::UNKNOWN;
     activeMetaProfile = MetaProfile::NONE;
@@ -884,6 +894,30 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
     }
 }
 
+void triggerBleRecovery(const char *reason)
+{
+    bleRecoveryCycles++;
+    LOG_ERROR("HOBO universal: BLE recovery cycle %u: %s", bleRecoveryCycles, reason ? reason : "unspecified");
+
+    if (connected && connectionHandle != BLE_CONN_HANDLE_INVALID) {
+        Bluefruit.disconnect(connectionHandle);
+    } else if (connecting) {
+        (void)sd_ble_gap_connect_cancel();
+        connecting = false;
+        connectAttemptStartedMs = 0;
+    }
+
+    universalState = UniversalState::IDLE;
+    statusTrackingAvailable = false;
+
+#if defined(FIELD_RECOVERY_V2)
+    if (bleRecoveryCycles >= 5) {
+        LOG_ERROR("HOBO universal: BLE recovery exhausted; tripping field watchdog");
+        nrf52FieldWatchdogTrip();
+    }
+#endif
+}
+
 void initializeClient()
 {
     LOG_INFO("HOBO universal bridge: MX2001 + MX2201 + MX2203");
@@ -899,7 +933,8 @@ void initializeClient()
 
     Bluefruit.Scanner.setRxCallback(scanCallback);
     Bluefruit.Scanner.restartOnDisconnect(false);
-    Bluefruit.Scanner.setInterval(160, 80);
+    // Passive 10% duty scan; the HOBO state machine is the sole owner of scanner lifecycle.
+    Bluefruit.Scanner.setInterval(320, 32);
     Bluefruit.Scanner.useActiveScan(false);
 
     initialized = true;
@@ -1308,8 +1343,15 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
     }
 
     if (!connected) {
-        if (connecting)
+        if (connecting) {
+            if (connectAttemptStartedMs != 0 && reached(now, connectAttemptStartedMs + CONNECT_ATTEMPT_TIMEOUT_MS)) {
+                LOG_ERROR("HOBO universal: BLE connect attempt timed out");
+                triggerBleRecovery("connect timeout");
+                if (!Bluefruit.Scanner.isRunning())
+                    Bluefruit.Scanner.start(0);
+            }
             return 500;
+        }
 
         if (!Bluefruit.Scanner.isRunning())
             Bluefruit.Scanner.start(0);
@@ -1409,6 +1451,7 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 
     case UniversalState::WAIT_READ:
         if (measurementReady) {
+            consecutiveReadTimeouts = 0;
             measurementReady = false;
 
             LOG_INFO(
@@ -1564,10 +1607,16 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 break;
             }
 
-            LOG_WARN("HOBO universal: automatic NEWREAD64 timeout");
-            readPurpose = ReadPurpose::AUTOMATIC;
-            nextStatusCheckMs = now + 1000;
-            universalState = UniversalState::READY;
+            consecutiveReadTimeouts++;
+            LOG_WARN("HOBO universal: automatic NEWREAD64 timeout %u/%u",
+                     consecutiveReadTimeouts, READ_TIMEOUT_LIMIT);
+            if (consecutiveReadTimeouts >= READ_TIMEOUT_LIMIT) {
+                triggerBleRecovery("NEWREAD64 timeouts");
+            } else {
+                readPurpose = ReadPurpose::AUTOMATIC;
+                nextStatusCheckMs = now + 1000;
+                universalState = UniversalState::READY;
+            }
         }
         break;
 
@@ -1580,14 +1629,12 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         } else {
             consecutiveStatusTimeouts++;
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
-                statusTrackingAvailable = false;
-                nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
-                LOG_WARN(
-                    "HOBO universal: STATUS command unavailable; automatic TX PAUSED until pointer tracking recovers");
+                LOG_ERROR("HOBO universal: STATUS writes failed repeatedly; rebuilding BLE link");
+                triggerBleRecovery("STATUS write failures");
             } else {
                 nextStatusCheckMs = now + 1000;
+                universalState = UniversalState::READY;
             }
-            universalState = UniversalState::READY;
         }
         break;
 
@@ -1595,6 +1642,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         if (statusReady) {
             statusReady = false;
             consecutiveStatusTimeouts = 0;
+            consecutiveReadTimeouts = 0;
+            bleRecoveryCycles = 0;
             statusTrackingAvailable = true;
 
             if (!haveStatusBaseline) {
@@ -1644,13 +1693,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 STATUS_TIMEOUT_LIMIT);
 
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
-                statusTrackingAvailable = false;
-                nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
-
-                LOG_WARN(
-                    "HOBO universal: write-pointer tracking unavailable; automatic TX PAUSED until STATUS recovers");
-
-                universalState = UniversalState::READY;
+                LOG_ERROR("HOBO universal: STATUS responses stale; rebuilding BLE link");
+                triggerBleRecovery("STATUS response timeouts");
             } else {
                 universalState = UniversalState::SEND_STATUS;
                 stateDueMs = now + 1000;

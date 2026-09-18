@@ -157,6 +157,30 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
      */
     virtual void resetAGC();
 
+    /** Periodic radio upkeep: recover an offline receiver before ordinary AGC maintenance. */
+    void periodicRadioMaintenance();
+
+    /** Chip-specific recovery hook. SX126x overrides this with a full hardware re-init. */
+    virtual bool recoverChipStateLoss() { return false; }
+
+    /** Throttled recovery ladder for a radio that stopped accepting RX/TX operations. */
+    bool maybeRecoverChipStateLoss();
+
+    /** True when packets are queued but have not started transmitting. */
+    bool hasQueuedTx() { return !txQueue.empty(); }
+
+    /** Field health diagnostics. */
+    uint32_t lastTxCompleteMs = 0;
+    uint32_t radioRecoveryAttempts = 0;
+    uint32_t radioRecoverySuccesses = 0;
+
+  protected:
+    uint32_t lastChipRecoveryMs = 0;
+    static constexpr uint8_t MAX_CHIP_RECOVERY_FAILURES = 3;
+    uint8_t chipRecoveryFailures = 0;
+    bool rxOffline = false;
+
+  public:
     /**
      * Debugging counts
      */
@@ -342,4 +366,5 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     bool removePendingTXPacket(NodeNum from, PacketId id, uint32_t hop_limit_lt) override;
 
     void checkRxDoneIrqFlag();
+    void checkTxDoneIrqFlag();
 };
