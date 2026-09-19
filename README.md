@@ -55,7 +55,7 @@ WATER CAL STATUS
 WATER TELEMETRY NOW
 ```
 
-Replace `1.42FT` with the independently measured stage at the site. The explicit `WATER` prefix is recommended in this combined build so water commands are unmistakable.
+Replace `1.42FT` with the independently measured stage at the site. The `WATER` prefix is **required** in this combined build. Bare `READ`, `STATUS`, and other unprefixed commands are reserved for the HOBO/recovery side so the two command systems cannot collide.
 
 After calibration, completely remove power, reconnect it, then verify:
 
@@ -144,3 +144,10 @@ Meshtastic base remains pinned to the validated **2.7.26** baseline.
 Use normal RAK4631 UF2 or BLE DFU packages for routine updates. **Do not use factory-erase images for normal upgrades.**
 
 A successful compile is required, but field deployment still requires real sensor, HOBO BLE, calibration-persistence, telemetry, and recovery testing on the actual assembled node.
+
+
+## Command-reply retry protection
+
+Normal water and HOBO command replies are sent without requesting mesh ACK/retry. This prevents one diagnostic reply from being retransmitted repeatedly when the controller-side ACK path is weak or unavailable. The firmware-update `DFU` path remains separately protected by its reliable update workflow.
+
+The water command parser accepts only explicit `WATER ...` commands in this combined build. Bare `READ`, `STATUS`, `SENSOR`, and similar text is ignored by the water module.
