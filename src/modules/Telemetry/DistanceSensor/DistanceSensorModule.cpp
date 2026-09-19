@@ -480,7 +480,7 @@ bool DistanceSensorModule::sendTextReply(uint32_t destination, uint8_t channel, 
     packet->decoded.want_response = false;
     packet->to = destination;
     packet->channel = channel;
-    packet->want_ack = true;
+    packet->want_ack = false;
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
     return true;
@@ -683,12 +683,16 @@ bool DistanceSensorModule::normalizeCommand(const uint8_t *bytes, size_t size, c
     for (size_t i = 0; i < len; ++i)
         out[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[i])));
 
-    if (strncmp(out, "DIST ", 5) == 0)
-        memmove(out, out + 5, strlen(out + 5) + 1);
-    else if (strncmp(out, "WATER ", 6) == 0)
+    // Combined Water + HOBO firmware: only explicitly prefixed WATER commands
+    // belong to this module. Bare READ/STATUS/etc. are reserved for HOBO and
+    // other command modules, preventing command collisions and reply loops.
+    if (strncmp(out, "WATER ", 6) == 0) {
         memmove(out, out + 6, strlen(out + 6) + 1);
-    else if (strcmp(out, "DIST") == 0 || strcmp(out, "WATER") == 0)
+    } else if (strcmp(out, "WATER") == 0) {
         strcpy(out, "HELP");
+    } else {
+        return false;
+    }
 
     return out[0] != '\0';
 }
