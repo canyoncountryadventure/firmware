@@ -3,4 +3,4 @@ Target branch: Seeed-Water-Distance-v2
 Target commit: 5c1dd72ab3dfeec685922277bd2dfc2fb7149b23
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1260032
-7c365fb6bc58f659622a8f14b47cb4829f9643994772edb42cb77f6cf8b105a7  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.bfd6bc2.uf2
+6a93c08c3ce8209aeddb4605350977afab22fabd975ffa9f4f07bc3f9c2f9913  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.b94ea75.uf2

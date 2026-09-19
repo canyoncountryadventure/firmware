@@ -1,6 +1,6 @@
 Drone flasher: Drone-Seeed-HOBO-Safe-v2.uf2
 Target branch: Seeed-HOBO-Safe-v2
-Target commit: 9d62deba3533594f09ab3e97808505f9e346d28e
+Target commit: a755c83c4c456fee913f51432c62dc303e2e832d
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1331712
-f83742da8c14ed9f7dc45f5eadd306e956c7c9b69935f956458952d75ec27651  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.bfd6bc2.uf2
+817d250f8b44af1554e2783c8e6b3616e97b7ac4645eb8c1553ca58dfc9d6356  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.b94ea75.uf2
