@@ -230,7 +230,7 @@ bool HOBOSelfRecoveryModule::sendTextReply(uint32_t destination, uint8_t channel
     packet->decoded.want_response = false;
     packet->to = destination;
     packet->channel = channel;
-    packet->want_ack = true;
+    packet->want_ack = false;
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
     return true;
