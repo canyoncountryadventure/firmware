@@ -52,6 +52,7 @@ jobs:
             target_branch: field-self-recovery-v2
             target_env: seeed_xiao_nrf52840_kit
             output_name: Drone-Field-Self-Recovery-v2-Seeed.uf2
+          # Seeed HOBO Safe uses its branch-specific dual-role BLE RAM map.
           - key: seeed-hobo-safe
             target_branch: Seeed-HOBO-Safe-v2
             target_env: seeed_xiao_nrf52840_kit
