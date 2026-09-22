@@ -1,0 +1,7 @@
+Drone flasher: Drone-Field-Self-Recovery-v3-RAK4631.uf2
+Target branch: field-self-recovery-v3
+Target commit: b42b108e872f2e1178fe4515df366e48c5e89b9c
+Target environment: rak4631
+Embedded payload: LZ4-compressed application OTA
+Scout UF2 bytes: 1381376
+1e2b62cbd61d25739bf2184cf47dffc007be4775a1bb5dcfe39fdbec108fe329  export/Drone-Field-Self-Recovery-v3-RAK4631.uf2
