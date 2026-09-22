@@ -1,63 +1,45 @@
-# Field Self-Recovery v2 — Firmware Catalog
+# Field Self-Recovery V3 — Firmware Downloads
 
-This is the canonical source baseline for the hardened Meshtastic field-firmware family.
+> **THIS IS THE V3 CATALOG.** Every file in the V3 table below has **`-v3` in its filename**. These are not V2 downloads. The original V2 files remain available separately and are not renamed or replaced.
 
-Every active nRF52840 v2 target below has:
+## Download V3 — choose your actual hardware and sensors
 
-- its complete sensor-specific firmware;
-- a normal, uncompressed UF2;
-- an application-only Nordic BLE DFU ZIP;
-- the direct-message `DFU` target hook;
-- a verified persistent post-update callback marker;
-- a separately built RAK4631 drone-flasher UF2 containing the compressed image for that exact configuration.
+| Station / target | V3 normal field-radio UF2 (USB) | V3 normal field-radio OTA ZIP (BLE) | V3 compressed **drone Scout** UF2 | Build identity |
+|---|---|---|---|---|
+| **Canonical RAK4631 HOBO**<br>RAK4631<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v3) | [**V3 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v3-RAK4631.uf2) | [**V3 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v3-RAK4631-OTA.zip) | [**V3 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v3-RAK4631.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Field-Self-Recovery-v3-RAK4631-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v3-RAK4631.uf2.txt) |
+| **Canonical Seeed HOBO**<br>Seeed XIAO nRF52840 + Wio-SX1262<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v3) | [**V3 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v3-Seeed.uf2) | [**V3 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v3-Seeed-OTA.zip) | [**V3 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v3-Seeed.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Field-Self-Recovery-v3-Seeed-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v3-Seeed.uf2.txt) |
+| **RAK HOBO Safe**<br>RAK4631<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/RAK-HOBO-Safe-v3) | [**V3 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-HOBO-Safe-v3.uf2) | [**V3 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-HOBO-Safe-v3-OTA.zip) | [**V3 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-HOBO-Safe-v3.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/RAK-HOBO-Safe-v3-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-HOBO-Safe-v3.uf2.txt) |
+| **RAK Soil Moisture + HOBO**<br>RAK4631 + SEN0308<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v3) | [**V3 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3.uf2) | [**V3 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-OTA.zip) | [**V3 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2.txt) |
+| **RAK Water Distance + HOBO**<br>RAK4631 + distance sensor<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v3) | [**V3 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v3.uf2) | [**V3 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v3-OTA.zip) | [**V3 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v3-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2.txt) |
+| **Seeed HOBO Safe**<br>Seeed XIAO nRF52840 + Wio-SX1262<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/Seeed-HOBO-Safe-v3) | [**V3 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v3.uf2) | [**V3 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v3-OTA.zip) | [**V3 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v3.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Seeed-HOBO-Safe-v3-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v3.uf2.txt) |
+| **Seeed Water Distance + HOBO**<br>Seeed XIAO + distance sensor<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v3) | [**V3 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3.uf2) | [**V3 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3-OTA.zip) | [**V3 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2.txt) |
+| **Seeed Trail PIR + Rock + HOBO**<br>Seeed XIAO trail station<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v3) | [**V3 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v3.uf2) | [**V3 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v3-OTA.zip) | [**V3 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Trail-PIR-Rock-HOBO-v3.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v3-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Trail-PIR-Rock-HOBO-v3.uf2.txt) |
 
-**Do not mix drone images between rows.** The drone UF2 embeds only the target firmware named in the same row.
+**Which file goes where?** The **normal field-radio UF2** goes onto the installed RAK or Seeed sensor node by USB. The **normal field-radio OTA ZIP** is for a compatible BLE DFU client updating that same sensor node. The **`Drone-...` UF2** goes **only onto the separate RAK4631 Scout carried by your drone**, never onto the station being updated. Each Scout embeds the target image named in its own row.
 
-## Firmware downloads
+The Scout software repository branch remains named [`Remote-Drone-Flashing-v2`](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing-v2) because its proven flasher implementation is retained. **The image version is determined by the `Drone-...-v3.uf2` filename and its embedded-target manifest, not by the Scout branch name.**
 
-| Target configuration | Normal uncompressed UF2 | BLE DFU OTA ZIP | Matching compressed drone-flasher UF2 |
-|---|---|---|---|
-| Canonical Field Self-Recovery — RAK4631 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v2-RAK4631.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v2-RAK4631-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v2-RAK4631.uf2) |
-| Canonical Field Self-Recovery — Seeed XIAO | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v2-Seeed.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Field-Self-Recovery-v2-Seeed-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v2-Seeed.uf2) |
-| RAK HOBO Safe v2 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-HOBO-Safe-v2.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-HOBO-Safe-v2-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-HOBO-Safe-v2.uf2) |
-| RAK Soil Moisture + HOBO v2 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v2.uf2) |
-| RAK Water Distance v2 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-v2.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-v2-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-v2.uf2) |
-| RAK Water Distance + HOBO v2 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v2.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v2-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v2.uf2) |
-| Seeed HOBO Safe v2 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v2.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v2-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v2.uf2) |
-| Seeed Water Distance v2 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-v2.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-v2-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-v2.uf2) |
-| Trail PIR + Rock + HOBO v2 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v2.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v2-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Trail-PIR-Rock-HOBO-v2.uf2) |
-| Trail SEN0171 v2 | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-SEN0171-v2.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-SEN0171-v2-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Trail-SEN0171-v2.uf2) |
+## V3 behavior
 
-## Heltec gateway
+- **30-second HOBO STATUS polling:** The healthy connected radio checks the HOBO logger's write pointer every 30 seconds. This is *not* a 30-second mesh transmission interval and does not change the logger's configured internal recording interval.
+- **Transmit new logger records only:** An automatic temperature/stage packet is generated after a confirmed new write pointer; rapid duplicate automatic transmissions are suppressed. Manual `READ` works separately.
+- **Retained V2 hardware recovery:** Automatic BLE reconnect, SX1262/radio recovery, watchdog protections, flash-safe reboot, persistent HOBO MAC assignment, and the target's remote `DFU` hook.
+- **Sensor-specific functions are retained:** Soil moisture, water distance/stage, and trail-sensor features remain in their corresponding configurations, rather than being replaced by a generic HOBO-only image.
+- **Limits:** This reads a fresh HOBO measurement, not the entire historical logger archive; a 30-second check also does not guarantee a successful RF delivery within 30 seconds.
 
-Heltec V4 uses ESP32-S3 and cannot use the Nordic nRF52840 drone-DFU protocol.
+## Keep target and Scout versions matched
 
-| Configuration | Normal package | Drone DFU |
-|---|---|---|
-| Heltec Gateway v2 | [Download ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Heltec-Gateway-v2.zip) | Not compatible — ESP32-S3 |
+For each row, compare **COMMIT** in the target build manifest with **Target commit** in the Scout manifest. If those values differ, the two published images were built from different source revisions. **Do not use a mismatched pair for remote flashing until a matching Scout image is rebuilt and its end-to-end DFU is bench-tested.** A README-only commit can also change the target's build identifier when the firmware embeds the Git commit.
 
-## Drone update procedure
+A successful GitHub Actions build establishes compilation and packaging, not physical HOBO telemetry, over-the-air packet delivery, or a successful field drone flash.
 
-1. Initially install the target's normal UF2 by USB, or install its matching OTA ZIP through a supported Nordic BLE DFU client.
-2. Direct-message the target node: `DFU`.
-3. Wait for the target's confirmation that BLE OTA DFU is armed.
-4. Flash the **drone UF2 from the same table row** onto the dedicated RAK4631 drone flasher.
-5. Bring the drone flasher within BLE range. It scans for the target bootloader and performs the application-only update automatically.
-6. After reboot, the target sends `UPDATE SUCCESS` or `DFU RESULT: BUILD UNCHANGED` over Meshtastic.
+## Earlier firmware — explicitly V2, not part of the table above
 
-The normal target UF2 and the drone-flasher UF2 are different files. Never install a `Drone-*.uf2` directly onto the field sensor node.
+The previous [V2 firmware catalog](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v2) contains V2 links. The shared [download storage](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery/downloads) contains both V2 and V3 files; select only the filename corresponding to the intended version and station.
 
-## Recovery baseline
+The dedicated SEN0171 trail-counter and non-HOBO water-distance configurations retain their own versioned downloads. They are not interchangeable with the HOBO V3 files above. Heltec Gateway is ESP32-S3 hardware and does **not** accept Nordic nRF52840 Scout/DFU images.
 
-All v2 nRF52840 branches retain their own sensors and commands while sharing the hardened recovery layer:
+## Field checks before unattended deployment
 
-- guarded SX1262 maintenance;
-- missed RX/TX interrupt recovery;
-- radio reinitialization and supported radio-rail power cycling;
-- independent nRF52840 field-health watchdog;
-- flash quiesce before intentional reset;
-- reset-reason reporting;
-- larger critical task stacks;
-- scheduled preventive reboot fallback.
+On the target, verify `VERSION`, `LOGGER`, `READ`, `STATUS`, and `DFU` behavior. Confirm the intended logger MAC remains locked after reboot and one automatic packet follows a genuine logger write-pointer advance. Test any water/soil/trail sensors fitted to the station. For drone updates, bench-test the particular target/Scout pairing first.
 
-Engineering record: [Field Recovery v2 audit and build specification](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/docs/FIELD_RECOVERY_V2_AUDIT_AND_BUILD_SPEC.md)
