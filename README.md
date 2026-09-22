@@ -1,10 +1,30 @@
+> **CURRENT BRANCH: Seeed-HOBO-Safe-v3 — HOBO V3.** Every firmware file linked in the **V3 downloads** table below has `-v3` in its filename. The unchanged `Remote-Drone-Flashing-v2` branch hosts the **V3** compressed Scout files; its branch name is not the firmware image version. The rest of this document describes this V3 configuration (including inherited V2 safeguards).
+
+## V3 downloads — use the file for this exact station
+
+| File | Purpose | Link |
+|---|---|---|
+| `Seeed-HOBO-Safe-v3.uf2` | **V3 field radio** — normal USB UF2, for the Seeed XIAO nRF52840 node | [Download V3 target UF2](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/field-self-recovery/downloads/Seeed-HOBO-Safe-v3.uf2) |
+| `Seeed-HOBO-Safe-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/field-self-recovery/downloads/Seeed-HOBO-Safe-v3-OTA.zip) |
+| `Drone-Seeed-HOBO-Safe-v3.uf2` | **V3 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V3 drone Scout UF2](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v3.uf2) |
+| `Seeed-HOBO-Safe-v3-BUILD.txt` | Target build commit and checksums | [View V3 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Seeed-HOBO-Safe-v3-BUILD.txt) |
+| `Drone-Seeed-HOBO-Safe-v3.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V3 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v3.uf2.txt) |
+
+**Before a remote update:** compare the target commit in the Scout manifest with the target build manifest. If these differ, use a fresh matching Scout image; do not assume different builds are paired. For USB updates, use the normal target UF2, **not** the `Drone-` UF2.
+
+**V3 operating behavior:** `STATUS` checks the HOBO logger write pointer on a **30-second** healthy-link cadence. The HOBO's internal logging interval is unchanged; automatic mesh telemetry is sent only on a confirmed new record. A manual `READ` remains independent. V3 inherits non-destructive field recovery and the target's existing `DFU` command.
+
+**Source:** [Seeed-HOBO-Safe-v3](https://github.com/canyoncountryadventure/firmware/tree/Seeed-HOBO-Safe-v3) · **V3 target build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3.yml?query=branch%3ASeeed-HOBO-Safe-v3) · **V3 matching Scout build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3_drone_catalog.yml).
+
+---
+
 > **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from Seeed-HOBO-Safe-v1 is retained.
 
 # Seeed HOBO Safe v2
 
 Production HOBO-only self-recovery firmware for **Seeed XIAO nRF52840 + Wio-SX1262**.
 
-**Branch:** `Seeed-HOBO-Safe-v2`
+**Branch:** `Seeed-HOBO-Safe-v3`
 
 **Supported loggers:** Onset HOBO MX2001, MX2201, and MX2203.
 
