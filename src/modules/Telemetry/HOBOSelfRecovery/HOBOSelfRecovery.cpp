@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "HOBO FIELD-RECOVERY v2";
+static constexpr char FIRMWARE_LABEL[] = "HOBO FIELD-RECOVERY v3";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -144,7 +144,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     if (isCommand(payload, payloadSize, "AUTO")) {
         sendTextReply(mp.from, mp.channel,
-                      "AUTO: ON. STATUS pointer gating + NEWREAD. BLE connect/STATUS/read failures self-recover.");
+                      "AUTO: ON. STATUS every 30s; TX on new logger record only. BLE failures self-recover.");
         return ProcessMessage::CONTINUE;
     }
 
