@@ -4,9 +4,9 @@
 
 | File | Purpose | Link |
 |---|---|---|
-| `RAK-Water-Distance-HOBO-v3.uf2` | **V3 field radio** — normal USB UF2, for the RAK4631 node | [Download V3 target UF2](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v3.uf2) |
+| `RAK-Water-Distance-HOBO-v3.uf2` | **V3 field radio** — normal USB UF2, for the RAK4631 node | [Download V3 target UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v3.uf2) |
 | `RAK-Water-Distance-HOBO-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v3-OTA.zip) |
-| `Drone-RAK-Water-Distance-HOBO-v3.uf2` | **V3 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V3 drone Scout UF2](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2) |
+| `Drone-RAK-Water-Distance-HOBO-v3.uf2` | **V3 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V3 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2) |
 | `RAK-Water-Distance-HOBO-v3-BUILD.txt` | Target build commit and checksums | [View V3 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v3-BUILD.txt) |
 | `Drone-RAK-Water-Distance-HOBO-v3.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V3 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2.txt) |
 
@@ -18,9 +18,9 @@
 
 ---
 
-> **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Water-Distance-HOBO-v1 is retained.
+> **HOBO V3 (retaining Field-Recovery v2 safeguards):** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Water-Distance-HOBO-v1 is retained.
 
-# RAK Water Distance + HOBO v2
+# RAK Water Distance + HOBO v3
 
 Production combined firmware for **RAK4631 + RAK19007** field nodes that must do both:
 
@@ -51,7 +51,7 @@ HOBO side:
 - MX2201
 - MX2203
 - BLE scanning/collection using the existing universal HOBO reader
-- HOBO v2 diagnostics plus automatic BLE link recovery owned by the HOBO telemetry state machine
+- HOBO diagnostics plus automatic BLE link recovery owned by the HOBO telemetry state machine
 
 Trail-counter logic is intentionally excluded.
 
@@ -147,8 +147,8 @@ A01NYUB ranges continuously while powered, so its blue LED keeps blinking even w
 | `UNLOCK` | Clears the saved HOBO assignment and resumes discovery. |
 | `BLE` | Reports central-link count, scanner state, and HOBO state-machine ownership. |
 | `AUTO` | Reports the HOBO automatic-record / pointer-gated state. |
-| `SCAN` | Legacy diagnostic command; v2 reports that BLE recovery is automatic and does not manipulate the scanner. |
-| `RECONNECT` | Legacy diagnostic command; v2 does not force a link rebuild because the HOBO telemetry state machine owns scanner/link lifecycle. |
+| `SCAN` | Legacy diagnostic command; v3 reports that BLE recovery is automatic and does not manipulate the scanner. |
+| `RECONNECT` | Legacy diagnostic command; v3 does not force a link rebuild because the HOBO telemetry state machine owns scanner/link lifecycle. |
 | `POWER` | Reports battery/power status. |
 | `WATCHDOG` | Reports the 90-second core watchdog, independent field-health channel, and sleep/halt behavior. |
 | `PING` | Quick end-to-end DM/liveness test. |
