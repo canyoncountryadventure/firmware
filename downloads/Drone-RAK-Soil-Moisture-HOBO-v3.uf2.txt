@@ -1,7 +1,7 @@
 Drone flasher: Drone-RAK-Soil-Moisture-HOBO-v3.uf2
 Target branch: RAK-Soil-Moisture-HOBO-v3
-Target commit: d6964296e7219b18ba88c49de3f77db8f9da8688
+Target commit: a94e51b02ad7d9e32189cc7104710af564caa6d1
 Target environment: rak4631
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1384448
-f49545f5d5cf0b4ca49c63de6e7c436ac7cb44d05c3009f6fcf9101010f2adc0  export/Drone-RAK-Soil-Moisture-HOBO-v3.uf2
+6c20706a0edc2f346fc5e280ca4f630eca1c8e6d8e3970a0d2ca65f834223dd6  export/Drone-RAK-Soil-Moisture-HOBO-v3.uf2

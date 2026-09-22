@@ -1,7 +1,7 @@
 Drone flasher: Drone-Seeed-HOBO-Safe-v3.uf2
 Target branch: Seeed-HOBO-Safe-v3
-Target commit: 9e8ba645ff79a70ba7f9f9620d8a4398851ea071
+Target commit: fe47ce508dcba710226bb9c1bf3df38132dc13e8
 Target environment: seeed_xiao_nrf52840_kit
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1331712
-2918a53e0d328b1aff92f8224ac39b10a11f3ba98a371c4197487dd6b877c87d  export/Drone-Seeed-HOBO-Safe-v3.uf2
+218d43318936b4634c43aa42e5c1d144cde3bb375b0ec1109791b1e89db01843  export/Drone-Seeed-HOBO-Safe-v3.uf2
