@@ -1,10 +1,30 @@
+> **CURRENT BRANCH: RAK-Soil-Moisture-HOBO-v3 — HOBO V3.** Every firmware file linked in the **V3 downloads** table below has `-v3` in its filename. The unchanged `Remote-Drone-Flashing-v2` branch hosts the **V3** compressed Scout files; its branch name is not the firmware image version. The rest of this document describes this V3 configuration (including inherited V2 safeguards).
+
+## V3 downloads — use the file for this exact station
+
+| File | Purpose | Link |
+|---|---|---|
+| `RAK-Soil-Moisture-HOBO-v3.uf2` | **V3 field radio** — normal USB UF2, for the RAK4631 node | [Download V3 target UF2](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3.uf2) |
+| `RAK-Soil-Moisture-HOBO-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-OTA.zip) |
+| `Drone-RAK-Soil-Moisture-HOBO-v3.uf2` | **V3 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V3 drone Scout UF2](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2) |
+| `RAK-Soil-Moisture-HOBO-v3-BUILD.txt` | Target build commit and checksums | [View V3 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-BUILD.txt) |
+| `Drone-RAK-Soil-Moisture-HOBO-v3.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V3 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2.txt) |
+
+**Before a remote update:** compare the target commit in the Scout manifest with the target build manifest. If these differ, use a fresh matching Scout image; do not assume different builds are paired. For USB updates, use the normal target UF2, **not** the `Drone-` UF2.
+
+**V3 operating behavior:** `STATUS` checks the HOBO logger write pointer on a **30-second** healthy-link cadence. The HOBO's internal logging interval is unchanged; automatic mesh telemetry is sent only on a confirmed new record. A manual `READ` remains independent. V3 inherits non-destructive field recovery and the target's existing `DFU` command.
+
+**Source:** [RAK-Soil-Moisture-HOBO-v3](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v3) · **V3 target build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v3) · **V3 matching Scout build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3_drone_catalog.yml).
+
+---
+
 > **Field-Recovery v2:** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Soil-Moisture-HOBO-v1 is retained.
 
 # RAK Soil Moisture + HOBO v2
 
 Production field firmware for **RAK4631 + RAK19007** stations using a **DFRobot SEN0308 waterproof capacitive soil-moisture sensor** and optional **Onset HOBO MX-series BLE temperature/water-level loggers**.
 
-**Branch:** `RAK-Soil-Moisture-HOBO-v2`
+**Branch:** `RAK-Soil-Moisture-HOBO-v3`
 
 **Supported HOBO loggers:** MX2001, MX2201, MX2203.
 
@@ -14,10 +34,10 @@ This build combines the proven HOBO next-record telemetry path, SEN0308 analog s
 
 | Item | Link |
 |---|---|
-| **USB firmware (UF2)** | **[Download RAK-Soil-Moisture-HOBO-v2.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2.uf2)** |
-| **BLE DFU firmware (ZIP)** | **[Download RAK-Soil-Moisture-HOBO-v2-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v2-OTA.zip)** |
-| Source branch | [RAK-Soil-Moisture-HOBO-v2](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v2) |
-| Build workflow runs | [Build RAK Soil Moisture HOBO v2](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_soil_moisture_hobo_rak4631.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v2) |
+| **USB firmware (UF2)** | **[Download RAK-Soil-Moisture-HOBO-v3.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3.uf2)** |
+| **BLE DFU firmware (ZIP)** | **[Download RAK-Soil-Moisture-HOBO-v3-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-OTA.zip)** |
+| Source branch | [RAK-Soil-Moisture-HOBO-v3](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v3) |
+| Build workflow runs | [Build RAK Soil Moisture HOBO v2](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_soil_moisture_hobo_rak4631.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v3) |
 | Workflow source | [build_soil_moisture_hobo_rak4631.yml](.github/workflows/build_soil_moisture_hobo_rak4631.yml) |
 | Soil module source | [SEN0308SoilMoisture.cpp](src/modules/Telemetry/SoilMoisture/SEN0308SoilMoisture.cpp) |
 
@@ -65,7 +85,7 @@ Do not connect the SEN0308 red lead to `BAT`/`VBAT`. `BAT` is the raw single-cel
 1. Download the **OTA ZIP** above to the phone. **Do not unzip it.**
 2. Open Nordic **nRF Connect** and connect to the RAK4631.
 3. Tap **DFU** in the upper-right corner.
-4. Choose **Distribution packet (ZIP)** and select `RAK-Soil-Moisture-HOBO-v2-OTA.zip`.
+4. Choose **Distribution packet (ZIP)** and select `RAK-Soil-Moisture-HOBO-v3-OTA.zip`.
 5. Let validation, activation and reboot finish, then reconnect in Meshtastic and send `VERSION` and `SOIL STATUS`.
 
 The UF2 is USB-only. The OTA ZIP is BLE-only. If a legacy BLE update reaches 100% but stalls during validation/activation, stop retrying and recover with the UF2 over USB. Routine updates should not use a factory-erase image.
