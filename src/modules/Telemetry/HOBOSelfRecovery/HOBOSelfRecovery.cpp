@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "HOBO FIELD-RECOVERY v3";
+static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO v3";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -108,7 +108,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     }
 
     if (isCommand(payload, payloadSize, "VERSION")) {
-        snprintf(reply, sizeof(reply), "%s\nPlatform:%s\nSX1262+BLE+dual-WDT+12h safety reset",
+        snprintf(reply, sizeof(reply), "%s\nPlatform:%s\nHOBO poll:30s | Water:ON\nDM: WATER STATUS / WATER RAW",
                  FIRMWARE_LABEL, platformName());
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
