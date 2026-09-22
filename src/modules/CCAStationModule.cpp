@@ -23,7 +23,7 @@ namespace
 {
 
 constexpr char CCA_FW_NAME[] = "CCA-MX-PIR";
-constexpr char CCA_FW_VERSION[] = "1.0.8-v2";
+constexpr char CCA_FW_VERSION[] = "1.0.8-v3";
 constexpr uint8_t CCA_SCHEMA_VERSION = 1;
 constexpr char MESHTASTIC_BASE_VERSION[] = "2.7.26";
 
