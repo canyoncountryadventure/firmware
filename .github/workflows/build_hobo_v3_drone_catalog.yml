@@ -1,3 +1,4 @@
+# Rebuild V3 Scout payloads against the latest published V3 target source commits.
 name: Build matched HOBO V3 drone flasher images
 
 on:
