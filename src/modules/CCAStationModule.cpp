@@ -521,8 +521,8 @@ ProcessMessage CCAStationModule::handleReceived(const meshtastic_MeshPacket &mp)
 
     if (strcmp(command, "VERSION") == 0) {
         snprintf(reply, sizeof(reply),
-                 "FW: %s %s\nSchema: %u\nMeshtastic: %s\nBuild: SEEED XIAO + Wio-SX1262",
-                 CCA_FW_NAME, CCA_FW_VERSION, CCA_SCHEMA_VERSION, MESHTASTIC_BASE_VERSION);
+                 "SEEED TRAIL PIR + ROCK + HOBO V3\nHW:XIAO + Wio-SX1262\nSensors:PIR D6 + ROCK D0 + HOBO\nHOBO poll:30s | DFU:ON\nBase:%s",
+                 MESHTASTIC_BASE_VERSION);
     } else if (strcmp(command, "STATUS") == 0) {
         char up[32] = {};
         formatDuration(uptimeSeconds(), up, sizeof(up));
