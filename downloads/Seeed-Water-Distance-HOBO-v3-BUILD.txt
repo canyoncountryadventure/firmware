@@ -1,0 +1,7 @@
+TARGET=Seeed-Water-Distance-HOBO-v3
+ENV=seeed_xiao_nrf52840_kit
+COMMIT=4acace9ef7bb1404bc0aafb96d0e5243130c3a44
+HOBO_STATUS_POLL=30sec
+DRONE_IMAGE=Build separately on Remote-Drone-Flashing-v2
+1ecf6c0ed7c6d776c1fac1dc24228bffe183053de21fe6c3a2491a542f9a0a4c  export/Seeed-Water-Distance-HOBO-v3.uf2
+cc1cee1631bb1fe617ec119ab648da1289be748796a6e3af8bf0bf3703e4b29f  export/Seeed-Water-Distance-HOBO-v3-OTA.zip
