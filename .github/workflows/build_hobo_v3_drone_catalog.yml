@@ -1,4 +1,4 @@
-# Rebuild V3 Scout payloads against the latest published V3 target source commits.
+# Build all eight V3 Scout payloads against the current V3 target source commits.
 name: Build matched HOBO V3 drone flasher images
 
 on:
@@ -23,6 +23,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - key: canonical-rak-hobo-v3
+            target_branch: field-self-recovery-v3
+            target_env: rak4631
+            output_name: Drone-Field-Self-Recovery-v3-RAK4631.uf2
+          - key: canonical-seeed-hobo-v3
+            target_branch: field-self-recovery-v3
+            target_env: seeed_xiao_nrf52840_kit
+            output_name: Drone-Field-Self-Recovery-v3-Seeed.uf2
+          - key: trail-pir-rock-hobo-v3
+            target_branch: Trail-Sensors-v3
+            target_env: seeed_xiao_nrf52840_cca_mx_pir
+            output_name: Drone-Trail-PIR-Rock-HOBO-v3.uf2
           - key: rak-hobo-v3
             target_branch: RAK-HOBO-Safe-v3
             target_env: rak4631
