@@ -193,8 +193,11 @@ uint8_t readChannel = 0;
 static constexpr uint32_t COMMAND_DELAY_MS = 400;
 static constexpr uint32_t READ_TIMEOUT_MS = 3000;
 static constexpr uint32_t STATUS_TIMEOUT_MS = 3000;
-static constexpr uint32_t POINTER_FINE_POLL_MS = 500;
-static constexpr uint32_t POINTER_INITIAL_SYNC_POLL_MS = 1000;
+// Field v3: check the logger write pointer at a fixed 30-second cadence.
+// This does not change the logger's own recording interval or radio TX interval.
+static constexpr uint32_t HOBO_STATUS_POLL_MS = 30000UL;
+static constexpr uint32_t POINTER_FINE_POLL_MS = HOBO_STATUS_POLL_MS;
+static constexpr uint32_t POINTER_INITIAL_SYNC_POLL_MS = HOBO_STATUS_POLL_MS;
 static constexpr uint32_t STATUS_RECOVERY_RETRY_MS = 5000;
 static constexpr uint8_t STATUS_TIMEOUT_LIMIT = 3;
 static constexpr uint8_t READ_TIMEOUT_LIMIT = 3;
@@ -359,20 +362,10 @@ const char *loggerTypeName(LoggerType type)
 
 uint32_t nextRecordPrecheckDelayMs()
 {
-    if (loggerIntervalSeconds == 0)
-        return POINTER_INITIAL_SYNC_POLL_MS;
-
-    const uint32_t intervalMs =
-        static_cast<uint32_t>(loggerIntervalSeconds) * 1000UL;
-
-    if (intervalMs > 3000)
-        return intervalMs - 2000;
-    if (intervalMs > 1000)
-        return intervalMs / 2;
-
-    return 500;
+    // Do not switch to the old near-record 500 ms/1 s burst schedule.
+    // All healthy connected STATUS checks run on the 30-second cadence.
+    return HOBO_STATUS_POLL_MS;
 }
-
 bool containsAsciiIgnoreCase(const uint8_t *data, uint16_t length, const char *needle)
 {
     if (data == nullptr || needle == nullptr)
@@ -1663,6 +1656,18 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             }
 
             if (currentWritePointer != lastWritePointer) {
+                // Reject implausibly rapid repeated pointer advances, including
+                // noisy STATUS responses that previously flooded the mesh.
+                // A true new record remains pending and is read at a later poll.
+                // Half the logger interval tolerates the 30 s observation jitter.
+                if (lastAutomaticTxMs != 0 && loggerIntervalSeconds > 0 &&
+                    (now - lastAutomaticTxMs) <
+                        (static_cast<uint32_t>(loggerIntervalSeconds) * 500UL)) {
+                    LOG_WARN("HOBO universal: early pointer advance suppressed; waiting for next 30s STATUS");
+                    nextStatusCheckMs = now + HOBO_STATUS_POLL_MS;
+                    universalState = UniversalState::READY;
+                    break;
+                }
                 pendingWritePointer = currentWritePointer;
                 pendingPointerDetectedMs = now;
                 readPurpose = ReadPurpose::AUTOMATIC;
