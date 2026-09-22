@@ -1,7 +1,7 @@
 Drone flasher: Drone-RAK-Water-Distance-HOBO-v3.uf2
 Target branch: RAK-Water-Distance-HOBO-v3
-Target commit: 77046e879701b804791e7b7a260b8bf3e4f1c1e8
+Target commit: b7b5d0efa0208b000c432fa548f1930ed6d231d3
 Target environment: rak4631
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1328640
-4a1bf5d21db756a1cdb239488b09340f80f3d0c8cb4a3ff6051066d32034e094  export/Drone-RAK-Water-Distance-HOBO-v3.uf2
+92fc0c9dedb91fb2eba2b9eab94f4e5f7cef8725e0553a107b23a842f0175a22  export/Drone-RAK-Water-Distance-HOBO-v3.uf2
