@@ -1,3 +1,19 @@
+> **V3 HOBO firmware is now available.** This branch's name is `Remote-Drone-Flashing-v2` because it retains the existing Scout implementation. Files named `Drone-...-v3.uf2` contain **V3 target firmware**; files named `Drone-...-v2.uf2` contain **V2 target firmware**. Do not mix the two. The compressed Scout image belongs ONLY on the separate RAK4631 drone radio; the normal target UF2/OTA ZIP is linked in each target README.
+
+## V3 HOBO drone image downloads (30-second HOBO STATUS polling)
+
+| V3 target configuration | V3 target firmware/USB/OTA downloads | Matching V3 compressed drone image | Embedded target commit |
+|---|---|---|---|
+| RAK-HOBO-Safe-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/RAK-HOBO-Safe-v3) | [**Download V3 Scout UF2**](downloads/Drone-RAK-HOBO-Safe-v3.uf2) | [Target commit manifest](downloads/Drone-RAK-HOBO-Safe-v3.uf2.txt) |
+| RAK-Soil-Moisture-HOBO-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v3) | [**Download V3 Scout UF2**](downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2) | [Target commit manifest](downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2.txt) |
+| RAK-Water-Distance-HOBO-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v3) | [**Download V3 Scout UF2**](downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2) | [Target commit manifest](downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2.txt) |
+| Seeed-HOBO-Safe-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/Seeed-HOBO-Safe-v3) | [**Download V3 Scout UF2**](downloads/Drone-Seeed-HOBO-Safe-v3.uf2) | [Target commit manifest](downloads/Drone-Seeed-HOBO-Safe-v3.uf2.txt) |
+| Seeed-Water-Distance-HOBO-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v3) | [**Download V3 Scout UF2**](downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2) | [Target commit manifest](downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2.txt) |
+
+**V3 normal target downloads:** [field firmware catalog](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery). The catalog labels V2 and V3 separately; every V3 target file has `-v3` in its filename.
+
+---
+
 # Remote Drone Flashing v2
 
 Autonomous **RAK4631 Scout-to-nRF52840 target firmware updating over BLE** for supported field configurations.
