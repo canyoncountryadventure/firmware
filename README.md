@@ -1,4 +1,29 @@
-# Meshtastic Field Firmware — Field-Recovery v2
+# Meshtastic Field Firmware — HOBO V3 and V2 catalog
+
+## HOBO V3: 30-second STATUS checks
+
+V3 polls the connected HOBO write pointer every 30 seconds when healthy and connected. It queues a fresh live measurement for mesh transmission **only after a new logger write pointer is confirmed**. V3 does not change the HOBO's configured recording interval. Manual `READ` remains independent. Existing V2 logger lock, watchdog/recovery, sensor functions, and drone-DFU target hook are retained. Implausibly rapid repeated automatic transmissions are suppressed relative to the logger interval.
+
+The **USB UF2** belongs on the field radio. The **BLE OTA ZIP** is the application-only update package. The **matched compressed Scout UF2** belongs on the separate RAK4631 drone flasher, never on the target radio. Match each Scout image with the target row and hardware.
+
+| V3 target configuration | Field radio UF2 | Target BLE OTA ZIP | Matched compressed drone Scout UF2 |
+|---|---|---|---|
+| Canonical RAK4631 | [USB UF2](downloads/Field-Self-Recovery-v3-RAK4631.uf2) | [BLE OTA ZIP](downloads/Field-Self-Recovery-v3-RAK4631-OTA.zip) | [Matched Scout UF2](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v3-RAK4631.uf2) |
+| Canonical Seeed XIAO | [USB UF2](downloads/Field-Self-Recovery-v3-Seeed.uf2) | [BLE OTA ZIP](downloads/Field-Self-Recovery-v3-Seeed-OTA.zip) | [Matched Scout UF2](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Field-Self-Recovery-v3-Seeed.uf2) |
+| RAK HOBO Safe | [USB UF2](downloads/RAK-HOBO-Safe-v3.uf2) | [BLE OTA ZIP](downloads/RAK-HOBO-Safe-v3-OTA.zip) | [Matched Scout UF2](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-HOBO-Safe-v3.uf2) |
+| RAK Soil Moisture + HOBO | [USB UF2](downloads/RAK-Soil-Moisture-HOBO-v3.uf2) | [BLE OTA ZIP](downloads/RAK-Soil-Moisture-HOBO-v3-OTA.zip) | [Matched Scout UF2](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2) |
+| RAK Water Distance + HOBO | [USB UF2](downloads/RAK-Water-Distance-HOBO-v3.uf2) | [BLE OTA ZIP](downloads/RAK-Water-Distance-HOBO-v3-OTA.zip) | [Matched Scout UF2](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2) |
+| Seeed HOBO Safe | [USB UF2](downloads/Seeed-HOBO-Safe-v3.uf2) | [BLE OTA ZIP](downloads/Seeed-HOBO-Safe-v3-OTA.zip) | [Matched Scout UF2](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v3.uf2) |
+| Seeed Water Distance + HOBO | [USB UF2](downloads/Seeed-Water-Distance-HOBO-v3.uf2) | [BLE OTA ZIP](downloads/Seeed-Water-Distance-HOBO-v3-OTA.zip) | [Matched Scout UF2](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2) |
+| Seeed Trail PIR + Rock + HOBO | [USB UF2](downloads/Trail-PIR-Rock-HOBO-v3.uf2) | [BLE OTA ZIP](downloads/Trail-PIR-Rock-HOBO-v3-OTA.zip) | [Matched Scout UF2](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Trail-PIR-Rock-HOBO-v3.uf2) |
+
+Source branches: `field-self-recovery-v3` (canonical RAK + Seeed), `RAK-HOBO-Safe-v3`, `RAK-Soil-Moisture-HOBO-v3`, `RAK-Water-Distance-HOBO-v3`, `Seeed-HOBO-Safe-v3`, `Seeed-Water-Distance-HOBO-v3`, `Trail-Sensors-v3` (PIR + Rock + HOBO target). The dedicated trail SEN0171 counter has no HOBO and remains V2.
+
+**Field validation:** CI success establishes compilation/packaging, not on-hardware RF telemetry or an end-to-end drone flash. Bench-check `LOGGER`, `READ`, `DFU`, one real logger record boundary, the matched target/Scout pair, and a power cycle before unattended deployment. Polling every 30 seconds cannot retrieve every historical record on a HOBO logging more frequently than that; V3 uses a fresh live `NEWREAD64` measurement rather than archive download.
+
+---
+
+## Archived Meshtastic Field Firmware — Field-Recovery v2
 
 This repository contains the custom Meshtastic firmware used for the environmental sensor network, remote HOBO stations, water-level stations, soil-moisture stations, trail sensors, Heltec gateway, and remote drone flashing system.
 
