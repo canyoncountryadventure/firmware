@@ -1,125 +1,38 @@
-# Heltec Home MX2001 Gateway
+# Heltec V4 environmental gateway — Gateway v2
 
-**Status:** Production / end-to-end validated 2026-08-22  
-**Branch:** `heltec-home-http-gateway`  
-**Hardware:** Heltec WiFi LoRa 32 V4 + TFT  
-**PlatformIO target:** `heltec-v4-tft`
+**Branch:** Heltec-Gateway-v2  
+**Device:** Heltec V4, PlatformIO environment \`heltec-v4\`  
+**Purpose:** Receive allowed field-sensor packets over Meshtastic LoRa and independently upload their measurements over Wi-Fi to \`https://meshtastic-ecru.vercel.app/api/ingest\`.
 
-This is the home internet gateway for MX2001 monitoring traffic.
+## Allowed node numbers
 
-## Role
+| Station label on Vercel | Meshtastic ID | Decimal ID | Telemetry |
+|---|---|---:|---|
+| Hidden Valley (replacement) | !4aab9211 | 1252758033 | Temperature |
+| Pack Creek | !fccdcc93 | 4241345683 | Temperature and stage |
+| Wingate Moisture | !77788479 | 2004386937 | Soil moisture |
+| Cliff Sensor | !c9f9f6e7 | 3388602087 | Temperature |
+| Moab Heltec | !a35a4bf4 | 2740603892 | Local BLE HOBO |
+| Fishlake Hightop | !5e021e35 | 1577197109 | Temperature |
+| It's a Swell Day | !742ecff5 | 1949224949 | Temperature |
+| Thousand Lake Mountain | !9df66d7e | 2650172798 | Temperature |
 
-```text
-Field MX2001 node -> LoRa mesh -> Heltec Home -> Wi-Fi HTTPS -> Vercel -> Neon
-```
+The retired Hidden Valley !b57d051f/3044869407 is **not** allowed to upload. The Heltec does not need hard-coded station names: HTTPS requests include the numeric sender and canonical labels are assigned by Vercel. The Heltec may still retain historical mesh NodeDB names for display and normal Meshtastic operation.
 
-The Heltec remains a normal Meshtastic radio while also watching decoded mesh traffic for the custom MX2001 packet format.
+## Formats
 
-## Accepted packet format
+* \`TELEMETRY_APP\` with an environmental temperature and device/battery telemetry.
+* \`PRIVATE_APP\` 19-byte \`MX\` versioned MX2001 temperature/stage.
+* \`PRIVATE_APP\` 8-byte \`SM\` v1 soil moisture and ADC10 from Wingate Moisture only. The paired standard soil-moisture report is not also uploaded, avoiding duplicated samples.
+* \`PRIVATE_APP\` 24-byte \`DS\` v1 ultrasonic raw distance/stage from Pack Creek only. Uncalibrated stage is not uploaded as a water-level value.
+* The existing 16-byte \`RK\` legacy rock-test parser is retained for backward compatibility.
 
-Only `PRIVATE_APP` packets that are exactly 19 bytes and begin with ASCII `MX` are uploaded.
+## Build and update
 
-The current packet contains:
+GitHub Actions: [Build Heltec Gateway v2](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_heltec_gateway.yml).
 
-| Field | Purpose |
-|---|---|
-| `MX` prefix | identifies the custom MX2001 format |
-| sequence | field-node measurement sequence |
-| stage | water level in tenths of a foot |
-| temperature | temperature in tenths of a degree F |
-| raw temperature | logger raw value |
-| logger MAC | physical HOBO BLE identifier |
-| BLE RSSI | field radio to HOBO signal strength |
+After a successful build, download the artifact associated with the **latest source commit**, or the published \`downloads/Heltec-Gateway-v2.zip\` from the repository's \`field-self-recovery\` branch once its build finishes. Several builds can run concurrently; confirm the source commit before flashing.
 
-Meshtastic receive metadata is added by the Heltec before upload.
+Only install the **normal non-factory Heltec V4 application firmware** via the existing Wi-Fi Unified OTA updater. This preserves Meshtastic channel keys, NodeDB, Wi-Fi settings, and the gateway configuration. Do not install a \`*.factory.bin\` as a routine OTA update, and do not erase NVS.
 
-## Deliberately ignored
-
-The gateway does not upload:
-
-- `TELEMETRY_APP` environmental temperature from other Meshtastic nodes;
-- device/battery telemetry;
-- positions;
-- NodeInfo;
-- text messages;
-- routing/ACK traffic;
-- arbitrary `PRIVATE_APP` packets that do not match the MX2001 format.
-
-Favorites are not used as an authorization mechanism. A future MX2001 field node running the same packet format can feed the gateway without first being added to the Heltec NodeDB.
-
-## Local configuration
-
-Create this file locally and never commit it:
-
-```text
-src/modules/hobo_gateway_secrets.h
-```
-
-It supplies the Vercel ingest key and gateway name. The path is listed in `.gitignore`.
-
-## Sync
-
-```powershell
-cd C:\mt
-git fetch origin
-git switch heltec-home-http-gateway
-git pull --ff-only origin heltec-home-http-gateway
-```
-
-## Build
-
-```powershell
-$env:PLATFORMIO_CORE_DIR="C:\p"
-$env:PLATFORMIO_BUILD_UNFLAGS="-std=c++11 -std=gnu++11 -flto"
-py -m platformio run -e heltec-v4-tft -j 1
-```
-
-The non-factory update image is generated under:
-
-```text
-.pio\build\heltec-v4-tft\firmware-heltec-v4-tft-*.bin
-```
-
-## Flash
-
-Enter bootloader mode:
-
-1. Hold LEFT/PRG.
-2. Tap RIGHT/RST.
-3. Release LEFT/PRG.
-
-Flash at `0x10000`:
-
-```powershell
-py -m esptool --port COM20 write-flash 0x10000 .\.pio\build\heltec-v4-tft\firmware-heltec-v4-tft-<version>.bin
-```
-
-Use the actual COM port if different. Use the normal `.bin`, not `.factory.bin`, for an application update that preserves existing Meshtastic configuration.
-
-## Live verification
-
-```powershell
-py -m meshtastic --port COM20 --seriallog stdout --listen 2>&1 |
-Select-String -Pattern "HOBO HTTP|PRIVATE_APP"
-```
-
-Expected sequence:
-
-```text
-HOBO HTTP gateway: queued MX2001 packet from ...
-HOBO HTTP gateway: cloud stored packet ... (HTTP 201)
-```
-
-## Cloud behavior
-
-The Heltec POSTs the decoded MX2001 data and radio metadata to the Vercel ingest endpoint. The API writes the reading to Neon PostgreSQL.
-
-The HOBO remains the authoritative logger. If home internet is unavailable, the gateway retries a small number of times, but the original measurements remain stored on the HOBO itself.
-
-## Security note
-
-The current firmware uses encrypted HTTPS with certificate verification disabled via `setInsecure()`. The ingest API still requires the application-layer secret key. Certificate validation can be hardened later without changing the packet architecture.
-
-## Future sensor expansion
-
-Do not broaden the MX2001 filter just to support a new sensor. Add each future sensor family with an explicit packet signature/type so unrelated public Meshtastic traffic remains excluded from the monitoring database.
+The Actions workflow injects the Vercel ingest key from the repository secret \`HOBO_HTTP_GATEWAY_INGEST_KEY\`; do not commit that key into source. Verify an actual field reading logs \`CCA clean gateway: cloud accepted packet ... HTTP=201\`, then confirm \`/api/readings\` contains that node ID and packet type before deploying additional stations.
