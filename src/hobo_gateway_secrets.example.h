@@ -11,6 +11,6 @@
 
 #define HOBO_HTTP_GATEWAY_NAME "Heltec Hub (Home)"
 
-// MX2001-only build: accept any valid 19-byte PRIVATE_APP packet beginning with "MX".
-// Normal Meshtastic environmental telemetry is ignored by the gateway.
+// Node-ID allowlist + strict MX2001/SM-soil/DS-water/telemetry packet decoding.
+// Canonical station names are assigned by the cloud, not embedded here.
 #define HOBO_HTTP_GATEWAY_FAVORITES_ONLY 0
