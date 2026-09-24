@@ -34,6 +34,11 @@ int16_t readLE16Signed(const uint8_t *p)
     return static_cast<int16_t>(readLE16(p));
 }
 
+int32_t readLE32Signed(const uint8_t *p)
+{
+    return static_cast<int32_t>(readLE32(p));
+}
+
 String jsonQuoted(const char *text)
 {
     String out;
@@ -101,13 +106,18 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
 
     // Drop unrelated mesh traffic before queueing or opening an HTTPS connection.
     // Heltec Home is handled locally via queueLocal*(); its self packets are rejected above.
-    constexpr uint32_t HIDDEN_VALLEY_NODE = 3044869407UL;
+    // IDs only: public station names and sensor labels are assigned by Vercel.
+    constexpr uint32_t HIDDEN_VALLEY_NODE = 1252758033UL; // !4aab9211 (replacement)
     constexpr uint32_t FISHLAKE_NODE = 1577197109UL;
     constexpr uint32_t SWELL_NODE = 1949224949UL;
     constexpr uint32_t HELTEC_HOME_NODE = 2740603892UL;
     constexpr uint32_t MOAB_NODE = 2650172798UL;
+    constexpr uint32_t PACK_CREEK_NODE = 4241345683UL; // !fccdcc93
+    constexpr uint32_t WINGATE_SOIL_NODE = 2004386937UL; // !77788479
+    constexpr uint32_t CLIFF_SENSOR_NODE = 3388602087UL; // !c9f9f6e7
     if (from != HIDDEN_VALLEY_NODE && from != FISHLAKE_NODE &&
-        from != SWELL_NODE && from != HELTEC_HOME_NODE && from != MOAB_NODE)
+        from != SWELL_NODE && from != HELTEC_HOME_NODE && from != MOAB_NODE &&
+        from != PACK_CREEK_NODE && from != WINGATE_SOIL_NODE && from != CLIFF_SENSOR_NODE)
         return false;
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     if (!nodeDB->isFavorite(from))
@@ -278,6 +288,69 @@ bool HoboHttpGatewayModule::enqueueMoisturePir(const meshtastic_MeshPacket &mp)
     return true;
 }
 
+
+bool HoboHttpGatewayModule::enqueueSoil(const meshtastic_MeshPacket &mp)
+{
+    // RAK SEN0308 v3 emits SM/version-1: percentage, ADC10 and LE16 sequence.
+    // It also emits a standard moisture-only telemetry packet; forwarding this
+    // signed raw packet alone avoids storing two observations for each sample.
+    if (mp.decoded.payload.size != 8)
+        return false;
+    const uint8_t *payload = mp.decoded.payload.bytes;
+    if (payload[0] != 'S' || payload[1] != 'M' || payload[2] != 1 || payload[3] > 100)
+        return false;
+
+    UploadJob job = {};
+    job.type = JobType::SOIL;
+    fillCommon(job, mp);
+    job.soilMoisturePercent = payload[3];
+    job.moistureAdc = readLE16(&payload[4]);
+    job.sequence = readLE16(&payload[6]);
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("CCA clean gateway: queue full; dropped soil packet from 0x%08lx",
+                 static_cast<unsigned long>(job.from));
+        return false;
+    }
+    LOG_INFO("CCA clean gateway: queued soil %u%% from 0x%08lx",
+             static_cast<unsigned>(job.soilMoisturePercent), static_cast<unsigned long>(job.from));
+    setIntervalFromNow(0);
+    return true;
+}
+
+bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp)
+{
+    // DistanceSensorModule v3 sends a 24-byte DS/version-1 water packet.
+    if (mp.decoded.payload.size != 24)
+        return false;
+    const uint8_t *payload = mp.decoded.payload.bytes;
+    if (payload[0] != 'D' || payload[1] != 'S' || payload[2] != 1 || payload[3] != 1)
+        return false;
+
+    UploadJob job = {};
+    job.type = JobType::WATER_DISTANCE;
+    fillCommon(job, mp);
+    job.distanceSensorType = payload[4];
+    job.distanceValid = (payload[5] & 0x01) != 0;
+    job.stageCalibrated = (payload[5] & 0x02) != 0;
+    job.sequence = readLE16(&payload[6]);
+    job.distanceMm = readLE32(&payload[8]);
+    job.stageMm = readLE32Signed(&payload[12]);
+    job.sensorTimestamp = readLE32(&payload[20]);
+    // Never convert an uncalibrated stage sentinel into a real water level.
+    if (!job.distanceValid || !job.stageCalibrated || job.stageMm == INT32_MIN)
+        job.stageCalibrated = false;
+
+    if (!uploadQueue.enqueue(job, 0)) {
+        LOG_WARN("CCA clean gateway: queue full; dropped water-distance packet from 0x%08lx",
+                 static_cast<unsigned long>(job.from));
+        return false;
+    }
+    LOG_INFO("CCA clean gateway: queued water-distance from 0x%08lx stage_valid=%s",
+             static_cast<unsigned long>(job.from), job.stageCalibrated ? "YES" : "NO");
+    setIntervalFromNow(0);
+    return true;
+}
+
 bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
 {
     meshtastic_Telemetry decoded = meshtastic_Telemetry_init_zero;
@@ -343,7 +416,17 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
         return ProcessMessage::CONTINUE;
 
     if (mp.decoded.portnum == meshtastic_PortNum_PRIVATE_APP) {
-        if (!enqueueMX2001(mp))
+        // Packet signatures are mutually exclusive; do not fall through when
+        // an actual packet type is malformed or a queue is temporarily full.
+        const uint8_t *p = mp.decoded.payload.bytes;
+        const size_t n = mp.decoded.payload.size;
+        if (n == 19 && p[0] == 'M' && p[1] == 'X')
+            enqueueMX2001(mp);
+        else if (n == 8 && p[0] == 'S' && p[1] == 'M')
+            enqueueSoil(mp);
+        else if (n == 24 && p[0] == 'D' && p[1] == 'S')
+            enqueueWaterDistance(mp);
+        else if (n == 16 && p[0] == 'R' && p[1] == 'K')
             enqueueMoisturePir(mp);
     } else if (mp.decoded.portnum == meshtastic_PortNum_TELEMETRY_APP) {
         if (!enqueueEnvironment(mp))
@@ -363,13 +446,17 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
         body += "\"type\":\"rock_test\"";
     else if (job.type == JobType::DEVICE)
         body += "\"type\":\"device\"";
+    else if (job.type == JobType::SOIL)
+        body += "\"type\":\"soil\"";
+    else if (job.type == JobType::WATER_DISTANCE)
+        body += "\"type\":\"water_distance\"";
     else
         body += "\"type\":\"telemetry\"";
 
     body += ",\"timestamp\":" + String(job.timestamp);
     body += ",\"from\":" + String(job.from);
     body += ",\"packet_id\":" + String(job.packetId);
-    body += ",\"station_name\":" + jsonQuoted(job.stationName);
+    // Canonical station names live in cloud node-ID mapping, not Heltec firmware.
     body += ",\"payload\":{";
 
     if (job.type == JobType::MX2001) {
@@ -391,6 +478,25 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
         body += ",\"motion_count\":" + String(job.motionCount);
         body += ",\"battery_voltage_v\":" + String(job.batteryMv / 1000.0f, 3);
         body += ",\"battery_percent\":" + String(job.batteryPercent);
+    } else if (job.type == JobType::SOIL) {
+        body += "\"soil_moisture_percent\":" + String(job.soilMoisturePercent);
+        body += ",\"soil_adc10\":" + String(job.moistureAdc);
+        body += ",\"sequence\":" + String(job.sequence);
+    } else if (job.type == JobType::WATER_DISTANCE) {
+        body += "\"distance_valid\":";
+        body += job.distanceValid ? "true" : "false";
+        body += ",\"stage_calibrated\":";
+        body += job.stageCalibrated ? "true" : "false";
+        if (job.distanceValid)
+            body += ",\"distance_mm\":" + String(job.distanceMm);
+        if (job.stageCalibrated) {
+            body += ",\"stage_mm\":" + String(job.stageMm);
+            body += ",\"water_level_ft\":" + String(job.stageMm / 304.8f, 3);
+        }
+        body += ",\"sensor_type\":" + String(job.distanceSensorType);
+        body += ",\"sequence\":" + String(job.sequence);
+        if (job.sensorTimestamp)
+            body += ",\"sensor_timestamp\":" + String(job.sensorTimestamp);
     } else if (job.type == JobType::DEVICE) {
         bool first = true;
         if (job.hasDeviceBatteryLevel) {
