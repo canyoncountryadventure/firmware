@@ -292,6 +292,8 @@ bool HoboHttpGatewayModule::enqueueMoisturePir(const meshtastic_MeshPacket &mp)
 
 bool HoboHttpGatewayModule::enqueueSoil(const meshtastic_MeshPacket &mp)
 {
+    if (getFrom(&mp) != 2004386937UL) // Wingate Moisture node ID
+        return false;
     // RAK SEN0308 v3 emits SM/version-1: percentage, ADC10 and LE16 sequence.
     // It also emits a standard moisture-only telemetry packet; forwarding this
     // signed raw packet alone avoids storing two observations for each sample.
@@ -320,6 +322,8 @@ bool HoboHttpGatewayModule::enqueueSoil(const meshtastic_MeshPacket &mp)
 
 bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp)
 {
+    if (getFrom(&mp) != 4241345683UL) // Pack Creek node ID
+        return false;
     // DistanceSensorModule v3 sends a 24-byte DS/version-1 water packet.
     if (mp.decoded.payload.size != 24)
         return false;
