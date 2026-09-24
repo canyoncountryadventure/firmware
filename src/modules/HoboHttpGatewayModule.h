@@ -63,6 +63,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         MOISTURE_PIR = 1,
         ENVIRONMENT = 2,
         DEVICE = 3,
+        SOIL = 4,
+        WATER_DISTANCE = 5,
     };
 
     struct UploadJob {
@@ -94,6 +96,13 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint16_t batteryMv;
         uint8_t batteryPercent;
         bool motionDetected;
+        uint8_t soilMoisturePercent;
+        uint32_t distanceMm;
+        int32_t stageMm;
+        bool distanceValid;
+        bool stageCalibrated;
+        uint8_t distanceSensorType;
+        uint32_t sensorTimestamp;
 
         bool hasDeviceBatteryLevel;
         bool hasDeviceVoltage;
@@ -126,6 +135,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     bool isDuplicate(const meshtastic_MeshPacket &mp);
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);
     bool enqueueMoisturePir(const meshtastic_MeshPacket &mp);
+    bool enqueueSoil(const meshtastic_MeshPacket &mp);
+    bool enqueueWaterDistance(const meshtastic_MeshPacket &mp);
     bool enqueueEnvironment(const meshtastic_MeshPacket &mp);
     bool enqueueDevice(const meshtastic_MeshPacket &mp);
     void fillCommon(UploadJob &job, const meshtastic_MeshPacket &mp);
