@@ -55,7 +55,7 @@ jobs:
             sha256sum export/*
           } > export/Field-Self-Recovery-v4-${{ matrix.label }}-BUILD.txt
       - name: Upload canonical V4 target artifact
-        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v4.3.4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: field-self-recovery-v4-${{ matrix.label }}-${{ github.run_number }}
           retention-days: 30
