@@ -611,7 +611,7 @@ void DistanceSensorModule::replyCalibration(uint32_t requester, uint8_t channel)
     char reply[220] = {};
 
     if (!calibrated) {
-        snprintf(reply, sizeof(reply), "CAL STATUS\nCalibration:NOT SET\nLock:%s\nUse WATER CAL STAGE 1.42FT<unit>",
+        snprintf(reply, sizeof(reply), "CAL STATUS\nCalibration:NOT SET\nLock:%s\nUse WATER CAL STAGE 1.42FT",
                  locked ? "LOCKED" : "UNLOCKED");
     } else if (cfg.calibrationRawMm != 0) {
         snprintf(reply, sizeof(reply),
