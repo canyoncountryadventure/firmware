@@ -1,6 +1,24 @@
-> **Trail Sensors v2:** existing PIR/Rock/HOBO and SEN0171 sensor logic is retained on the Field-Recovery v2 radio/watchdog core.
+# Trail Sensors V3 — Seeed PIR + Rock + HOBO
 
-# Trail Sensors v2
+**Current branch:** `Trail-Sensors-v3`. Field firmware is V3; this configuration retains its inherited V2 radio recovery protections. The V3 target is for the Seeed XIAO nRF52840 + Wio-SX1262 with PIR, rock telemetry and optional HOBO logger; do not flash the RAK target firmware onto this board.
+
+## V3 downloads
+
+| File | Download | Use |
+|---|---|---|
+| `Trail-PIR-Rock-HOBO-v3.uf2` | [V3 Seeed field UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v3.uf2) | Normal USB/bootloader firmware on the Seeed field station |
+| `Trail-PIR-Rock-HOBO-v3-OTA.zip` | [V3 Seeed BLE OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v3-OTA.zip) | BLE DFU of the Seeed field station (do not unzip) |
+| `Drone-Trail-PIR-Rock-HOBO-v3.uf2` | [V3 matching drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Trail-PIR-Rock-HOBO-v3.uf2) | ONLY the separate RAK4631 mounted on the drone, never the Seeed field station |
+| `Trail-PIR-Rock-HOBO-v3-BUILD.txt` | [Target build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v3-BUILD.txt) | Exact target commit and checksums |
+| `Drone-Trail-PIR-Rock-HOBO-v3.uf2.txt` | [Scout build manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Trail-PIR-Rock-HOBO-v3.uf2.txt) | Verify its embedded target commit matches the target manifest before drone flashing |
+
+[Current V3 target build runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3.yml?query=branch%3ATrail-Sensors-v3) · [Matched V3 Scout build runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3_drone_catalog.yml)
+
+**HELP:** Send `HELP` as a direct message to the PIR + Rock + HOBO node to receive five numbered messages covering all supported general, PIR, power, rock, logger and DFU commands. The dedicated SEN0171 trail-counter build is separate from this V3 field image.
+
+---
+
+## Inherited V2 sensor design and safeguards (retained in V3)
 
 Consolidated Meshtastic trail-sensor development branch for **Seeed XIAO nRF52840 + Wio-SX1262**.
 
