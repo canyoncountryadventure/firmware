@@ -1,0 +1,8 @@
+Drone flasher: Drone-Seeed-Water-Distance-HOBO-v4.uf2
+Target branch: Seeed-Water-Distance-HOBO-v4
+Target commit: bcb829c1c05f1a59d6eb1120b232e0bdb9d8eba0
+Target environment: seeed_xiao_nrf52840_kit
+Embedded payload: LZ4-compressed application OTA
+Scout implementation branch: Remote-Drone-Flashing-v2
+Scout UF2 bytes: 1264640
+4a772c311257f45223e0dbfe5db753701f6e015da80388d0070c739c168b9320  export/Drone-Seeed-Water-Distance-HOBO-v4.uf2
