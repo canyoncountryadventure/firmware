@@ -16,19 +16,17 @@ jobs:
         with:
           ref: field-self-recovery-v4
 
-      - name: Install pinned Trunk
+      - name: Format V4 changed files with pinned Trunk
         uses: trunk-io/trunk-action@04ba50e7658c81db7356da96657e6e77f220bfa3
         with:
           check-mode: none
-
-      - name: Format V4 changed files
-        run: |
-          trunk fmt \
-            README.md \
-            src/platform/nrf52/main-nrf52.cpp \
-            src/platform/nrf52/NRF52Bluetooth.cpp \
-            src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp \
-            src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp
+          post-init: |
+            "${TRUNK_PATH}" fmt \
+              README.md \
+              src/platform/nrf52/main-nrf52.cpp \
+              src/platform/nrf52/NRF52Bluetooth.cpp \
+              src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp \
+              src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp
 
       - name: Commit formatting
         run: |
