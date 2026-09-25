@@ -1,6 +1,6 @@
 TARGET=Field-Self-Recovery-v4-Seeed
-COMMIT=40fa3a05554fcbdf990fa70efeae2d79a20d02a9
+COMMIT=e87a8505ec03c773e84e9503313811a00d72ea0d
 HOBO_STATUS_POLL=30sec
-bd8f4f57f7fe1c32b5f8e88d06cc1f26cc672ca58f47134f8c024b6503fc7a6c  export/Field-Self-Recovery-v4-Seeed-BUILD.txt
-e0b751d1ff2e897b3cd18004aa7a63f53294c89b45507591b6c136de8572aef0  export/Field-Self-Recovery-v4-Seeed-OTA.zip
-dd642821b19644348204d59d5ac73aed6030b2576ffab28dd2f22b228ac19d38  export/Field-Self-Recovery-v4-Seeed.uf2
+1f13c1379d8bfcbf042e345304d3525d6b602537a853e3613fafd3034613aee8  export/Field-Self-Recovery-v4-Seeed-BUILD.txt
+7ce1e1c5b14c95db1f990eb6c94476a28b09d8d7bb04eb438de053f8184ad843  export/Field-Self-Recovery-v4-Seeed-OTA.zip
+85d3becfe4aebc1eb50dd3bb923fcd8028a0c608279a8a12b3becc40c54c2606  export/Field-Self-Recovery-v4-Seeed.uf2
