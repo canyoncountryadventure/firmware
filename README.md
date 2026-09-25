@@ -14,7 +14,7 @@
 
 [Current V3 target build runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3.yml?query=branch%3ATrail-Sensors-v3) · [Matched V3 Scout build runs](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3_drone_catalog.yml)
 
-**HELP:** Send `HELP` as a direct message to the PIR + Rock + HOBO node to receive five numbered messages covering all supported general, PIR, power, rock, logger and DFU commands. The dedicated SEN0171 trail-counter build is separate from this V3 field image.
+**HELP:** Send `HELP` as a direct message to the PIR + Rock + HOBO node to receive **six** numbered messages covering every supported general, debug/alert, PIR, power, rock, logger and DFU command, including `PING`, `WATCHDOG`, `RECOVER`, and `REBOOT`. The dedicated SEN0171 trail-counter build is separate from this V3 field image.
 
 ---
 
