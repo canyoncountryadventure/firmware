@@ -1,5 +1,7 @@
 name: Build Heltec Gateway v4
 
+# V4 release build publishes the exact current branch head.
+
 on:
   workflow_dispatch:
   push:
