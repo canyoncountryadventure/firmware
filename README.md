@@ -1,8 +1,8 @@
-> **Heltec Gateway v2:** gateway ingestion, mesh forwarding, Wi-Fi OTA, and Vercel/Neon behavior are retained. The shared SX1262 v2 recovery changes are included; direct local HOBO BLE remains a future gateway feature.
+> **Heltec Gateway v4:** gateway ingestion, mesh forwarding, Wi-Fi OTA, and Vercel/Neon behavior are retained. The shared SX1262 recovery path is retained; HTTPS upload is bounded to 4 seconds, repeated radio recovery failure schedules a whole-node reboot, and direct local HOBO BLE remains a future gateway feature.
 
-# CCA Heltec Sensor Gateway v2
+# CCA Heltec Sensor Gateway v4
 
-**Canonical Heltec branch:** `Heltec-Gateway-v2`  
+**Canonical Heltec branch:** `Heltec-Gateway-v4`  
 **Gateway hardware:** Heltec WiFi LoRa 32 V4 OLED  
 **PlatformIO target:** `heltec-v4`  
 **Cloud path:** Heltec -> Vercel ingest -> Neon PostgreSQL -> dashboard
@@ -108,7 +108,7 @@ The Heltec V4 uses the Meshtastic Unified OTA flow. Do not erase flash for routi
 
 ## Repository rules
 
-1. `Heltec-Gateway-v2` is the current Heltec gateway development branch.
+1. `Heltec-Gateway-v4` is the current Heltec gateway release branch.
 2. Do not create location-specific gateway branches such as Hidden Valley or sensor-specific gateway branches.
 3. Location, logger identity, and sensor assignments belong in configuration/data, not branch names.
 4. Keep existing sensor parsers working when adding a new one.
