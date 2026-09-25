@@ -1,7 +1,7 @@
 Drone flasher: Drone-RAK-HOBO-Safe-v3.uf2
 Target branch: RAK-HOBO-Safe-v3
-Target commit: 6effbfc35de36625d3ce4061ebd621ef1268f751
+Target commit: 2dcab9729f72217e73fc3fdaa21b9cd921a202ef
 Target environment: rak4631
 Embedded payload: LZ4-compressed application OTA
-Scout UF2 bytes: 1381376
-3f2e7219b62c8c3a0144416b718059715382cf7789f4a57306177d81bff46c55  export/Drone-RAK-HOBO-Safe-v3.uf2
+Scout UF2 bytes: 1381888
+f3d67182043f9da14812cb63f9e1ca035934792ad84e25da35c2d3b4df250767  export/Drone-RAK-HOBO-Safe-v3.uf2
