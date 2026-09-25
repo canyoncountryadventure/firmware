@@ -95,8 +95,13 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     char reply[230] = {};
 
     if (isCommand(payload, payloadSize, "HELP")) {
+        // Each LoRa text reply is kept short; include every supported station command.
         sendTextReply(mp.from, mp.channel,
-                      "CMDS: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BLE AUTO STATS NODES UPTIME VERSION WATCHDOG RECOVER REBOOT PING HELP");
+                      "HELP 1/3 HOBO/SYSTEM: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BATTERY BLE AUTO STATS NODES UPTIME VERSION WATCHDOG RECOVER REBOOT PING WAKE SCAN RECONNECT DFU HELP");
+        sendTextReply(mp.from, mp.channel,
+                      "HELP 2/3 WATER: WATER HELP | WATER STATUS CHECK INSTALL SENSOR | WATER SENSOR AUTO|SEN0590|SEN0311|SEN0313|A01NYUB|A02YYUW | WATER READ RAW VERIFY | WATER INTERVAL <5S..24H>");
+        sendTextReply(mp.from, mp.channel,
+                      "HELP 3/3 WATER: WATER CAL STATUS | WATER CAL STAGE <value>FT|IN|CM|MM|M | WATER CAL LOCK | WATER CAL UNLOCK [CONFIRM] | WATER CAL RESET [CONFIRM] | WATER RESET WATER [CONFIRM] | WATER TELEMETRY NOW");
         return ProcessMessage::CONTINUE;
     }
 
