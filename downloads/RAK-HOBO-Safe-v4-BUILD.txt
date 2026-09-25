@@ -1,0 +1,7 @@
+TARGET=RAK-HOBO-Safe-v4
+ENV=rak4631
+COMMIT=d88d3edf50b658d4bcc258dd07d252cdc30b08d2
+HOBO_STATUS_POLL=30sec
+DRONE_IMAGE=Build separately on Remote-Drone-Flashing-v2
+dd12020a7443f3f58b24214e2c6c0dc7ba5a0eb46b75e9ec9c5d16558eec08d4  export/RAK-HOBO-Safe-v4.uf2
+67a4ee5ee4e4d13111cbb4ebf0033d7b17b880830733f27946cb2a46246d5da9  export/RAK-HOBO-Safe-v4-OTA.zip
