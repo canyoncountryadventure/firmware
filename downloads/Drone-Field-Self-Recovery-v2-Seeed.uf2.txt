@@ -1,6 +1,6 @@
 Drone flasher: Drone-Field-Self-Recovery-v2-Seeed.uf2
 Target branch: field-self-recovery-v2
-Target commit: a36372e728cb42b574b686723ac8f7f63c55523a
+Target commit: 55ffbaa6d9b992208fbf1eab9e5bd6a57f461803
 Embedded payload: LZ4-compressed application OTA
-Scout UF2 bytes: 1331712
-f5e19a5786d2d771c9c723208a085ed045f90990279d8f2add0e6a80c5028e93  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.9a2090b.uf2
+Scout UF2 bytes: 1332736
+3799585c4f0b1e0b13fa5ffe8671e8ea34bb1f90b94f781f5699b5d9c26a614d  drone/.pio/build/rak4631_drone_flasher/firmware-rak4631_drone_flasher-2.7.26.b5792fe.uf2
