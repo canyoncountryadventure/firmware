@@ -5,7 +5,7 @@
 | File | Purpose | Link |
 |---|---|---|
 | `RAK-Soil-Moisture-HOBO-v3.uf2` | **V3 field radio** — normal USB UF2, for the RAK4631 node | [Download V3 target UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3.uf2) |
-| `RAK-Soil-Moisture-HOBO-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-OTA.zip) |
+| `RAK-Soil-Moisture-HOBO-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-OTA.zip) |
 | `Drone-RAK-Soil-Moisture-HOBO-v3.uf2` | **V3 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V3 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2) |
 | `RAK-Soil-Moisture-HOBO-v3-BUILD.txt` | Target build commit and checksums | [View V3 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-BUILD.txt) |
 | `Drone-RAK-Soil-Moisture-HOBO-v3.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V3 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2.txt) |
@@ -181,7 +181,7 @@ Send commands as a direct Meshtastic text message to the node. Commands are case
 | `SOIL STATUS` | Shows the last reading, automatic interval, input pin and calibration endpoints. |
 | `SOIL TX` | Takes a fresh reading, broadcasts standard soil telemetry + raw packet, and reports TX status by DM. |
 | `SOIL CAL` | Shows the active dry/wet calibration and sensor direction. |
-| `SOIL HELP` | Lists soil commands. |
+| `SOIL HELP` | Lists every soil command; bare `HELP` also includes the full soil group. |
 
 ### HOBO commands
 
@@ -197,7 +197,7 @@ Send commands as a direct Meshtastic text message to the node. Commands are case
 
 | Command | What it does |
 |---|---|
-| `HELP` | Shows the existing HOBO/recovery command summary. Use `SOIL HELP` for soil commands. |
+| `HELP` | Returns three numbered messages containing the complete HOBO/system/recovery command set **and every soil command**. |
 | `STATUS` / `HEALTH` | Compact node and self-recovery health. |
 | `POWER` / `BATTERY` | Battery voltage, percentage, battery-present and charging state. |
 | `BLE` | Shows central-link count, scanner state, and confirms that the HOBO state machine owns scanner/link lifecycle. |
