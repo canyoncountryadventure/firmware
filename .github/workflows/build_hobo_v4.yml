@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout V4 canonical target
-        uses: actions/checkout@v7
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: field-self-recovery-v4
           submodules: recursive
@@ -55,14 +55,14 @@ jobs:
             sha256sum export/*
           } > export/Field-Self-Recovery-v4-${{ matrix.label }}-BUILD.txt
       - name: Upload canonical V4 target artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v4.3.4
         with:
           name: field-self-recovery-v4-${{ matrix.label }}-${{ github.run_number }}
           retention-days: 30
           overwrite: true
           path: export/*
       - name: Checkout durable target catalog
-        uses: actions/checkout@v7
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: field-self-recovery
           path: publish
