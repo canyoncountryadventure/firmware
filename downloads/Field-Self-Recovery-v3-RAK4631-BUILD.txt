@@ -1,6 +1,6 @@
 TARGET=Field-Self-Recovery-v3-RAK4631
-COMMIT=bfb0f4011083514f1f5dac7feab8e13531745ade
+COMMIT=54a6de8665210a158662ae0a4e96aa116a9ed724
 HOBO_STATUS_POLL=30sec
-14a1d79180d259532ec8d295de568bd750ffcfe6d58a3a47a5c7d1673eb6da7f  export/Field-Self-Recovery-v3-RAK4631-BUILD.txt
-be4ab41156a81dde6a29371b9b62b9de5a49028dfae1f13c2b2b727c1d51a05f  export/Field-Self-Recovery-v3-RAK4631-OTA.zip
-411eb73654d6a0f10576fa18702f8b56aeb6f1c840c72f89450df47a8ef6b9a7  export/Field-Self-Recovery-v3-RAK4631.uf2
+ab75eb2133d73b425190cfa88f741ed0fb5546a9dcd4aa32bcde9189eca4fd26  export/Field-Self-Recovery-v3-RAK4631-BUILD.txt
+9c20a7774e498a4e1429760065bfcfa475280fd09b204099ac0ab66f9d071645  export/Field-Self-Recovery-v3-RAK4631-OTA.zip
+d717b72f9f913b74f91e9308ec38b41152d80eb9a79fcd8d3f41f6f0939da687  export/Field-Self-Recovery-v3-RAK4631.uf2
