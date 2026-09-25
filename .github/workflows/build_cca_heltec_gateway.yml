@@ -14,6 +14,8 @@ on:
       - 'platformio.ini'
       - '.github/workflows/build_cca_heltec_gateway.yml'
       - '.github/workflows/build_firmware.yml'
+      - 'README.md'
+      - 'docs/CCA_HELTEC_SENSOR_GATEWAY.md'
 
 permissions: read-all
 
