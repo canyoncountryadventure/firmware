@@ -1,4 +1,5 @@
-# Build all eight V3 Scout payloads against the current V3 target source commits.
+# Build all eight V3 Scout payloads against current V3 target source commits.
+# Refresh matched Scout images after V3 HELP menu updates; never re-use stale embedded target commits.
 name: Build matched HOBO V3 drone flasher images
 
 on:
