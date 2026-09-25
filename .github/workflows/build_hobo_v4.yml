@@ -1,0 +1,93 @@
+name: Build RAK-HOBO-Safe-v4
+
+on:
+  push:
+    branches:
+      - RAK-HOBO-Safe-v4
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: RAK-HOBO-Safe-v4-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout V4 target
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: RAK-HOBO-Safe-v4
+          submodules: recursive
+
+      - name: Build RAK4631
+        uses: meshtastic/gh-action-firmware@39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
+        with:
+          pio_platform: nrf52840
+          pio_env: rak4631
+          pio_target: build
+
+      - name: Prepare V4 target downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          UF2="$(find release -maxdepth 1 -type f -name 'firmware-rak4631-*.uf2' | sort | head -n 1)"
+          OTA="$(find release -maxdepth 1 -type f -name 'firmware-rak4631-*-ota.zip' | sort | head -n 1)"
+          test -n "$UF2" && test -f "$UF2"
+          test -n "$OTA" && test -f "$OTA"
+          mkdir -p export
+          cp "$UF2" export/RAK-HOBO-Safe-v4.uf2
+          cp "$OTA" export/RAK-HOBO-Safe-v4-OTA.zip
+          {
+            echo "TARGET=RAK-HOBO-Safe-v4"
+            echo "ENV=rak4631"
+            echo "COMMIT=$GITHUB_SHA"
+            echo "HOBO_STATUS_POLL=30sec"
+            echo "DRONE_IMAGE=Build separately on Remote-Drone-Flashing-v2"
+            sha256sum export/RAK-HOBO-Safe-v4.uf2 export/RAK-HOBO-Safe-v4-OTA.zip
+          } > export/RAK-HOBO-Safe-v4-BUILD.txt
+
+      - name: Upload V4 target artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: RAK-HOBO-Safe-v4-${{ github.run_number }}
+          retention-days: 30
+          overwrite: true
+          path: export/*
+
+      - name: Checkout durable download catalog
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: field-self-recovery
+          path: publish
+          fetch-depth: 0
+
+      - name: Publish V4 target files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          latest="$(git ls-remote origin refs/heads/RAK-HOBO-Safe-v4 | awk '{print $1}')"
+          if [[ "$latest" != "$GITHUB_SHA" ]]; then
+            echo "Skip stale V4 output $GITHUB_SHA (now $latest)"
+            exit 0
+          fi
+          for attempt in 1 2 3 4 5; do
+            git fetch origin field-self-recovery
+            git reset --hard origin/field-self-recovery
+            mkdir -p downloads
+            cp ../export/RAK-HOBO-Safe-v4.uf2 downloads/
+            cp ../export/RAK-HOBO-Safe-v4-OTA.zip downloads/
+            cp ../export/RAK-HOBO-Safe-v4-BUILD.txt downloads/
+            git add downloads/RAK-HOBO-Safe-v4.uf2 downloads/RAK-HOBO-Safe-v4-OTA.zip downloads/RAK-HOBO-Safe-v4-BUILD.txt
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Publish RAK-HOBO-Safe-v4 target"
+            if git push origin HEAD:field-self-recovery; then exit 0; fi
+            sleep $((attempt * 3))
+          done
+          exit 1
