@@ -1,6 +1,6 @@
-# Heltec V4 environmental gateway — Gateway v2
+# Heltec V4 environmental gateway — Gateway v4
 
-**Branch:** Heltec-Gateway-v2  
+**Branch:** Heltec-Gateway-v4  
 **Device:** Heltec V4, PlatformIO environment \`heltec-v4\`  
 **Purpose:** Receive allowed field-sensor packets over Meshtastic LoRa and independently upload their measurements over Wi-Fi to \`https://meshtastic-ecru.vercel.app/api/ingest\`.
 
@@ -29,9 +29,9 @@ The retired Hidden Valley !b57d051f/3044869407 is **not** allowed to upload. The
 
 ## Build and update
 
-GitHub Actions: [Build Heltec Gateway v2](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_heltec_gateway.yml).
+GitHub Actions: [Build Heltec Gateway v4](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_heltec_gateway.yml).
 
-After a successful build, download the artifact associated with the **latest source commit**, or the published \`downloads/Heltec-Gateway-v2.zip\` from the repository's \`field-self-recovery\` branch once its build finishes. Several builds can run concurrently; confirm the source commit before flashing.
+After a successful build, download the artifact associated with the **latest source commit**, or the published \`downloads/Heltec-Gateway-v4.zip\` from the repository's \`field-self-recovery\` branch once its build finishes. Several builds can run concurrently; confirm the source commit before flashing.
 
 Only install the **normal non-factory Heltec V4 application firmware** via the existing Wi-Fi Unified OTA updater. This preserves Meshtastic channel keys, NodeDB, Wi-Fi settings, and the gateway configuration. Do not install a \`*.factory.bin\` as a routine OTA update, and do not erase NVS.
 
