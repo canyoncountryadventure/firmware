@@ -80,7 +80,7 @@ jobs:
               echo "Download already current"
               exit 0
             fi
-            git commit -m "Publish Heltec Gateway v2 download"
+            git commit -m "Publish Heltec Gateway v4 download"
             if git push origin HEAD:field-self-recovery; then
               exit 0
             fi
@@ -89,4 +89,4 @@ jobs:
           echo "Failed to publish Heltec download after retries" >&2
           exit 1
 
-# Heltec V4 gateway: mesh telemetry forwarding, Wi-Fi/cloud ingest, and shared SX1262 v2 recovery.
+# Heltec V4 gateway: mesh telemetry forwarding, Wi-Fi/cloud ingest, bounded HTTPS, and shared SX1262 recovery.
