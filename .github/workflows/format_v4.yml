@@ -1,5 +1,7 @@
 name: Format V4 branch
-on: workflow_dispatch
+on:
+  push:
+    branches: [field-self-recovery-v4]
 permissions:
   contents: write
 jobs:
