@@ -1,0 +1,7 @@
+TARGET=RAK-Soil-Moisture-HOBO-v4
+ENV=rak4631
+COMMIT=52a41702ba53b84a6026d63a659b65a756f72a51
+HOBO_STATUS_POLL=30sec
+DRONE_IMAGE=Build separately on Remote-Drone-Flashing-v2
+13eff42c91181571bb9a121f73383e4b97650de1448cf482a1c382bb00fc9881  export/RAK-Soil-Moisture-HOBO-v4.uf2
+88a2c77df6b13478f925fef4ec25b1391758e8a8f99351011978cdf49ca5cecd  export/RAK-Soil-Moisture-HOBO-v4-OTA.zip
