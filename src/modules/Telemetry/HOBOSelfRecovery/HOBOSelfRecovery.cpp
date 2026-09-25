@@ -95,8 +95,11 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     char reply[230] = {};
 
     if (isCommand(payload, payloadSize, "HELP")) {
+        // Each LoRa text reply is kept short; include every supported station command.
         sendTextReply(mp.from, mp.channel,
-                      "CMDS: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BLE AUTO STATS NODES UPTIME VERSION WATCHDOG RECOVER REBOOT PING HELP");
+                      "HELP 1/2 HOBO/SYSTEM: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BATTERY BLE AUTO STATS NODES UPTIME VERSION WATCHDOG RECOVER REBOOT PING WAKE SCAN RECONNECT DFU HELP");
+        sendTextReply(mp.from, mp.channel,
+                      "HELP 2/2 SOIL: SOIL | SOIL READ | SOIL STATUS | SOIL TX | SOIL CAL | SOIL HELP");
         return ProcessMessage::CONTINUE;
     }
 
