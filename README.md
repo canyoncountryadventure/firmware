@@ -1,3 +1,22 @@
+> **V4 matched Scout catalog:** the proven Scout implementation remains on this branch, while files named **Drone-...-v4.uf2** embed the exact V4 target firmware listed below. Flash these files only onto the separate RAK4631 drone Scout, never onto the field node.
+
+## V4 HOBO drone image downloads
+
+| V4 target configuration | V4 target source | Matching V4 compressed drone image | Embedded target manifest |
+|---|---|---|---|
+| Canonical RAK4631 V4 | [field-self-recovery-v4](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v4) | [**V4 Scout UF2**](downloads/Drone-Field-Self-Recovery-v4-RAK4631.uf2) | [Manifest](downloads/Drone-Field-Self-Recovery-v4-RAK4631.uf2.txt) |
+| Canonical Seeed V4 | [field-self-recovery-v4](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v4) | [**V4 Scout UF2**](downloads/Drone-Field-Self-Recovery-v4-Seeed.uf2) | [Manifest](downloads/Drone-Field-Self-Recovery-v4-Seeed.uf2.txt) |
+| RAK HOBO Safe V4 | [RAK-HOBO-Safe-v4](https://github.com/canyoncountryadventure/firmware/tree/RAK-HOBO-Safe-v4) | [**V4 Scout UF2**](downloads/Drone-RAK-HOBO-Safe-v4.uf2) | [Manifest](downloads/Drone-RAK-HOBO-Safe-v4.uf2.txt) |
+| RAK Soil Moisture + HOBO V4 | [RAK-Soil-Moisture-HOBO-v4](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v4) | [**V4 Scout UF2**](downloads/Drone-RAK-Soil-Moisture-HOBO-v4.uf2) | [Manifest](downloads/Drone-RAK-Soil-Moisture-HOBO-v4.uf2.txt) |
+| RAK Water Distance + HOBO V4 | [RAK-Water-Distance-HOBO-v4](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v4) | [**V4 Scout UF2**](downloads/Drone-RAK-Water-Distance-HOBO-v4.uf2) | [Manifest](downloads/Drone-RAK-Water-Distance-HOBO-v4.uf2.txt) |
+| Seeed HOBO Safe V4 | [Seeed-HOBO-Safe-v4](https://github.com/canyoncountryadventure/firmware/tree/Seeed-HOBO-Safe-v4) | [**V4 Scout UF2**](downloads/Drone-Seeed-HOBO-Safe-v4.uf2) | [Manifest](downloads/Drone-Seeed-HOBO-Safe-v4.uf2.txt) |
+| Seeed Water Distance + HOBO V4 | [Seeed-Water-Distance-HOBO-v4](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v4) | [**V4 Scout UF2**](downloads/Drone-Seeed-Water-Distance-HOBO-v4.uf2) | [Manifest](downloads/Drone-Seeed-Water-Distance-HOBO-v4.uf2.txt) |
+| Trail PIR + Rock + HOBO V4 | [Trail-Sensors-v4](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v4) | [**V4 Scout UF2**](downloads/Drone-Trail-PIR-Rock-HOBO-v4.uf2) | [Manifest](downloads/Drone-Trail-PIR-Rock-HOBO-v4.uf2.txt) |
+
+**Match rule:** compare COMMIT in the target BUILD.txt with Target commit in the Scout manifest. They must match before relying on remote drone flashing. The Scout branch name remains V2 because the flasher implementation is retained; the embedded target generation is identified by the V4 filename and manifest.
+
+---
+
 > **V3 HOBO firmware is now available.** This branch's name is `Remote-Drone-Flashing-v2` because it retains the existing Scout implementation. Files named `Drone-...-v3.uf2` contain **V3 target firmware**; files named `Drone-...-v2.uf2` contain **V2 target firmware**. Do not mix the two. The compressed Scout image belongs ONLY on the separate RAK4631 drone radio; the normal target UF2/OTA ZIP is linked in each target README.
 
 ## V3 HOBO drone image downloads (30-second HOBO STATUS polling)
