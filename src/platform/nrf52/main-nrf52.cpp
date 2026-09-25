@@ -91,9 +91,9 @@ void nrf52FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint16_t error)
 void nrf52FieldDiagPrint()
 {
 #if defined(FIELD_RECOVERY_V2)
-    LOG_INFO("Field diag: boots=%lu reset=0x%08lX last=%lums subsystem=%u operation=%u error=%u",
-             (unsigned long)fieldDiag.boots, (unsigned long)fieldDiag.lastResetReason,
-             (unsigned long)fieldDiag.lastUptimeMs, fieldDiag.subsystem, fieldDiag.operation, fieldDiag.error);
+    LOG_INFO("Field diag: boots=%lu reset=0x%08lX last=%lums subsystem=%u operation=%u error=%u", (unsigned long)fieldDiag.boots,
+             (unsigned long)fieldDiag.lastResetReason, (unsigned long)fieldDiag.lastUptimeMs, fieldDiag.subsystem,
+             fieldDiag.operation, fieldDiag.error);
 #endif
 }
 
