@@ -1,10 +1,10 @@
-name: Build Heltec Gateway v2
+name: Build Heltec Gateway v4
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - Heltec-Gateway-v2
+      - Heltec-Gateway-v4
     paths:
       - 'src/**'
       - 'variants/**'
@@ -20,7 +20,7 @@ jobs:
     uses: ./.github/workflows/build_firmware.yml
     secrets: inherit
     with:
-      version: cca-v2-${{ github.run_number }}
+      version: cca-v4-${{ github.run_number }}
       pio_env: heltec-v4
       platform: esp32s3
 
@@ -34,7 +34,7 @@ jobs:
       - name: Download Heltec firmware artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          pattern: firmware-esp32s3-heltec-v4-cca-v2-*
+          pattern: firmware-esp32s3-heltec-v4-cca-v4-*
           path: heltec-firmware
           merge-multiple: true
 
@@ -43,15 +43,15 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$(find heltec-firmware -type f -print -quit)"
-          zip -j -r Heltec-Gateway-v2.zip heltec-firmware/*
+          zip -j -r Heltec-Gateway-v4.zip heltec-firmware/*
           {
-            echo "TARGET=Heltec-Gateway-v2"
+            echo "TARGET=Heltec-Gateway-v4"
             echo "HARDWARE=Heltec WiFi LoRa 32 V4 OLED"
             echo "ENV=heltec-v4"
             echo "PLATFORM=esp32s3"
             echo "COMMIT=$GITHUB_SHA"
-            sha256sum Heltec-Gateway-v2.zip
-          } > Heltec-Gateway-v2-BUILD.txt
+            sha256sum Heltec-Gateway-v4.zip
+          } > Heltec-Gateway-v4-BUILD.txt
 
       - name: Checkout firmware download branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -71,9 +71,9 @@ jobs:
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
             mkdir -p downloads
-            cp ../Heltec-Gateway-v2.zip downloads/
-            cp ../Heltec-Gateway-v2-BUILD.txt downloads/
-            git add downloads/Heltec-Gateway-v2.zip downloads/Heltec-Gateway-v2-BUILD.txt
+            cp ../Heltec-Gateway-v4.zip downloads/
+            cp ../Heltec-Gateway-v4-BUILD.txt downloads/
+            git add downloads/Heltec-Gateway-v4.zip downloads/Heltec-Gateway-v4-BUILD.txt
             if git diff --cached --quiet; then
               echo "Download already current"
               exit 0
