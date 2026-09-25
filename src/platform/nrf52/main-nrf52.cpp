@@ -67,9 +67,50 @@ static nrfx_wdt_channel_id nrfx_wdt_channel_id_field;
 static volatile bool fieldWatchdogFeedAllowed = true;
 #endif
 
+namespace
+{
+struct FieldDiag {
+    uint32_t magic, boots, lastUptimeMs, lastResetReason;
+    uint8_t subsystem, operation;
+    uint16_t error;
+};
+constexpr uint32_t FIELD_DIAG_MAGIC = 0x46334447;
+__attribute__((section(".noinit"))) FieldDiag fieldDiag;
+} // namespace
+
+void nrf52FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint16_t error)
+{
+#if defined(FIELD_RECOVERY_V2)
+    fieldDiag.lastUptimeMs = millis();
+    fieldDiag.subsystem = subsystem;
+    fieldDiag.operation = operation;
+    fieldDiag.error = error;
+#endif
+}
+
+void nrf52FieldDiagPrint()
+{
+#if defined(FIELD_RECOVERY_V2)
+    LOG_INFO("Field diag: boots=%lu reset=0x%08lX last=%lums subsystem=%u operation=%u error=%u",
+             (unsigned long)fieldDiag.boots, (unsigned long)fieldDiag.lastResetReason,
+             (unsigned long)fieldDiag.lastUptimeMs, fieldDiag.subsystem, fieldDiag.operation, fieldDiag.error);
+#endif
+}
+
+void nrf52FieldDiagClear()
+{
+#if defined(FIELD_RECOVERY_V2)
+    const uint32_t boots = fieldDiag.boots;
+    memset(&fieldDiag, 0, sizeof(fieldDiag));
+    fieldDiag.magic = FIELD_DIAG_MAGIC;
+    fieldDiag.boots = boots;
+#endif
+}
+
 void nrf52FieldWatchdogTrip()
 {
 #if defined(FIELD_RECOVERY_V2)
+    nrf52FieldDiagEvent(1, 3, 1);
     fieldWatchdogFeedAllowed = false;
     LOG_ERROR("Field v2: health watchdog deliberately starved; hardware reset pending");
 #endif
@@ -360,6 +401,7 @@ void checkSDEvents()
 
 void nrf52Loop()
 {
+    nrf52FieldDiagEvent(0, 1);
     {
         static bool watchdog_running = false;
         if (!watchdog_running) {
@@ -413,9 +455,16 @@ void nrf52Setup()
 #endif
 
     uint32_t why = readResetReason();
+    if (fieldDiag.magic != FIELD_DIAG_MAGIC) {
+        memset(&fieldDiag, 0, sizeof(fieldDiag));
+        fieldDiag.magic = FIELD_DIAG_MAGIC;
+    }
+    fieldDiag.boots++;
+    fieldDiag.lastResetReason = why;
     // per
     // https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.nrf52832.ps.v1.1%2Fpower.html
     LOG_DEBUG("Reset reason: 0x%x", why);
+    nrf52FieldDiagPrint();
 
 #ifdef USE_SEMIHOSTING
     nrf52InitSemiHosting();
@@ -536,8 +585,15 @@ void cpuDeepSleep(uint32_t msecToWake)
         battery_adcEnable();
 
         nrf_lpcomp_task_trigger(NRF_LPCOMP, NRF_LPCOMP_TASK_START);
-        while (!nrf_lpcomp_event_check(NRF_LPCOMP, NRF_LPCOMP_EVENT_READY))
-            ;
+        const uint32_t readyStarted = millis();
+        while (!nrf_lpcomp_event_check(NRF_LPCOMP, NRF_LPCOMP_EVENT_READY)) {
+            if ((uint32_t)(millis() - readyStarted) > 1000UL) {
+                nrf52FieldDiagEvent(4, 1, 1);
+                LOG_ERROR("LPCOMP did not become ready; resetting instead of entering SYSTEM_OFF");
+                NVIC_SystemReset();
+            }
+            yield();
+        }
 #endif
 
         auto ok = sd_power_system_off();

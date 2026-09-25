@@ -20,9 +20,9 @@ namespace
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
 #if defined(RAK_4631)
-static constexpr char FIRMWARE_LABEL[] = "RAK4631 CANONICAL HOBO V3";
+static constexpr char FIRMWARE_LABEL[] = "RAK4631 CANONICAL HOBO V4";
 #else
-static constexpr char FIRMWARE_LABEL[] = "SEEED XIAO CANONICAL HOBO V3";
+static constexpr char FIRMWARE_LABEL[] = "SEEED XIAO CANONICAL HOBO V4";
 #endif
 
 uint32_t commandRecoveryCount = 0;
@@ -103,7 +103,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         sendTextReply(mp.from, mp.channel,
                       "HELP 1/2 HOBO: HELP | READ | LOGGER | LOCK | UNLOCK | AUTO | STATUS | HEALTH | BLE");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 2/2 SYSTEM: POWER | BATTERY | STATS | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | SCAN | RECONNECT | RECOVER | REBOOT | DFU");
+                      "HELP 2/2 SYSTEM: POWER | BATTERY | STATS | DIAG | CLEAR DIAG | WATCHDOG | PING | WAKE | SCAN | RECONNECT | RECOVER | REBOOT | DFU");
         return ProcessMessage::CONTINUE;
     }
 
@@ -159,6 +159,18 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         snprintf(reply, sizeof(reply), "WATCHDOG: core=90s field-channel=%s run-in-sleep=YES",
                  nrf52FieldWatchdogIsArmed() ? "ARMED" : "OFF");
         sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (isCommand(payload, payloadSize, "DIAG") || isCommand(payload, payloadSize, "CRASHLOG")) {
+        nrf52FieldDiagPrint();
+        sendTextReply(mp.from, mp.channel, "DIAG printed to local serial log; retained state survives watchdog/software resets.");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (isCommand(payload, payloadSize, "CLEAR DIAG")) {
+        nrf52FieldDiagClear();
+        sendTextReply(mp.from, mp.channel, "DIAG cleared.");
         return ProcessMessage::CONTINUE;
     }
 
