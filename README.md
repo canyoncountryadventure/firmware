@@ -5,7 +5,7 @@
 | File | Purpose | Link |
 |---|---|---|
 | `Seeed-Water-Distance-HOBO-v3.uf2` | **V3 field radio** — normal USB UF2, for the Seeed XIAO nRF52840 node | [Download V3 target UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3.uf2) |
-| `Seeed-Water-Distance-HOBO-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3-OTA.zip) |
+| `Seeed-Water-Distance-HOBO-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3-OTA.zip) |
 | `Drone-Seeed-Water-Distance-HOBO-v3.uf2` | **V3 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V3 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2) |
 | `Seeed-Water-Distance-HOBO-v3-BUILD.txt` | Target build commit and checksums | [View V3 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3-BUILD.txt) |
 | `Drone-Seeed-Water-Distance-HOBO-v3.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V3 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2.txt) |
@@ -116,46 +116,62 @@ A01NYUB ranges continuously while powered, so its blue LED keeps blinking even w
 
 ## Useful DM commands
 
+Send bare `HELP` for the complete six-message station command reference. Send `WATER HELP` for the complete four-message water-only reference. Bare `READ` is the **HOBO** read; water commands are deliberately prefixed with `WATER` so the two sensor systems cannot collide.
+
 ### Water side
 
 | Command | What it does |
 |---|---|
-| `WATER HELP` | Shows the water command summary. |
+| `WATER` | Alias for `WATER HELP`. |
+| `WATER HELP` | Lists every supported water command in four numbered messages. |
 | `WATER STATUS` | Reports water sensor, interval, calibration, and readiness. |
-| `WATER CHECK` | Performs a fresh water-sensor check. |
-| `WATER SENSOR` | Shows the selected distance-sensor driver. |
-| `WATER SENSOR A01NYUB` | Selects the SEN0313/A01NYUB sensor. |
-| `WATER SENSOR A02YYUW` | Selects the SEN0311/A02YYUW sensor. |
-| `WATER SENSOR SEN0590` | Selects the SEN0590 sensor. |
+| `WATER CHECK` | Runs the water readiness/status check. |
+| `WATER INSTALL` | Runs the same installation/readiness status check. |
+| `WATER SENSOR` | Shows configured and active distance-sensor drivers. |
 | `WATER SENSOR AUTO` | Automatically tries supported distance-sensor drivers. |
+| `WATER SENSOR SEN0590` | Selects the SEN0590 I2C driver. |
+| `WATER SENSOR SEN0311` | Selects the SEN0311 UART driver. |
+| `WATER SENSOR A02YYUW` | Alias for the SEN0311/A02YYUW UART driver. |
+| `WATER SENSOR SEN0313` | Selects the SEN0313 UART driver. |
+| `WATER SENSOR A01NYUB` | Alias for the SEN0313/A01NYUB UART driver. |
 | `WATER READ` | Takes a fresh water-distance reading and reports stage if calibrated. |
 | `WATER RAW` | Returns raw distance without stage conversion. |
 | `WATER VERIFY` | Takes multiple fresh readings and reports median/range/spread. |
-| `WATER INTERVAL 1H` | Saves a 1-hour automatic water-report interval. |
-| `WATER CAL STAGE 1.42FT` | Calibrates water stage from an independent field measurement and locks it. |
+| `WATER INTERVAL 1H` | Saves the automatic water-report interval; duration units are accepted by the parser. |
 | `WATER CAL STATUS` | Shows saved water calibration and lock state. |
-| `WATER CAL UNLOCK CONFIRM` | Unlocks the calibration without erasing it. |
+| `WATER CAL STAGE 1.42FT` | Calibrates stage from a known field measurement. |
+| `WATER CAL LOCK` | Locks an existing water calibration. |
+| `WATER CAL UNLOCK` | Requests calibration unlock and returns the confirmation command. |
+| `WATER CAL UNLOCK CONFIRM` | Unlocks calibration without erasing it. |
+| `WATER CAL RESET` | Requests calibration reset and returns the confirmation command. |
 | `WATER CAL RESET CONFIRM` | Clears only the water calibration. |
-| `WATER TELEMETRY NOW` | Immediately sends a fresh water telemetry packet. |
-| `WATER RESET WATER CONFIRM` | Resets the water subsystem to defaults without factory-resetting Meshtastic. |
+| `WATER RESET WATER` | Requests a water-subsystem reset and returns the confirmation command. |
+| `WATER RESET WATER CONFIRM` | Resets water settings to defaults without factory-resetting Meshtastic. |
+| `WATER TELEMETRY NOW` | Immediately queues a fresh water telemetry packet. |
+| `WATER MODE` | Reports that this image is permanently water-only; it does not change mode. |
 
-### HOBO / recovery side
+### HOBO / system / recovery side
 
 | Command | What it does |
 |---|---|
-| `LOGGER` | Shows HOBO model, MAC, BLE RSSI, logging interval, and lock state. |
+| `HELP` | Lists **all** HOBO, system, recovery, DFU, and water commands in six numbered messages. |
 | `READ` | Requests an immediate fresh HOBO reading without consuming the automatic pointer. |
-| `LOCK` | Saves the currently identified HOBO as this station's logger. |
-| `UNLOCK` | Clears the saved HOBO assignment and resumes discovery. |
-| `BLE` | Reports central-link count, scanner state, and HOBO state-machine ownership. |
-| `AUTO` | Reports the HOBO automatic-record / pointer-gated state. |
-| `SCAN` | Legacy diagnostic command; v3 reports that BLE recovery is automatic and does not manipulate the scanner. |
-| `RECONNECT` | Legacy diagnostic command; v3 does not force a link rebuild because the HOBO telemetry state machine owns scanner/link lifecycle. |
-| `POWER` | Reports battery/power status. |
-| `WATCHDOG` | Reports the 90-second core watchdog, independent field-health channel, and sleep/halt behavior. |
-| `PING` | Quick end-to-end DM/liveness test. |
-| `REBOOT` | Performs a safe non-destructive reboot after replying. |
-| `RECOVER` | Alias for the safe recovery reboot. |
+| `LOGGER` | Shows HOBO model, MAC, BLE RSSI, logging interval, target, and lock state. |
+| `LOCK` / `UNLOCK` | Saves or clears the persistent HOBO assignment. |
+| `AUTO` | Reports pointer-gated automatic HOBO state. |
+| `STATUS` / `HEALTH` | Reports overall self-recovery health. |
+| `BLE` | Reports HOBO BLE/scanner state. |
+| `POWER` / `BATTERY` | Reports battery/power status. |
+| `STATS` | Reports recovery counters and reset/boot information. |
+| `NODES` | Reports the current Meshtastic NodeDB count. |
+| `UPTIME` | Reports node uptime. |
+| `VERSION` | Reports V3 firmware identity/platform. |
+| `WATCHDOG` | Reports watchdog state. |
+| `PING` / `WAKE` | Quick end-to-end DM/liveness checks. |
+| `SCAN` | Legacy diagnostic command; V3 recovery owns BLE scanning automatically. |
+| `RECONNECT` | Legacy diagnostic command; V3 recovery owns HOBO link recovery automatically. |
+| `RECOVER` / `REBOOT` | Performs the safe non-destructive recovery reboot. |
+| `DFU` | Arms the target for the matched drone/BLE DFU workflow. |
 
 Commands are case-insensitive. A leading `/` is optional where supported.
 
