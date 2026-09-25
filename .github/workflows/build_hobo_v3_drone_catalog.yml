@@ -1,5 +1,5 @@
 # Build all eight V3 Scout payloads against current V3 target source commits.
-# Refresh all eight matched Scout images after final V3 HELP command updates (including full WATER confirmation syntax).
+# Rebuild all eight V3 Scouts using the final HELP and corrected WATER CAL STAGE firmware source commits.
 name: Build matched HOBO V3 drone flasher images
 
 on:
