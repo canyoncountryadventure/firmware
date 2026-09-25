@@ -20,7 +20,7 @@ static BLEBas blebas; // BAS (Battery Service) helper class instance
 #ifndef BLE_DFU_SECURE
 static BLEDfu bledfu; // DFU software update helper service
 #else
-static BLEDfuSecure bledfusecure;                                             // DFU software update helper service
+static BLEDfuSecure bledfusecure; // DFU software update helper service
 #endif
 
 // This scratch buffer is used for various bluetooth reads/writes - but it is safe because only one bt operation can be in
@@ -435,9 +435,10 @@ bool NRF52Bluetooth::onPairingPasskey(uint16_t conn_handle, uint8_t const passke
 
     if (match_request) {
         uint32_t start_time = millis();
-        while (millis() < start_time + 30000) {
+        while ((uint32_t)(millis() - start_time) < 30000UL) {
             if (!Bluefruit.connected(conn_handle))
                 break;
+            yield();
         }
     }
     LOG_INFO("BLE passkey pair: match_request=%i", match_request);
@@ -463,8 +464,15 @@ void NRF52Bluetooth::disconnect()
             Bluefruit.disconnect(i);
 
         // Wait for disconnection
-        while (Bluefruit.connected())
+        const uint32_t disconnectStarted = millis();
+        while (Bluefruit.connected()) {
+            if ((uint32_t)(millis() - disconnectStarted) > 5000UL) {
+                nrf52FieldDiagEvent(2, 2, 1);
+                LOG_ERROR("BLE disconnect timed out; leaving recovery to the watchdog");
+                break;
+            }
             yield();
+        }
 
         LOG_INFO("Ended BLE connection");
     }

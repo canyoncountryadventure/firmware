@@ -1,0 +1,93 @@
+name: Build canonical HOBO Field Self-Recovery V4
+
+on:
+  push:
+    branches:
+      - field-self-recovery-v4
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: canonical-field-v4
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: RAK4631
+            env: rak4631
+          - label: Seeed
+            env: seeed_xiao_nrf52840_kit
+    name: build-${{ matrix.label }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout V4 canonical target
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: field-self-recovery-v4
+          submodules: recursive
+      - name: Build target firmware
+        uses: meshtastic/gh-action-firmware@39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
+        with:
+          pio_platform: nrf52840
+          pio_env: ${{ matrix.env }}
+          pio_target: build
+      - name: Prepare canonical V4 target downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          UF2="$(find release -maxdepth 1 -type f -name 'firmware-${{ matrix.env }}-*.uf2' | sort | head -n 1)"
+          OTA="$(find release -maxdepth 1 -type f -name 'firmware-${{ matrix.env }}-*-ota.zip' | sort | head -n 1)"
+          test -n "$UF2" && test -f "$UF2"
+          test -n "$OTA" && test -f "$OTA"
+          mkdir -p export
+          cp "$UF2" export/Field-Self-Recovery-v4-${{ matrix.label }}.uf2
+          cp "$OTA" export/Field-Self-Recovery-v4-${{ matrix.label }}-OTA.zip
+          {
+            echo "TARGET=Field-Self-Recovery-v4-${{ matrix.label }}"
+            echo "COMMIT=$GITHUB_SHA"
+            echo "HOBO_STATUS_POLL=30sec"
+            sha256sum export/*
+          } > export/Field-Self-Recovery-v4-${{ matrix.label }}-BUILD.txt
+      - name: Upload canonical V4 target artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: field-self-recovery-v4-${{ matrix.label }}-${{ github.run_number }}
+          retention-days: 30
+          overwrite: true
+          path: export/*
+      - name: Checkout durable target catalog
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: field-self-recovery
+          path: publish
+          fetch-depth: 0
+      - name: Publish canonical V4 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          latest="$(git ls-remote origin refs/heads/field-self-recovery-v4 | awk '{print $1}')"
+          if [[ "$latest" != "$GITHUB_SHA" ]]; then
+            echo "Skip stale canonical V4"
+            exit 0
+          fi
+          for attempt in 1 2 3 4 5; do
+            git fetch origin field-self-recovery
+            git reset --hard origin/field-self-recovery
+            mkdir -p downloads
+            cp ../export/* downloads/
+            git add downloads/Field-Self-Recovery-v4-${{ matrix.label }}*
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Publish canonical V4 ${{ matrix.label }} target"
+            if git push origin HEAD:field-self-recovery; then exit 0; fi
+            sleep $((attempt * 3))
+          done
+          exit 1
