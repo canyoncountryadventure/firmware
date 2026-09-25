@@ -1,4 +1,4 @@
-# Build all eight matched V4 Scout payloads from the exact V4 target branches.
+# Build all eight matched V4 Scout payloads from the exact final V4 target branch heads.
 name: Build matched HOBO V4 drone flasher images
 
 on:
