@@ -5,7 +5,7 @@
 | File | Purpose | Link |
 |---|---|---|
 | `Seeed-HOBO-Safe-v3.uf2` | **V3 field radio** — normal USB UF2, for the Seeed XIAO nRF52840 node | [Download V3 target UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v3.uf2) |
-| `Seeed-HOBO-Safe-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/field-self-recovery/downloads/Seeed-HOBO-Safe-v3-OTA.zip) |
+| `Seeed-HOBO-Safe-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v3-OTA.zip) |
 | `Drone-Seeed-HOBO-Safe-v3.uf2` | **V3 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V3 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v3.uf2) |
 | `Seeed-HOBO-Safe-v3-BUILD.txt` | Target build commit and checksums | [View V3 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Seeed-HOBO-Safe-v3-BUILD.txt) |
 | `Drone-Seeed-HOBO-Safe-v3.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V3 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v3.uf2.txt) |
@@ -49,7 +49,7 @@ Send these as a direct Meshtastic text message to the node.
 
 | Command | What it does |
 |---|---|
-| `HELP` | Shows the main available command summary. |
+| `HELP` | Returns two numbered LoRa-safe messages containing the complete HOBO/system command set; no supported station command is intentionally omitted. |
 | `STATUS` | Shows compact overall node and HOBO health. |
 | `LOGGER` | Shows HOBO model, MAC, BLE RSSI, logging interval, target, and lock state. |
 | `READ` | Requests a fresh HOBO measurement without consuming the automatic record pointer. |
