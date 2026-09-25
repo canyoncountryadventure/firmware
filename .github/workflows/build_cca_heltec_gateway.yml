@@ -69,6 +69,11 @@ jobs:
           cd publish
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          latest="$(git ls-remote origin refs/heads/Heltec-Gateway-v4 | awk '{print $1}')"
+          if [[ "$latest" != "$GITHUB_SHA" ]]; then
+            echo "Skip stale Heltec V4 output $GITHUB_SHA (now $latest)"
+            exit 0
+          fi
           for attempt in 1 2 3 4 5; do
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
