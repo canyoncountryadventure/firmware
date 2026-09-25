@@ -591,7 +591,7 @@ void DistanceSensorModule::replyRead(uint32_t requester, uint8_t channel, bool r
                  r.distanceMm / 304.8f, static_cast<unsigned long>(r.distanceMm), latestStageMm / 304.8f,
                  latestStageMm / 10.0f);
     } else {
-        snprintf(reply, sizeof(reply), "WATER READ\nRaw: %.3f ft (%lumm)\nStage: NOT CALIBRATED\nUse CAL STAGE <value>",
+        snprintf(reply, sizeof(reply), "WATER READ\nRaw: %.3f ft (%lumm)\nStage: NOT CALIBRATED\nUse WATER CAL STAGE 1.42FT",
                  r.distanceMm / 304.8f, static_cast<unsigned long>(r.distanceMm));
     }
     sendTextReply(requester, channel, reply);
@@ -613,7 +613,7 @@ void DistanceSensorModule::replyCalibration(uint32_t requester, uint8_t channel)
     char reply[220] = {};
 
     if (!calibrated) {
-        snprintf(reply, sizeof(reply), "CAL STATUS\nCalibration:NOT SET\nLock:%s\nUse CAL STAGE <value><unit>",
+        snprintf(reply, sizeof(reply), "CAL STATUS\nCalibration:NOT SET\nLock:%s\nUse WATER CAL STAGE 1.42FT<unit>",
                  locked ? "LOCKED" : "UNLOCKED");
     } else if (cfg.calibrationRawMm != 0) {
         snprintf(reply, sizeof(reply),
@@ -780,8 +780,11 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
         return ProcessMessage::CONTINUE;
 
     if (strcmp(command, "HELP") == 0) {
+        // Split the complete water command reference into two LoRa-safe text messages.
         sendTextReply(mp.from, mp.channel,
-                      "WATER CMDS: STATUS CHECK SENSOR [A01NYUB|A02YYUW|SEN0590|AUTO] READ RAW VERIFY INTERVAL <v> CAL STAGE <v> CAL STATUS CAL LOCK CAL UNLOCK CONFIRM CAL RESET CONFIRM RESET WATER CONFIRM TELEMETRY NOW | POWER WATCHDOG REBOOT");
+                      "WATER 1/2: WATER HELP | WATER STATUS | WATER CHECK | WATER INSTALL | WATER SENSOR | WATER SENSOR AUTO/SEN0590/SEN0311/SEN0313 (A01NYUB/A02YYUW) | WATER READ | WATER RAW | WATER VERIFY | WATER INTERVAL 1H");
+        sendTextReply(mp.from, mp.channel,
+                      "WATER 2/2: WATER CAL STATUS | WATER CAL STAGE 1.42FT | WATER CAL LOCK | WATER CAL UNLOCK [CONFIRM] | WATER CAL RESET [CONFIRM] | WATER RESET WATER [CONFIRM] | WATER TELEMETRY NOW");
         return ProcessMessage::CONTINUE;
     }
 
@@ -875,7 +878,7 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
     if (strncmp(command, "CAL STAGE ", 10) == 0) {
         int32_t mm = 0;
         if (!parseDistanceMm(command + 10, mm))
-            sendTextReply(mp.from, mp.channel, "Use CAL STAGE with units, e.g. CAL STAGE 1.42FT or CAL STAGE 43CM");
+            sendTextReply(mp.from, mp.channel, "Use WATER CAL STAGE 1.42FT or WATER CAL STAGE 43CM");
         else
             calibrateStage(mm, mp.from, mp.channel);
         return ProcessMessage::CONTINUE;
