@@ -111,4 +111,7 @@ extern SPISettings spiSettings;
 void nrf52FieldWatchdogTrip();
 bool nrf52FieldWatchdogIsArmed();
 void nrf52FlashQuiesce();
+void nrf52FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint16_t error = 0);
+void nrf52FieldDiagPrint();
+void nrf52FieldDiagClear();
 #endif
