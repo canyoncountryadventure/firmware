@@ -1,7 +1,7 @@
 Drone flasher: Drone-Trail-PIR-Rock-HOBO-v3.uf2
 Target branch: Trail-Sensors-v3
-Target commit: 3b3b977572d511e2246298194fda67edf0b72db3
+Target commit: f752c3cd45484143c6dd2017d6a0092aab989a7d
 Target environment: seeed_xiao_nrf52840_cca_mx_pir
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1283072
-f9f2bbe142a7f1bddda39550d3be50610805bfd0fd0b5a06cb9383790b63962d  export/Drone-Trail-PIR-Rock-HOBO-v3.uf2
+397d4ef5cde85cd9f48772445a443bfd2cc432b97dcad626f7c0cf763857897c  export/Drone-Trail-PIR-Rock-HOBO-v3.uf2
