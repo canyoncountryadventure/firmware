@@ -906,6 +906,7 @@ void triggerBleRecovery(const char *reason)
 #if defined(FIELD_RECOVERY_V2)
     if (bleRecoveryCycles >= 5) {
         LOG_ERROR("HOBO universal: BLE recovery exhausted; tripping field watchdog");
+        nrf52FieldDiagEvent(2, 3, bleRecoveryCycles);
         nrf52FieldWatchdogTrip();
     }
 #endif
