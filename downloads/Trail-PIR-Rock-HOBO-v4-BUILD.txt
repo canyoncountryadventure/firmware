@@ -1,0 +1,7 @@
+TARGET=Trail-PIR-Rock-HOBO-v4
+ENV=seeed_xiao_nrf52840_cca_mx_pir
+COMMIT=9dce80e7cadac47b7dfa1dd8f035314e058b3fbf
+HOBO_STATUS_POLL=30sec
+DRONE_IMAGE=Build separately on Remote-Drone-Flashing-v2
+f6815b6a757f06e3be5b9f03cd0a539e4883d9a561bb5f3dfd930e342eaa7f9f  export/Trail-PIR-Rock-HOBO-v4.uf2
+a16cabd7ccdc2a2eb6898e0c519754934c6b7d7a23614f49d0384a4a3bdfcc75  export/Trail-PIR-Rock-HOBO-v4-OTA.zip
