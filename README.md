@@ -1,33 +1,35 @@
-> **CURRENT BRANCH: Seeed-Water-Distance-HOBO-v3 — HOBO V3.** Every firmware file linked in the **V3 downloads** table below has `-v3` in its filename. The unchanged `Remote-Drone-Flashing-v2` branch hosts the **V3** compressed Scout files; its branch name is not the firmware image version. The rest of this document describes this V3 configuration (including inherited V2 safeguards).
+> **V4 recovery hardening:** this V4 target retains the proven V3 sensor behavior and adds retained nRF52 reset/failure diagnostics, bounded BLE pairing/disconnect waits, a bounded LPCOMP readiness path, and subsystem-specific breadcrumbs before watchdog recovery. Use `DIAG`/local serial to inspect retained reset context where supported.
 
-## V3 downloads — use the file for this exact station
+> **CURRENT BRANCH: Seeed-Water-Distance-HOBO-v4 — HOBO V4.** Every firmware file linked in the **V4 downloads** table below has `-v4` in its filename. The unchanged `Remote-Drone-Flashing-v2` branch hosts the **V4** compressed Scout files; its branch name is not the firmware image version. The rest of this document describes this V4 configuration (including inherited V2 safeguards).
+
+## V4 downloads — use the file for this exact station
 
 | File | Purpose | Link |
 |---|---|---|
-| `Seeed-Water-Distance-HOBO-v3.uf2` | **V3 field radio** — normal USB UF2, for the Seeed XIAO nRF52840 node | [Download V3 target UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3.uf2) |
-| `Seeed-Water-Distance-HOBO-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3-OTA.zip) |
-| `Drone-Seeed-Water-Distance-HOBO-v3.uf2` | **V3 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V3 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2) |
-| `Seeed-Water-Distance-HOBO-v3-BUILD.txt` | Target build commit and checksums | [View V3 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v3-BUILD.txt) |
-| `Drone-Seeed-Water-Distance-HOBO-v3.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V3 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2.txt) |
+| `Seeed-Water-Distance-HOBO-v4.uf2` | **V4 field radio** — normal USB UF2, for the Seeed XIAO nRF52840 node | [Download V4 target UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v4.uf2) |
+| `Seeed-Water-Distance-HOBO-v4-OTA.zip` | **V4 field radio** — BLE OTA update package (not a UF2) | [Download V4 target OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v4-OTA.zip) |
+| `Drone-Seeed-Water-Distance-HOBO-v4.uf2` | **V4 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V4 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v4.uf2) |
+| `Seeed-Water-Distance-HOBO-v4-BUILD.txt` | Target build commit and checksums | [View V4 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v4-BUILD.txt) |
+| `Drone-Seeed-Water-Distance-HOBO-v4.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V4 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v4.uf2.txt) |
 
 **Before a remote update:** compare the target commit in the Scout manifest with the target build manifest. If these differ, use a fresh matching Scout image; do not assume different builds are paired. For USB updates, use the normal target UF2, **not** the `Drone-` UF2.
 
-**V3 operating behavior:** `STATUS` checks the HOBO logger write pointer on a **30-second** healthy-link cadence. The HOBO's internal logging interval is unchanged; automatic mesh telemetry is sent only on a confirmed new record. A manual `READ` remains independent. V3 inherits non-destructive field recovery and the target's existing `DFU` command.
+**V4 operating behavior:** `STATUS` checks the HOBO logger write pointer on a **30-second** healthy-link cadence. The HOBO's internal logging interval is unchanged; automatic mesh telemetry is sent only on a confirmed new record. A manual `READ` remains independent. V4 inherits non-destructive field recovery and the target's existing `DFU` command.
 
-**Source:** [Seeed-Water-Distance-HOBO-v3](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v3) · **V3 target build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3.yml?query=branch%3ASeeed-Water-Distance-HOBO-v3) · **V3 matching Scout build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3_drone_catalog.yml).
+**Source:** [Seeed-Water-Distance-HOBO-v4](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v4) · **V4 target build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v4.yml?query=branch%3ASeeed-Water-Distance-HOBO-v4) · **V4 matching Scout build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v4_drone_catalog.yml).
 
 ---
 
-> **HOBO V3 (retaining Field-Recovery v2 safeguards):** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from Seeed-Water-Distance-HOBO-v1 is retained.
+> **HOBO V4 (retaining Field-Recovery v2 safeguards):** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from Seeed-Water-Distance-HOBO-v1 is retained.
 
-# Seeed Water Distance + HOBO v3
+# Seeed Water Distance + HOBO v4
 
 Production combined firmware for **Seeed XIAO nRF52840 + Wio-SX1262** field nodes that must do both:
 
 - ultrasonic water-level / stage monitoring, and
 - BLE collection from supported HOBO MX loggers.
 
-**Branch:** `Seeed-Water-Distance-HOBO-v3`
+**Branch:** `Seeed-Water-Distance-HOBO-v4`
 
 This branch is built from the current **Seeed Water Distance v1** firmware and then adds the proven HOBO reader/recovery stack. It replaces the older combined distance/HOBO builds.
 
@@ -96,7 +98,7 @@ This clears only water calibration; sensor selection and reporting interval are 
 ## Seeed A01NYUB wiring
 
 ```text
-A01NYUB red   -> 3V3
+A01NYUB red   -> 3V4
 A01NYUB black -> GND
 A01NYUB green -> XIAO D7 / UART RX
 A01NYUB blue  -> leave floating for stabilized output
@@ -165,11 +167,11 @@ Send bare `HELP` for the complete six-message station command reference. Send `W
 | `STATS` | Reports recovery counters and reset/boot information. |
 | `NODES` | Reports the current Meshtastic NodeDB count. |
 | `UPTIME` | Reports node uptime. |
-| `VERSION` | Reports V3 firmware identity/platform. |
+| `VERSION` | Reports V4 firmware identity/platform. |
 | `WATCHDOG` | Reports watchdog state. |
 | `PING` / `WAKE` | Quick end-to-end DM/liveness checks. |
-| `SCAN` | Legacy diagnostic command; V3 recovery owns BLE scanning automatically. |
-| `RECONNECT` | Legacy diagnostic command; V3 recovery owns HOBO link recovery automatically. |
+| `SCAN` | Legacy diagnostic command; V4 recovery owns BLE scanning automatically. |
+| `RECONNECT` | Legacy diagnostic command; V4 recovery owns HOBO link recovery automatically. |
 | `RECOVER` / `REBOOT` | Performs the safe non-destructive recovery reboot. |
 | `DFU` | Arms the target for the matched drone/BLE DFU workflow. |
 
@@ -192,7 +194,7 @@ This build includes a direct-message `DFU` hook for remote drone updates.
 - The target persists and verifies the requester/build callback marker.
 - It quiesces flash state, safely disables the active SoftDevice, sets `GPREGRET=0xA8`, and resets into the XIAO nRF52840 BLE OTA bootloader.
 - Meshtastic's OTAFIX bootloader advertises XIAO OTA mode as `XIAO_DFU`; older compatible Adafruit bootloaders may use a generic DFU name. The drone Scout keys on the Legacy DFU service UUID rather than the advertising name.
-- Flash the separate drone RAK4631 with the matching `Drone-Seeed-Water-Distance-HOBO-v3.uf2` from the `Remote-Drone-Flashing-v2` branch.
+- Flash the separate drone RAK4631 with the matching `Drone-Seeed-Water-Distance-HOBO-v4.uf2` from the `Remote-Drone-Flashing-v2` branch.
 - After the update, the Seeed target boots Meshtastic and sends the stored requester an update-result callback.
 
-The field target still uses the normal `Seeed-Water-Distance-HOBO-v3.uf2` or `Seeed-Water-Distance-HOBO-v3-OTA.zip`. The `Drone-*.uf2` goes only on the separate RAK4631 Scout carried by the drone.
+The field target still uses the normal `Seeed-Water-Distance-HOBO-v4.uf2` or `Seeed-Water-Distance-HOBO-v4-OTA.zip`. The `Drone-*.uf2` goes only on the separate RAK4631 Scout carried by the drone.
