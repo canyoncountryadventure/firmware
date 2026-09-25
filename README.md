@@ -1,30 +1,32 @@
-> **CURRENT BRANCH: RAK-Soil-Moisture-HOBO-v3 — HOBO V3.** Every firmware file linked in the **V3 downloads** table below has `-v3` in its filename. The unchanged `Remote-Drone-Flashing-v2` branch hosts the **V3** compressed Scout files; its branch name is not the firmware image version. The rest of this document describes this V3 configuration (including inherited V2 safeguards).
+> **V4 recovery hardening:** this V4 target retains the proven V3 sensor behavior and adds retained nRF52 reset/failure diagnostics, bounded BLE pairing/disconnect waits, a bounded LPCOMP readiness path, and subsystem-specific breadcrumbs before watchdog recovery. Use `DIAG`/local serial to inspect retained reset context where supported.
 
-## V3 downloads — use the file for this exact station
+> **CURRENT BRANCH: RAK-Soil-Moisture-HOBO-v4 — HOBO V4.** Every firmware file linked in the **V4 downloads** table below has `-v4` in its filename. The unchanged `Remote-Drone-Flashing-v2` branch hosts the **V4** compressed Scout files; its branch name is not the firmware image version. The rest of this document describes this V4 configuration (including inherited V2 safeguards).
+
+## V4 downloads — use the file for this exact station
 
 | File | Purpose | Link |
 |---|---|---|
-| `RAK-Soil-Moisture-HOBO-v3.uf2` | **V3 field radio** — normal USB UF2, for the RAK4631 node | [Download V3 target UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3.uf2) |
-| `RAK-Soil-Moisture-HOBO-v3-OTA.zip` | **V3 field radio** — BLE OTA update package (not a UF2) | [Download V3 target OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-OTA.zip) |
-| `Drone-RAK-Soil-Moisture-HOBO-v3.uf2` | **V3 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V3 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2) |
-| `RAK-Soil-Moisture-HOBO-v3-BUILD.txt` | Target build commit and checksums | [View V3 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-BUILD.txt) |
-| `Drone-RAK-Soil-Moisture-HOBO-v3.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V3 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2.txt) |
+| `RAK-Soil-Moisture-HOBO-v4.uf2` | **V4 field radio** — normal USB UF2, for the RAK4631 node | [Download V4 target UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v4.uf2) |
+| `RAK-Soil-Moisture-HOBO-v4-OTA.zip` | **V4 field radio** — BLE OTA update package (not a UF2) | [Download V4 target OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v4-OTA.zip) |
+| `Drone-RAK-Soil-Moisture-HOBO-v4.uf2` | **V4 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V4 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v4.uf2) |
+| `RAK-Soil-Moisture-HOBO-v4-BUILD.txt` | Target build commit and checksums | [View V4 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v4-BUILD.txt) |
+| `Drone-RAK-Soil-Moisture-HOBO-v4.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V4 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Soil-Moisture-HOBO-v4.uf2.txt) |
 
 **Before a remote update:** compare the target commit in the Scout manifest with the target build manifest. If these differ, use a fresh matching Scout image; do not assume different builds are paired. For USB updates, use the normal target UF2, **not** the `Drone-` UF2.
 
-**V3 operating behavior:** `STATUS` checks the HOBO logger write pointer on a **30-second** healthy-link cadence. The HOBO's internal logging interval is unchanged; automatic mesh telemetry is sent only on a confirmed new record. A manual `READ` remains independent. V3 inherits non-destructive field recovery and the target's existing `DFU` command.
+**V4 operating behavior:** `STATUS` checks the HOBO logger write pointer on a **30-second** healthy-link cadence. The HOBO's internal logging interval is unchanged; automatic mesh telemetry is sent only on a confirmed new record. A manual `READ` remains independent. V4 inherits non-destructive field recovery and the target's existing `DFU` command.
 
-**Source:** [RAK-Soil-Moisture-HOBO-v3](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v3) · **V3 target build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v3) · **V3 matching Scout build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3_drone_catalog.yml).
+**Source:** [RAK-Soil-Moisture-HOBO-v4](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v4) · **V4 target build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v4.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v4) · **V4 matching Scout build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v4_drone_catalog.yml).
 
 ---
 
-> **HOBO V3 (retaining Field-Recovery v2 safeguards):** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Soil-Moisture-HOBO-v1 is retained.
+> **HOBO V4 (retaining Field-Recovery v2 safeguards):** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Soil-Moisture-HOBO-v1 is retained.
 
-# RAK Soil Moisture + HOBO v3
+# RAK Soil Moisture + HOBO v4
 
 Production field firmware for **RAK4631 + RAK19007** stations using a **DFRobot SEN0308 waterproof capacitive soil-moisture sensor** and optional **Onset HOBO MX-series BLE temperature/water-level loggers**.
 
-**Branch:** `RAK-Soil-Moisture-HOBO-v3`
+**Branch:** `RAK-Soil-Moisture-HOBO-v4`
 
 **Supported HOBO loggers:** MX2001, MX2201, MX2203.
 
@@ -34,10 +36,10 @@ This build combines the proven HOBO next-record telemetry path, SEN0308 analog s
 
 | Item | Link |
 |---|---|
-| **USB firmware (UF2)** | **[Download RAK-Soil-Moisture-HOBO-v3.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3.uf2)** |
-| **BLE DFU firmware (ZIP)** | **[Download RAK-Soil-Moisture-HOBO-v3-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v3-OTA.zip)** |
-| Source branch | [RAK-Soil-Moisture-HOBO-v3](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v3) |
-| Build workflow runs | [Build RAK Soil Moisture HOBO v3](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v3.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v3) |
+| **USB firmware (UF2)** | **[Download RAK-Soil-Moisture-HOBO-v4.uf2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v4.uf2)** |
+| **BLE DFU firmware (ZIP)** | **[Download RAK-Soil-Moisture-HOBO-v4-OTA.zip](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Soil-Moisture-HOBO-v4-OTA.zip)** |
+| Source branch | [RAK-Soil-Moisture-HOBO-v4](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v4) |
+| Build workflow runs | [Build RAK Soil Moisture HOBO v4](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v4.yml?query=branch%3ARAK-Soil-Moisture-HOBO-v4) |
 | Workflow source | [build_soil_moisture_hobo_rak4631.yml](.github/workflows/build_soil_moisture_hobo_rak4631.yml) |
 | Soil module source | [SEN0308SoilMoisture.cpp](src/modules/Telemetry/SoilMoisture/SEN0308SoilMoisture.cpp) |
 
@@ -85,7 +87,7 @@ Do not connect the SEN0308 red lead to `BAT`/`VBAT`. `BAT` is the raw single-cel
 1. Download the **OTA ZIP** above to the phone. **Do not unzip it.**
 2. Open Nordic **nRF Connect** and connect to the RAK4631.
 3. Tap **DFU** in the upper-right corner.
-4. Choose **Distribution packet (ZIP)** and select `RAK-Soil-Moisture-HOBO-v3-OTA.zip`.
+4. Choose **Distribution packet (ZIP)** and select `RAK-Soil-Moisture-HOBO-v4-OTA.zip`.
 5. Let validation, activation and reboot finish, then reconnect in Meshtastic and send `VERSION` and `SOIL STATUS`.
 
 The UF2 is USB-only. The OTA ZIP is BLE-only. If a legacy BLE update reaches 100% but stalls during validation/activation, stop retrying and recover with the UF2 over USB. Routine updates should not use a factory-erase image.
@@ -207,8 +209,8 @@ Send commands as a direct Meshtastic text message to the node. Commands are case
 | `UPTIME` | Node uptime. |
 | `VERSION` | Self-recovery firmware/platform identity. |
 | `PING` / `WAKE` | End-to-end DM/liveness check. |
-| `SCAN` | Legacy diagnostic command; v3 reports that BLE recovery is automatic and does not manipulate the scanner. |
-| `RECONNECT` | Legacy diagnostic command; v3 does not force a link rebuild because scanner/link lifecycle is owned by the HOBO state machine. |
+| `SCAN` | Legacy diagnostic command; v4 reports that BLE recovery is automatic and does not manipulate the scanner. |
+| `RECONNECT` | Legacy diagnostic command; v4 does not force a link rebuild because scanner/link lifecycle is owned by the HOBO state machine. |
 | `RECOVER` / `REBOOT` | Replies, then performs a safe non-destructive reboot. |
 
 ## Watchdog and unattended recovery
