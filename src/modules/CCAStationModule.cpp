@@ -23,7 +23,7 @@ namespace
 {
 
 constexpr char CCA_FW_NAME[] = "CCA-MX-PIR";
-constexpr char CCA_FW_VERSION[] = "1.0.8-v3";
+constexpr char CCA_FW_VERSION[] = "1.0.9-v4";
 constexpr uint8_t CCA_SCHEMA_VERSION = 1;
 constexpr char MESHTASTIC_BASE_VERSION[] = "2.7.26";
 
@@ -521,7 +521,7 @@ ProcessMessage CCAStationModule::handleReceived(const meshtastic_MeshPacket &mp)
 
     if (strcmp(command, "VERSION") == 0) {
         snprintf(reply, sizeof(reply),
-                 "SEEED TRAIL PIR + ROCK + HOBO V3\nHW:XIAO + Wio-SX1262\nSensors:PIR D6 + ROCK D0 + HOBO\nHOBO poll:30s | DFU:ON\nBase:%s",
+                 "SEEED TRAIL PIR + ROCK + HOBO V4\nHW:XIAO + Wio-SX1262\nSensors:PIR D6 + ROCK D0 + HOBO\nHOBO poll:30s | DFU:ON\nBase:%s",
                  MESHTASTIC_BASE_VERSION);
     } else if (strcmp(command, "STATUS") == 0) {
         char up[32] = {};
@@ -618,6 +618,20 @@ ProcessMessage CCAStationModule::handleReceived(const meshtastic_MeshPacket &mp)
                  nrf52FieldWatchdogIsArmed() ? "ARMED" : "OFF");
 #else
         snprintf(reply, sizeof(reply), "WATCHDOG: legacy build");
+#endif
+    } else if (strcmp(command, "DIAG") == 0 || strcmp(command, "CRASHLOG") == 0) {
+#if defined(FIELD_RECOVERY_V2)
+        nrf52FieldDiagPrint();
+        snprintf(reply, sizeof(reply), "DIAG printed to local serial log; retained state survives watchdog/software resets.");
+#else
+        snprintf(reply, sizeof(reply), "DIAG unavailable on legacy build");
+#endif
+    } else if (strcmp(command, "CLEAR DIAG") == 0) {
+#if defined(FIELD_RECOVERY_V2)
+        nrf52FieldDiagClear();
+        snprintf(reply, sizeof(reply), "DIAG cleared.");
+#else
+        snprintf(reply, sizeof(reply), "DIAG unavailable on legacy build");
 #endif
     } else if (strcmp(command, "RECOVER") == 0 || strcmp(command, "REBOOT") == 0) {
 #if defined(FIELD_RECOVERY_V2)
