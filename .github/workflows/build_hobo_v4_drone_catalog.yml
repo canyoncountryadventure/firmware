@@ -1,0 +1,185 @@
+# Build all eight matched V4 Scout payloads from the exact V4 target branches.
+name: Build matched HOBO V4 drone flasher images
+
+on:
+  push:
+    branches:
+      - Remote-Drone-Flashing-v2
+    paths:
+      - '.github/workflows/build_hobo_v4_drone_catalog.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hobo-v4-drone-catalog
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: canonical-rak-hobo-v4
+            target_branch: field-self-recovery-v4
+            target_env: rak4631
+            output_name: Drone-Field-Self-Recovery-v4-RAK4631.uf2
+          - key: canonical-seeed-hobo-v4
+            target_branch: field-self-recovery-v4
+            target_env: seeed_xiao_nrf52840_kit
+            output_name: Drone-Field-Self-Recovery-v4-Seeed.uf2
+          - key: trail-pir-rock-hobo-v4
+            target_branch: Trail-Sensors-v4
+            target_env: seeed_xiao_nrf52840_cca_mx_pir
+            output_name: Drone-Trail-PIR-Rock-HOBO-v4.uf2
+          - key: rak-hobo-safe-v4
+            target_branch: RAK-HOBO-Safe-v4
+            target_env: rak4631
+            output_name: Drone-RAK-HOBO-Safe-v4.uf2
+          - key: rak-soil-hobo-v4
+            target_branch: RAK-Soil-Moisture-HOBO-v4
+            target_env: rak4631
+            output_name: Drone-RAK-Soil-Moisture-HOBO-v4.uf2
+          - key: rak-water-hobo-v4
+            target_branch: RAK-Water-Distance-HOBO-v4
+            target_env: rak4631
+            output_name: Drone-RAK-Water-Distance-HOBO-v4.uf2
+          - key: seeed-hobo-safe-v4
+            target_branch: Seeed-HOBO-Safe-v4
+            target_env: seeed_xiao_nrf52840_kit
+            output_name: Drone-Seeed-HOBO-Safe-v4.uf2
+          - key: seeed-water-hobo-v4
+            target_branch: Seeed-Water-Distance-HOBO-v4
+            target_env: seeed_xiao_nrf52840_kit
+            output_name: Drone-Seeed-Water-Distance-HOBO-v4.uf2
+
+    name: build-${{ matrix.key }}
+    steps:
+      - name: Checkout proven drone/Scout implementation
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: Remote-Drone-Flashing-v2
+          path: drone
+          submodules: recursive
+
+      - name: Checkout exact V4 field target
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ matrix.target_branch }}
+          path: target
+          submodules: recursive
+
+      - name: Install target and compression tools
+        run: python -m pip install --upgrade platformio lz4
+
+      - name: Build normal target firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          pio run -e ${{ matrix.target_env }}
+
+      - name: Locate exact target application-only OTA
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(git -C target rev-parse HEAD)"
+          OTA="$(find target/.pio/build/${{ matrix.target_env }} -maxdepth 1 -type f -name 'firmware-*.zip' | sort | head -n 1)"
+          test -n "$OTA" && test -f "$OTA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "ota=$OTA" >> "$GITHUB_OUTPUT"
+
+      - name: Compress and embed exact V4 application
+        shell: bash
+        run: |
+          set -euo pipefail
+          python drone/tools/build_drone_embedded_firmware.py "${{ steps.target.outputs.ota }}" drone/src/experimental/embedded_dfu_image.h
+
+      - name: Build matching compressed Scout UF2
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd drone
+          pio run -e rak4631_drone_flasher
+
+      - name: Package and checksum matched Scout
+        shell: bash
+        run: |
+          set -euo pipefail
+          SCOUT="$(find drone/.pio/build/rak4631_drone_flasher -maxdepth 1 -type f -name '*.uf2' | sort | head -n 1)"
+          test -n "$SCOUT" && test -f "$SCOUT"
+          test "$(stat -c%s "$SCOUT")" -gt 500000
+          mkdir -p export
+          cp "$SCOUT" "export/${{ matrix.output_name }}"
+          {
+            echo "Drone flasher: ${{ matrix.output_name }}"
+            echo "Target branch: ${{ matrix.target_branch }}"
+            echo "Target commit: ${{ steps.target.outputs.sha }}"
+            echo "Target environment: ${{ matrix.target_env }}"
+            echo "Embedded payload: LZ4-compressed application OTA"
+            echo "Scout implementation branch: Remote-Drone-Flashing-v2"
+            echo "Scout UF2 bytes: $(stat -c%s "$SCOUT")"
+            sha256sum "export/${{ matrix.output_name }}"
+          } > "export/${{ matrix.output_name }}.txt"
+
+      - name: Upload matched V4 Scout artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: drone-${{ matrix.key }}
+          overwrite: true
+          retention-days: 30
+          path: export/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout drone catalog
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: Remote-Drone-Flashing-v2
+          path: publish
+          fetch-depth: 0
+
+      - name: Gather V4 drone images
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: drone-*
+          path: built
+          merge-multiple: true
+
+      - name: Publish V4 Scout catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          latest="$(git ls-remote origin refs/heads/Remote-Drone-Flashing-v2 | awk '{print $1}')"
+          if [[ "$latest" != "$GITHUB_SHA" ]]; then
+            echo "Skip stale matched Scout run $GITHUB_SHA (now $latest)"
+            exit 0
+          fi
+          for attempt in 1 2 3 4 5; do
+            git fetch origin Remote-Drone-Flashing-v2
+            git reset --hard origin/Remote-Drone-Flashing-v2
+            mkdir -p downloads
+            cp ../built/Drone-*-v4*.uf2 downloads/
+            cp ../built/Drone-*-v4*.uf2.txt downloads/
+            git add downloads/Drone-*-v4*.uf2 downloads/Drone-*-v4*.uf2.txt
+            if git diff --cached --quiet; then
+              echo "V4 Scout catalog already current"
+              exit 0
+            fi
+            git commit -m "Publish matched HOBO V4 Scout images"
+            if git push origin HEAD:Remote-Drone-Flashing-v2; then exit 0; fi
+            sleep $((attempt * 3))
+          done
+          echo "Could not publish matched V4 Scouts" >&2
+          exit 1
