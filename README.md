@@ -25,6 +25,7 @@ The Scout software repository branch remains named [`Remote-Drone-Flashing-v2`](
 - **Transmit new logger records only:** An automatic temperature/stage packet is generated after a confirmed new write pointer; rapid duplicate automatic transmissions are suppressed. Manual `READ` works separately.
 - **Retained V2 hardware recovery:** Automatic BLE reconnect, SX1262/radio recovery, watchdog protections, flash-safe reboot, persistent HOBO MAC assignment, and the target's remote `DFU` hook.
 - **Sensor-specific functions are retained:** Soil moisture, water distance/stage, and trail-sensor features remain in their corresponding configurations, rather than being replaced by a generic HOBO-only image.
+- **Complete DM help:** Bare `HELP` is split into numbered LoRa-safe replies. Each V3 station image lists its complete supported command set; water and soil builds include their sensor-specific commands in ordinary `HELP` as well as their dedicated help commands.
 - **Limits:** This reads a fresh HOBO measurement, not the entire historical logger archive; a 30-second check also does not guarantee a successful RF delivery within 30 seconds.
 
 ## Keep target and Scout versions matched
