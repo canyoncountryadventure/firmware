@@ -4,4 +4,4 @@ Target commit: c8be4427c22cfd44ba1327f330c559e22db0e7fb
 Target environment: rak4631
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1329664
-db9e811f4591bf73473bd7fec9911bfd23ddf1ede1c98efe1bc6fd7e16618086  export/Drone-RAK-Water-Distance-HOBO-v3.uf2
+6cd9a522563841d213dd37e9925871e0627205ff6e92ec8ff1d8044749a3196f  export/Drone-RAK-Water-Distance-HOBO-v3.uf2

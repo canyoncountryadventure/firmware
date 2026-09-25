@@ -4,4 +4,4 @@ Target commit: 2dcab9729f72217e73fc3fdaa21b9cd921a202ef
 Target environment: rak4631
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1381888
-f3d67182043f9da14812cb63f9e1ca035934792ad84e25da35c2d3b4df250767  export/Drone-RAK-HOBO-Safe-v3.uf2
+c5e83fd92ec82252ef6a8e7b2f6f25355354cbe43e66cc3fc706305d4fa1e889  export/Drone-RAK-HOBO-Safe-v3.uf2

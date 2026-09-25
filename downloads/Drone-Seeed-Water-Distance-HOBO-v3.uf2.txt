@@ -4,4 +4,4 @@ Target commit: 0c9bf288f00d0f657fb57936df92f195172c2185
 Target environment: seeed_xiao_nrf52840_kit
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1263616
-c01f29f6454cbe7158b56831ca69878897832f062aa3094d7386cb69f441ab18  export/Drone-Seeed-Water-Distance-HOBO-v3.uf2
+6e9977bc9991d11b65511198c407c091290a50bc4eb44a65c31eeec318527049  export/Drone-Seeed-Water-Distance-HOBO-v3.uf2

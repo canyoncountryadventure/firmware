@@ -1,7 +1,7 @@
 Drone flasher: Drone-Field-Self-Recovery-v3-Seeed.uf2
 Target branch: field-self-recovery-v3
-Target commit: b42b108e872f2e1178fe4515df366e48c5e89b9c
+Target commit: 54a6de8665210a158662ae0a4e96aa116a9ed724
 Target environment: seeed_xiao_nrf52840_kit
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1331712
-1257970a60384eeaff580ab2e1b6ff601b8341a9d952815462e0b2ea3293f27e  export/Drone-Field-Self-Recovery-v3-Seeed.uf2
+735fdc70a7d1b8d496c2c9fada5495dfd9e81d44c82c5e2fe9e6f868846fcb83  export/Drone-Field-Self-Recovery-v3-Seeed.uf2

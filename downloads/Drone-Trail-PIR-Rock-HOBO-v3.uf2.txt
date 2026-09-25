@@ -4,4 +4,4 @@ Target commit: b903cbc2d3d8b431032c64712f8bbd40ae81130a
 Target environment: seeed_xiao_nrf52840_cca_mx_pir
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1283072
-edae1cfb35c3da5ed5c74aae6209c9856277542568eae3189c0c240d80b9ced3  export/Drone-Trail-PIR-Rock-HOBO-v3.uf2
+057514778636624d2758f7405f209343c0fbbcec2fae1777e5716c4f336c5520  export/Drone-Trail-PIR-Rock-HOBO-v3.uf2

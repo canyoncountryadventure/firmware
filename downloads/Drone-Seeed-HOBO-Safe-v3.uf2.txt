@@ -4,4 +4,4 @@ Target commit: 103a1347bbc5b01c9afacb0325c8afa019d7ed52
 Target environment: seeed_xiao_nrf52840_kit
 Embedded payload: LZ4-compressed application OTA
 Scout UF2 bytes: 1331712
-2f98a9724b3e307709d3c638d348f90e77d3bc6ed93c7514c49ad97af64a67d6  export/Drone-Seeed-HOBO-Safe-v3.uf2
+93f1b6795e344b8d067d1d5baa7451315993231e9c062de0d4c5499252d8c476  export/Drone-Seeed-HOBO-Safe-v3.uf2
