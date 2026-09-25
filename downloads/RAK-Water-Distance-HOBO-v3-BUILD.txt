@@ -1,7 +1,7 @@
 TARGET=RAK-Water-Distance-HOBO-v3
 ENV=rak4631
-COMMIT=be41f7b2d0f2255be58f8119b3336dcadac7b29b
+COMMIT=3cb4a470a9baaec2a3c75f9cf75f81afa8c6778b
 HOBO_STATUS_POLL=30sec
 DRONE_IMAGE=Build separately on Remote-Drone-Flashing-v2
-2f4664b1cebdda8dadb47d176dbef30c650eb47846c390e70a28f7faa7f0331a  export/RAK-Water-Distance-HOBO-v3.uf2
-8d109a10039c9c30acdd5e0f9522a5dcf26972c658a957a99b325d3b1944b773  export/RAK-Water-Distance-HOBO-v3-OTA.zip
+7c8ed9d50f728dc26a96a23544dadbf8379b6d567d549fde6a08c3038d5b9fed  export/RAK-Water-Distance-HOBO-v3.uf2
+3e06fbc6ecac32c95b793d5bca3e6538e623708a557cd189814ce64bf0b5b84a  export/RAK-Water-Distance-HOBO-v3-OTA.zip
