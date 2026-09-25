@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "RAK SOIL MOISTURE + HOBO V3";
+static constexpr char FIRMWARE_LABEL[] = "RAK SOIL MOISTURE + HOBO V4";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -99,7 +99,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         sendTextReply(mp.from, mp.channel,
                       "HELP 1/3 HOBO: HELP | READ | LOGGER | LOCK | UNLOCK | AUTO | STATUS | HEALTH | BLE");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 2/3 SYSTEM: POWER | BATTERY | STATS | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | SCAN | RECONNECT | RECOVER | REBOOT | DFU");
+                      "HELP 2/3 SYSTEM: POWER | BATTERY | STATS | DIAG | CLEAR DIAG | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | SCAN | RECONNECT | RECOVER | REBOOT | DFU");
         sendTextReply(mp.from, mp.channel,
                       "HELP 3/3 SOIL: SOIL | SOIL READ | SOIL STATUS | SOIL TX | SOIL CAL | SOIL HELP");
         return ProcessMessage::CONTINUE;
@@ -160,6 +160,18 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         return ProcessMessage::CONTINUE;
     }
 
+    if (isCommand(payload, payloadSize, "DIAG") || isCommand(payload, payloadSize, "CRASHLOG")) {
+        nrf52FieldDiagPrint();
+        sendTextReply(mp.from, mp.channel, "DIAG printed to local serial log; retained state survives watchdog/software resets.");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (isCommand(payload, payloadSize, "CLEAR DIAG")) {
+        nrf52FieldDiagClear();
+        sendTextReply(mp.from, mp.channel, "DIAG cleared.");
+        return ProcessMessage::CONTINUE;
+    }
+
     if (isCommand(payload, payloadSize, "NODES")) {
         snprintf(reply, sizeof(reply), "NODES: %u mesh nodes",
                  static_cast<unsigned int>(nodeDB->getNumMeshNodes()));
@@ -200,7 +212,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     if (isCommand(payload, payloadSize, "SCAN") || isCommand(payload, payloadSize, "RECONNECT")) {
         sendTextReply(mp.from, mp.channel,
-                      "BLE recovery is automatic in v2; scanner/link lifecycle is owned by the HOBO state machine.");
+                      "BLE recovery is automatic in V4; scanner/link lifecycle is owned by the HOBO state machine.");
         return ProcessMessage::CONTINUE;
     }
 
