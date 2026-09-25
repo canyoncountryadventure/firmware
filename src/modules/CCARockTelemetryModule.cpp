@@ -397,20 +397,24 @@ ProcessMessage CCARockTelemetryModule::handleReceived(const meshtastic_MeshPacke
         return ProcessMessage::CONTINUE;
 
     if (strcmp(command, "HELP") == 0) {
+        // Keep every supported command visible in ordinary HELP; split across LoRa-safe messages.
         sendText(mp.from, mp.channel,
-                 "HELP 1/5 GENERAL\nHELP | VERSION | STATUS | UPTIME | BOOT\nDEBUG ON | DEBUG OFF\nALERTS HERE | ALERTS STATUS | ALERTS CLEAR",
+                 "HELP 1/6 GENERAL\nHELP | VERSION | STATUS | UPTIME | BOOT | PING | WATCHDOG | RECOVER | REBOOT",
                  true);
         sendText(mp.from, mp.channel,
-                 "HELP 2/5 PIR\nPIR | PIR STATUS | PIR COUNT | PIR LAST | PIR RESET\nPIR ON | PIR OFF | PIR TX ON | PIR TX OFF",
+                 "HELP 2/6 DEBUG/ALERTS\nDEBUG ON | DEBUG OFF\nALERTS HERE | ALERTS STATUS | ALERTS CLEAR",
                  true);
         sendText(mp.from, mp.channel,
-                 "HELP 3/5 POWER\nPOWER | POWER STATUS | POWER VOLTAGE | POWER MINMAX\nPOWER TREND | POWER HISTORY | POWER RESET | POWER UPTIME",
+                 "HELP 3/6 PIR\nPIR | PIR STATUS | PIR COUNT | PIR LAST | PIR RESET\nPIR ON | PIR OFF | PIR TX ON | PIR TX OFF",
                  true);
         sendText(mp.from, mp.channel,
-                 "HELP 4/5 ROCK\nROCK | ROCK STATUS | ROCK ADC | ROCK STATE | ROCK NOW | ROCK BANDS\nROCK CAL | ROCK CAL DRY | ROCK CAL WET | ROCK CAL STATUS | ROCK CAL CLEAR | ROCK HELP",
+                 "HELP 4/6 POWER\nPOWER | POWER STATUS | POWER VOLTAGE | POWER MINMAX\nPOWER TREND | POWER HISTORY | POWER RESET | POWER UPTIME",
                  true);
         sendText(mp.from, mp.channel,
-                 "HELP 5/5 LOGGER/UPDATE\nLOGGER | READ | LOCK | UNLOCK | DFU\nCase-insensitive; optional leading /.",
+                 "HELP 5/6 ROCK\nROCK | ROCK STATUS | ROCK ADC | ROCK STATE | ROCK NOW | ROCK BANDS\nROCK CAL | ROCK CAL DRY | ROCK CAL WET | ROCK CAL STATUS | ROCK CAL CLEAR | ROCK HELP",
+                 true);
+        sendText(mp.from, mp.channel,
+                 "HELP 6/6 LOGGER/UPDATE\nLOGGER | READ | LOCK | UNLOCK | DFU\nCase-insensitive; optional leading /.",
                  true);
         return ProcessMessage::CONTINUE;
     }
