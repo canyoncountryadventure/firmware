@@ -782,11 +782,15 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
         return ProcessMessage::CONTINUE;
 
     if (strcmp(command, "HELP") == 0) {
-        // Split the complete water command reference into two LoRa-safe text messages.
+        // Split the complete water command reference into LoRa-safe messages so every command is explicit.
         sendTextReply(mp.from, mp.channel,
-                      "WATER 1/2: WATER HELP | WATER STATUS | WATER CHECK | WATER INSTALL | WATER SENSOR | WATER SENSOR AUTO/SEN0590/SEN0311/SEN0313 (A01NYUB/A02YYUW) | WATER READ | WATER RAW | WATER VERIFY | WATER INTERVAL 1H | WATER CAL STATUS");
+                      "WATER HELP 1/4 CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK | WATER INSTALL | WATER READ | WATER RAW | WATER VERIFY");
         sendTextReply(mp.from, mp.channel,
-                      "WATER 2/2: WATER CAL STAGE 1.42FT | WATER CAL LOCK | WATER CAL UNLOCK | WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL RESET CONFIRM | WATER RESET WATER | WATER RESET WATER CONFIRM | WATER TELEMETRY NOW");
+                      "WATER HELP 2/4 SENSOR: WATER SENSOR | WATER SENSOR AUTO | WATER SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER SENSOR A02YYUW | WATER SENSOR SEN0313 | WATER SENSOR A01NYUB");
+        sendTextReply(mp.from, mp.channel,
+                      "WATER HELP 3/4 CAL: WATER CAL STATUS | WATER CAL STAGE 1.42FT | WATER CAL LOCK | WATER CAL UNLOCK | WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL RESET CONFIRM");
+        sendTextReply(mp.from, mp.channel,
+                      "WATER HELP 4/4 CONFIG: WATER INTERVAL 1H | WATER RESET WATER | WATER RESET WATER CONFIRM | WATER TELEMETRY NOW | WATER MODE");
         return ProcessMessage::CONTINUE;
     }
 
