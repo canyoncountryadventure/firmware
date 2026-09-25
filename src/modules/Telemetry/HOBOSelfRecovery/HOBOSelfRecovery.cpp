@@ -95,13 +95,19 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     char reply[230] = {};
 
     if (isCommand(payload, payloadSize, "HELP")) {
-        // Each LoRa text reply is kept short; include every supported station command.
+        // Split the complete command reference into LoRa-safe messages so no command is truncated.
         sendTextReply(mp.from, mp.channel,
-                      "HELP 1/3 HOBO/SYSTEM: READ LOGGER LOCK UNLOCK | STATUS HEALTH POWER BATTERY BLE AUTO STATS NODES UPTIME VERSION WATCHDOG RECOVER REBOOT PING WAKE SCAN RECONNECT DFU HELP");
+                      "HELP 1/6 HOBO: HELP | READ | LOGGER | LOCK | UNLOCK | AUTO | STATUS | HEALTH | BLE");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 2/3: WATER HELP | WATER STATUS | WATER CHECK | WATER INSTALL | WATER SENSOR | WATER SENSOR AUTO/SEN0590/SEN0311/SEN0313 (A01NYUB/A02YYUW) | WATER READ | WATER RAW | WATER VERIFY | WATER INTERVAL 1H | WATER CAL STATUS");
+                      "HELP 2/6 SYSTEM: POWER | BATTERY | STATS | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | SCAN | RECONNECT | RECOVER | REBOOT | DFU");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 3/3: WATER CAL STAGE 1.42FT | WATER CAL LOCK | WATER CAL UNLOCK | WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL RESET CONFIRM | WATER RESET WATER | WATER RESET WATER CONFIRM | WATER TELEMETRY NOW");
+                      "HELP 3/6 WATER CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK | WATER INSTALL | WATER READ | WATER RAW | WATER VERIFY");
+        sendTextReply(mp.from, mp.channel,
+                      "HELP 4/6 WATER SENSOR: WATER SENSOR | WATER SENSOR AUTO | WATER SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER SENSOR A02YYUW");
+        sendTextReply(mp.from, mp.channel,
+                      "HELP 5/6 WATER SENSOR/CAL: WATER SENSOR SEN0313 | WATER SENSOR A01NYUB | WATER CAL STATUS | WATER CAL STAGE 1.42FT | WATER CAL LOCK");
+        sendTextReply(mp.from, mp.channel,
+                      "HELP 6/6 WATER CONFIG: WATER INTERVAL 1H | WATER CAL UNLOCK | WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL RESET CONFIRM | WATER RESET WATER | WATER RESET WATER CONFIRM | WATER TELEMETRY NOW | WATER MODE");
         return ProcessMessage::CONTINUE;
     }
 
