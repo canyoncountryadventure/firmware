@@ -6,7 +6,7 @@ The Heltec V4 OLED is the permanent aggregation gateway for the CCA Meshtastic s
 
 ## Canonical branch and target
 
-- Branch: `cca-heltec-sensor-gateway`
+- Branch: `Heltec-Gateway-v4`
 - Board: Heltec WiFi LoRa 32 V4 OLED
 - PlatformIO environment: `heltec-v4`
 - Architecture: `esp32s3`
@@ -56,11 +56,11 @@ Standard Meshtastic device telemetry is accepted and forwarded, including:
 
 This preserves the Hidden Valley battery-monitoring path and makes the gateway useful for future remote-node health monitoring.
 
-## Direct HOBO BLE feature to add to the Heltec
+## Direct HOBO BLE support
 
-The direct HOBO reader on the Heltec must be ported from the proven universal HOBO implementation without replacing or disabling the mesh gateway.
+The direct HOBO reader is active on the Heltec V4 gateway and coexists with ordinary mesh forwarding and HTTP/Neon ingestion.
 
-Required behavior:
+Current behavior:
 
 1. BLE discovery scans for supported HOBO MX2001, MX2201, and MX2203 loggers.
 2. The current candidate logger can be inspected remotely.
@@ -123,5 +123,5 @@ Every future Heltec build should be checked against this list:
 - Uploads accepted packets to Vercel/Neon.
 - Cloud ingest credential is present in GitHub-built OLED artifact.
 - Wi-Fi OTA still works.
-- Direct HOBO scan/lock/read/automatic telemetry works once that feature is merged.
-- `READ`, `LOGGER`, `LOCK`, and `UNLOCK` remain functional once direct HOBO support is merged.
+- Direct HOBO scan/lock/read/automatic telemetry works.
+- `READ`, `LOGGER`, `LOCK`, and `UNLOCK` remain functional.
