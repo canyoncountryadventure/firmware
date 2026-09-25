@@ -1,4 +1,4 @@
-> **Heltec Gateway v4:** gateway ingestion, mesh forwarding, Wi-Fi OTA, and Vercel/Neon behavior are retained. The shared SX1262 recovery path is retained; HTTPS upload is bounded to 4 seconds, repeated radio recovery failure schedules a whole-node reboot, and direct local HOBO BLE remains a future gateway feature.
+> **Heltec Gateway v4:** gateway ingestion, mesh forwarding, Wi-Fi OTA, Vercel/Neon forwarding, and direct local HOBO BLE are active. The shared SX1262 recovery path is retained; HTTPS upload is bounded to 4 seconds and repeated radio recovery failure schedules a whole-node reboot.
 
 # CCA Heltec Sensor Gateway v4
 
@@ -25,30 +25,16 @@ Existing wire/database schemas are kept backward-compatible so the current dashb
 
 ## Useful DM commands
 
-The current Heltec gateway build does **not yet expose custom gateway-control commands through ordinary Meshtastic text DMs**. It receives/forwards sensor traffic and uploads data, but the direct local HOBO BLE control feature is still pending.
+Direct local HOBO BLE support is active in the Heltec V4 gateway.
 
-These commands are reserved for that direct-HOBO feature once it is merged:
-
-| Command | What it will do when direct HOBO BLE support is active |
+| Command | What it does |
 |---|---|
-| `LOGGER` | Show the selected/discovered HOBO model, MAC, BLE RSSI, interval, and lock state. |
-| `READ` | Request an immediate fresh HOBO reading without disturbing the automatic record schedule. |
-| `LOCK` | Save the currently selected HOBO BLE MAC so the gateway reconnects to that logger after reboot. |
-| `UNLOCK` | Clear the saved HOBO assignment and return to logger discovery. |
+| `LOGGER` | Shows the connected/selected HOBO model, MAC, BLE RSSI, logger interval, and lock state. |
+| `READ` | Requests an immediate fresh HOBO reading without disturbing automatic next-record tracking. |
+| `LOCK` | Persists the selected HOBO BLE MAC so the gateway reconnects to that logger after reboot. |
+| `UNLOCK` | Clears the saved HOBO assignment and returns to logger discovery. |
 
-Do not rely on those four custom text commands on the current Heltec build until direct HOBO BLE support has actually been merged and validated.
-
-## Required next Heltec feature
-
-The next Heltec firmware integration must add direct HOBO BLE support without removing any gateway behavior above:
-
-1. scan for supported HOBO loggers;
-2. identify the logger and expose its identity/status;
-3. allow the selected logger to be locked by BLE MAC and persist that assignment across reboot;
-4. automatically read confirmed new HOBO records according to the logger's own logging interval;
-5. transmit the resulting reading over Meshtastic and upload it to Neon through the existing gateway path;
-6. preserve direct-message commands including `READ` and `LOGGER`;
-7. preserve the proven lock/unlock behavior from the universal HOBO field-node firmware.
+The direct reader supports MX2001, MX2201, and MX2203. Successful automatic local readings are queued to the Meshtastic mesh and the existing Vercel/Neon HTTP gateway path.
 
 ## Architecture
 
@@ -63,7 +49,7 @@ REMOTE FIELD SENSORS
 CCA HELTEC SENSOR GATEWAY
   - accepts current packet formats
   - uploads to Vercel / Neon
-  - future: direct local HOBO BLE scan/lock/read
+  - direct local HOBO BLE scan/lock/read
               |
        +------+------+
        |             |
