@@ -1,23 +1,44 @@
 name: Format V4 branch
+
 on:
   push:
     branches: [field-self-recovery-v4]
+
 permissions:
   contents: write
+
 jobs:
   format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Checkout V4 branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: field-self-recovery-v4
-      - uses: trunk-io/trunk-action@v1
+
+      - name: Install pinned Trunk
+        uses: trunk-io/trunk-action@04ba50e7658c81db7356da96657e6e77f220bfa3
         with:
-          check-mode: all
-      - run: trunk fmt
-      - run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git diff --cached --quiet || git commit -m "Format V4 changes"
+          check-mode: none
+
+      - name: Format V4 changed files
+        run: |
+          trunk fmt \
+            README.md \
+            src/platform/nrf52/main-nrf52.cpp \
+            src/platform/nrf52/NRF52Bluetooth.cpp \
+            src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp \
+            src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp
+
+      - name: Commit formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            README.md \
+            src/platform/nrf52/main-nrf52.cpp \
+            src/platform/nrf52/NRF52Bluetooth.cpp \
+            src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp \
+            src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp
+          git diff --cached --quiet || git commit -m "Format V4 recovery changes"
           git push
