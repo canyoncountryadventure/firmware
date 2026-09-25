@@ -110,7 +110,7 @@ void nrf52FieldDiagClear()
 void nrf52FieldWatchdogTrip()
 {
 #if defined(FIELD_RECOVERY_V2)
-    nrf52FieldDiagEvent(1, 3, 1);
+    // Preserve the subsystem-specific failure context recorded by the caller.
     fieldWatchdogFeedAllowed = false;
     LOG_ERROR("Field v2: health watchdog deliberately starved; hardware reset pending");
 #endif
@@ -401,7 +401,10 @@ void checkSDEvents()
 
 void nrf52Loop()
 {
-    nrf52FieldDiagEvent(0, 1);
+#if defined(FIELD_RECOVERY_V2)
+    // Keep uptime fresh without erasing the last subsystem/operation failure context.
+    fieldDiag.lastUptimeMs = millis();
+#endif
     {
         static bool watchdog_running = false;
         if (!watchdog_running) {
