@@ -680,6 +680,7 @@ bool RadioLibInterface::maybeRecoverChipStateLoss()
     if (chipRecoveryFailures >= MAX_CHIP_RECOVERY_FAILURES) {
         LOG_ERROR("Radio recovery exhausted; forcing whole-node recovery");
 #if defined(ARCH_NRF52) && defined(FIELD_RECOVERY_V2)
+        nrf52FieldDiagEvent(3, 3, chipRecoveryFailures);
         nrf52FieldWatchdogTrip();
 #else
         if (rebootAtMsec == 0)
