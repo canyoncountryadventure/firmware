@@ -15,6 +15,16 @@
 | **Seeed Water Distance + HOBO**<br>Seeed XIAO + distance sensor<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v4) | [**V4 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v4.uf2) | [**V4 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v4-OTA.zip) | [**V4 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v4.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Seeed-Water-Distance-HOBO-v4-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-Water-Distance-HOBO-v4.uf2.txt) |
 | **Seeed Trail PIR + Rock + HOBO**<br>Seeed XIAO trail station<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v4) | [**V4 field UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v4.uf2) | [**V4 field OTA ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v4-OTA.zip) | [**V4 matched Scout UF2**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Trail-PIR-Rock-HOBO-v4.uf2) | [Target build](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Trail-PIR-Rock-HOBO-v4-BUILD.txt) · [Scout build](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-Trail-PIR-Rock-HOBO-v4.uf2.txt) |
 
+## Quick chooser
+
+- **HOBO only, RAK:** use **RAK HOBO Safe V4**.
+- **HOBO only, Seeed:** use **Seeed HOBO Safe V4**.
+- **HOBO + SEN0308 soil moisture:** use **RAK Soil Moisture + HOBO V4**.
+- **HOBO + ultrasonic water distance/stage:** use the **RAK** or **Seeed Water Distance + HOBO V4** row matching the radio hardware.
+- **PIR + rock moisture + HOBO:** use **Trail PIR + Rock + HOBO V4**.
+- **Canonical RAK/Seeed HOBO:** these are the generic reference builds for the shared HOBO/recovery stack; use them when you specifically want the canonical configuration rather than a station-specific Safe/sensor build.
+- **Heltec WiFi LoRa 32 V4:** use the separate **Heltec Gateway V4** package below. It is ESP32-S3 firmware and never uses a Nordic UF2 or drone Scout image.
+
 **Which file goes where?** The **normal field-radio UF2** goes onto the installed RAK or Seeed sensor node by USB. The **normal field-radio OTA ZIP** updates that same field node through compatible Nordic BLE DFU. The **Drone-... UF2 goes only on the separate RAK4631 Scout carried by the drone**. Never flash a Scout UF2 onto the field station.
 
 The Scout implementation remains on [Remote-Drone-Flashing-v2](https://github.com/canyoncountryadventure/firmware/tree/Remote-Drone-Flashing-v2) because that is the proven autonomous flasher code. The embedded payload version is identified by the **Drone-...-v4.uf2 filename and manifest**, not by the Scout branch name.
@@ -61,15 +71,15 @@ Every V4 target BUILD.txt records its exact **COMMIT**. Every V4 Scout .uf2.txt 
 
 Before relying on a drone update, verify those two commit values match. A successful CI build proves compilation and packaging; it does not replace an end-to-end physical DFU bench test for an inaccessible field node.
 
-## Heltec gateway — current companion firmware
+## Heltec gateway — V4 companion firmware
 
-The Heltec WiFi LoRa 32 **V4 hardware** is an ESP32-S3 gateway and is not a Nordic V4 field target. It does not use the RAK drone Scout or Nordic target UF2/OTA files above.
+The Heltec WiFi LoRa 32 **V4 hardware** uses separate ESP32-S3 **Heltec Gateway V4** firmware. It is not a Nordic field target and does not use the RAK drone Scout or Nordic UF2/OTA files above.
 
 | Gateway | Firmware | Build identity | Role |
 |---|---|---|---|
-| **Heltec Sensor Gateway v2**<br>Heltec WiFi LoRa 32 V4 OLED<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v2) | [**Download Heltec-Gateway-v2.zip**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Heltec-Gateway-v2.zip) | [Build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Heltec-Gateway-v2-BUILD.txt) | Mesh sensor ingestion, Wi-Fi HTTPS forwarding to Vercel/Neon, Wi-Fi OTA |
+| **Heltec Sensor Gateway V4**<br>Heltec WiFi LoRa 32 V4 OLED<br>[Source README](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v4) | [**Download Heltec-Gateway-v4.zip**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Heltec-Gateway-v4.zip) | [Build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/Heltec-Gateway-v4-BUILD.txt) | Mesh sensor ingestion, Wi-Fi HTTPS forwarding to Vercel/Neon, Wi-Fi OTA |
 
-Heltec's HTTPS upload path already uses a bounded 4-second HTTP timeout, and the shared radio recovery schedules a whole-node reboot after repeated SX1262 recovery failure. The nRF52 .noinit/LPCOMP/BLE hardening above is therefore not copied onto ESP32-S3.
+Heltec V4 retains its bounded 4-second HTTPS timeout, shared SX1262 recovery with whole-node reboot after repeated recovery failure, and native ESP32 Wi-Fi OTA. The nRF52 `.noinit`/LPCOMP/Bluefruit hardening above is intentionally not copied onto ESP32-S3.
 
 ## Other current specialized firmware
 
