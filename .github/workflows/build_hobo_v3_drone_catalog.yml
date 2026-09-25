@@ -170,9 +170,9 @@ jobs:
             git fetch origin Remote-Drone-Flashing-v2
             git reset --hard origin/Remote-Drone-Flashing-v2
             mkdir -p downloads
-            cp ../built/Drone-*-v3.uf2 downloads/
-            cp ../built/Drone-*-v3.uf2.txt downloads/
-            git add downloads/Drone-*-v3.uf2 downloads/Drone-*-v3.uf2.txt
+            cp ../built/Drone-*.uf2 downloads/
+            cp ../built/Drone-*.uf2.txt downloads/
+            git add downloads/Drone-*.uf2 downloads/Drone-*.uf2.txt
             if git diff --cached --quiet; then
               echo "V3 Scout catalog already current"
               exit 0
