@@ -410,7 +410,7 @@ ProcessMessage CCARockTelemetryModule::handleReceived(const meshtastic_MeshPacke
                  "HELP 4/5 ROCK\nROCK | ROCK STATUS | ROCK ADC | ROCK STATE | ROCK NOW | ROCK BANDS\nROCK CAL | ROCK CAL DRY | ROCK CAL WET | ROCK CAL STATUS | ROCK CAL CLEAR | ROCK HELP",
                  true);
         sendText(mp.from, mp.channel,
-                 "HELP 5/5 LOGGER\nLOGGER | READ | LOCK | UNLOCK\nCommands are case-insensitive; leading / is optional.",
+                 "HELP 5/5 LOGGER/UPDATE\nLOGGER | READ | LOCK | UNLOCK | DFU\nCase-insensitive; optional leading /.",
                  true);
         return ProcessMessage::CONTINUE;
     }
