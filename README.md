@@ -4,11 +4,16 @@
 
 | V3 target configuration | V3 target firmware/USB/OTA downloads | Matching V3 compressed drone image | Embedded target commit |
 |---|---|---|---|
+| Canonical RAK4631 V3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v3) | [**Download V3 Scout UF2**](downloads/Drone-Field-Self-Recovery-v3-RAK4631.uf2) | [Target commit manifest](downloads/Drone-Field-Self-Recovery-v3-RAK4631.uf2.txt) |
+| Canonical Seeed V3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery-v3) | [**Download V3 Scout UF2**](downloads/Drone-Field-Self-Recovery-v3-Seeed.uf2) | [Target commit manifest](downloads/Drone-Field-Self-Recovery-v3-Seeed.uf2.txt) |
 | RAK-HOBO-Safe-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/RAK-HOBO-Safe-v3) | [**Download V3 Scout UF2**](downloads/Drone-RAK-HOBO-Safe-v3.uf2) | [Target commit manifest](downloads/Drone-RAK-HOBO-Safe-v3.uf2.txt) |
 | RAK-Soil-Moisture-HOBO-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/RAK-Soil-Moisture-HOBO-v3) | [**Download V3 Scout UF2**](downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2) | [Target commit manifest](downloads/Drone-RAK-Soil-Moisture-HOBO-v3.uf2.txt) |
 | RAK-Water-Distance-HOBO-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v3) | [**Download V3 Scout UF2**](downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2) | [Target commit manifest](downloads/Drone-RAK-Water-Distance-HOBO-v3.uf2.txt) |
 | Seeed-HOBO-Safe-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/Seeed-HOBO-Safe-v3) | [**Download V3 Scout UF2**](downloads/Drone-Seeed-HOBO-Safe-v3.uf2) | [Target commit manifest](downloads/Drone-Seeed-HOBO-Safe-v3.uf2.txt) |
 | Seeed-Water-Distance-HOBO-v3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/Seeed-Water-Distance-HOBO-v3) | [**Download V3 Scout UF2**](downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2) | [Target commit manifest](downloads/Drone-Seeed-Water-Distance-HOBO-v3.uf2.txt) |
+| Trail PIR + Rock + HOBO V3 | [V3 target README](https://github.com/canyoncountryadventure/firmware/tree/Trail-Sensors-v3) | [**Download V3 Scout UF2**](downloads/Drone-Trail-PIR-Rock-HOBO-v3.uf2) | [Target commit manifest](downloads/Drone-Trail-PIR-Rock-HOBO-v3.uf2.txt) |
+
+**Before using a V3 Scout:** check that its target commit manifest matches the corresponding V3 target BUILD.txt in the field firmware catalog. After a target firmware change, the Scout must be rebuilt to embed the new application; an existing filename alone does not prove that it is current.
 
 **V3 normal target downloads:** [field firmware catalog](https://github.com/canyoncountryadventure/firmware/tree/field-self-recovery). The catalog labels V2 and V3 separately; every V3 target file has `-v3` in its filename.
 
