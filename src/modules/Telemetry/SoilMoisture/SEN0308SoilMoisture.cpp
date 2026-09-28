@@ -20,8 +20,17 @@
 namespace
 {
 static constexpr uint8_t SOIL_PIN = A1; // RAK19007 AIN1 -> RAK4631 P0.31/AIN7
-static constexpr uint16_t DRY_ADC10 = 580;
-static constexpr uint16_t WET_ADC10 = 0;
+// Field calibration from installed soil tests. Bench extremes (water ~= 0,
+// dry air ~= 928) are intentionally NOT used as soil-percent endpoints.
+static constexpr uint16_t DRY_ADC10 = 800; // bone-dry soil = 0%
+static constexpr uint16_t WET_ADC10 = 350; // soaked soil = 100%
+
+// Field-condition bands derived from observed lawn/soil behavior.
+static constexpr uint16_t SOAKED_MAX_ADC10 = 425;
+static constexpr uint16_t WET_MAX_ADC10 = 525;
+static constexpr uint16_t GOOD_MAX_ADC10 = 625;
+static constexpr uint16_t GETTING_DRY_MAX_ADC10 = 690;
+static constexpr uint16_t WATER_SOON_MAX_ADC10 = 750;
 static constexpr uint8_t SAMPLE_COUNT = 20;
 static constexpr uint32_t SAMPLE_DELAY_MS = 10;
 static constexpr uint32_t STARTUP_DELAY_MS = 30000UL;
@@ -62,6 +71,21 @@ bool commandEquals(const uint8_t *bytes, size_t size, const char *expected)
             return false;
     }
     return true;
+}
+
+const char *soilCondition(uint16_t adc10)
+{
+    if (adc10 <= SOAKED_MAX_ADC10)
+        return "SOAKED";
+    if (adc10 <= WET_MAX_ADC10)
+        return "WET";
+    if (adc10 <= GOOD_MAX_ADC10)
+        return "GOOD";
+    if (adc10 <= GETTING_DRY_MAX_ADC10)
+        return "GETTING DRY";
+    if (adc10 <= WATER_SOON_MAX_ADC10)
+        return "WATER SOON";
+    return "DRY/VERY DRY";
 }
 
 } // namespace
@@ -226,7 +250,8 @@ ProcessMessage SEN0308SoilMoistureModule::handleReceived(const meshtastic_MeshPa
 
     if (commandEquals(payload, payloadSize, "SOIL") || commandEquals(payload, payloadSize, "SOIL READ")) {
         const Reading reading = sample();
-        snprintf(reply, sizeof(reply), "SOIL: %u%% ADC10=%u", reading.moisturePercent, reading.adc10);
+        snprintf(reply, sizeof(reply), "SOIL: %u%% %s ADC10=%u",
+                 reading.moisturePercent, soilCondition(reading.adc10), reading.adc10);
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
@@ -234,8 +259,9 @@ ProcessMessage SEN0308SoilMoistureModule::handleReceived(const meshtastic_MeshPa
     if (commandEquals(payload, payloadSize, "SOIL STATUS")) {
         if (haveLastReading) {
             snprintf(reply, sizeof(reply),
-                     "SOIL STATUS: %u%% ADC10=%u auto=1h pin=AIN1 dry=%u wet=%u",
-                     lastReading.moisturePercent, lastReading.adc10, DRY_ADC10, WET_ADC10);
+                     "SOIL STATUS: %u%% %s ADC10=%u auto=1h pin=AIN1 dry=%u wet=%u",
+                     lastReading.moisturePercent, soilCondition(lastReading.adc10),
+                     lastReading.adc10, DRY_ADC10, WET_ADC10);
         } else {
             snprintf(reply, sizeof(reply),
                      "SOIL STATUS: waiting first sample auto=1h pin=AIN1 dry=%u wet=%u",
@@ -247,8 +273,8 @@ ProcessMessage SEN0308SoilMoistureModule::handleReceived(const meshtastic_MeshPa
 
     if (commandEquals(payload, payloadSize, "SOIL CAL")) {
         snprintf(reply, sizeof(reply),
-                 "SOIL CAL: 0%%=ADC10 %u (super-dry soil), 100%%=ADC10 %u (saturated); higher ADC=drier",
-                 DRY_ADC10, WET_ADC10);
+                 "SOIL CAL: 100%%=%u soaked, 450 wet, 578 good, 668 edge-dry, 730 water-soon, 0%%=%u bone-dry; higher=drier",
+                 WET_ADC10, DRY_ADC10);
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
@@ -257,8 +283,8 @@ ProcessMessage SEN0308SoilMoistureModule::handleReceived(const meshtastic_MeshPa
         const Reading reading = sample();
         const bool standardOk = sendTelemetry(reading);
         const bool rawOk = sendRawPacket(reading);
-        snprintf(reply, sizeof(reply), "SOIL TX: %u%% ADC10=%u telemetry=%s raw=%s",
-                 reading.moisturePercent, reading.adc10,
+        snprintf(reply, sizeof(reply), "SOIL TX: %u%% %s ADC10=%u telemetry=%s raw=%s",
+                 reading.moisturePercent, soilCondition(reading.adc10), reading.adc10,
                  standardOk ? "OK" : "FAIL", rawOk ? "OK" : "FAIL");
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
