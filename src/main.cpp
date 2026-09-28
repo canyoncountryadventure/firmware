@@ -1183,6 +1183,19 @@ void loop()
     }
 #endif
 
+#if defined(ARCH_ESP32) && defined(HELTEC_V4)
+    static const uint32_t heltecFieldBootMs = millis();
+    static bool heltecScheduledRebootArmed = true;
+    if (heltecScheduledRebootArmed &&
+        (uint32_t)(millis() - heltecFieldBootMs) >= (12UL * 60UL * 60UL * 1000UL)) {
+        heltecScheduledRebootArmed = false;
+        esp32FieldDiagEvent(5, 1, 0);
+        LOG_WARN("Heltec V4: 12-hour preventive reboot due");
+        if (rebootAtMsec == 0)
+            rebootAtMsec = millis() + 5000UL;
+    }
+#endif
+
 #ifdef DEBUG_STACK
     static uint32_t lastPrint = 0;
     if (!Throttle::isWithinTimespanMs(lastPrint, 10 * 1000L)) {

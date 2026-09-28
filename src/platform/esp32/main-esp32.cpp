@@ -14,16 +14,250 @@
 #include "mesh/wifi/WiFiAPClient.h"
 #endif
 
+#include "esp_attr.h"
 #include "esp_mac.h"
+#include "esp_system.h"
 #include "freertosinc.h"
 #include "meshUtils.h"
 #include "sleep.h"
 #include "soc/rtc.h"
 #include "target_specific.h"
 #include <Preferences.h>
+#include <cstring>
 #include <driver/rtc_io.h>
 #include <nvs.h>
 #include <nvs_flash.h>
+
+
+#if defined(HELTEC_V4)
+namespace
+{
+constexpr uint32_t HELTEC_FIELD_DIAG_MAGIC = 0x48445634UL; // "HDV4"
+
+struct HeltecFieldDiagRetained {
+    uint32_t magic;
+    uint32_t boots;
+    uint32_t lastAliveMs;
+    uint32_t previousUptimeMs;
+    uint32_t lastResetReason;
+    uint32_t eventBoot;
+    uint32_t eventUptimeMs;
+    uint32_t error;
+    uint8_t subsystem;
+    uint8_t operation;
+    uint16_t reserved;
+};
+
+RTC_NOINIT_ATTR HeltecFieldDiagRetained heltecFieldDiag;
+
+const char *heltecResetReasonName(uint32_t raw)
+{
+    switch (static_cast<esp_reset_reason_t>(raw)) {
+    case ESP_RST_POWERON:
+        return "POWERON";
+    case ESP_RST_EXT:
+        return "EXTERNAL";
+    case ESP_RST_SW:
+        return "SOFTWARE";
+    case ESP_RST_PANIC:
+        return "PANIC";
+    case ESP_RST_INT_WDT:
+        return "INT_WDT";
+    case ESP_RST_TASK_WDT:
+        return "TASK_WDT";
+    case ESP_RST_WDT:
+        return "WDT";
+    case ESP_RST_DEEPSLEEP:
+        return "DEEPSLEEP";
+    case ESP_RST_BROWNOUT:
+        return "BROWNOUT";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+bool heltecResetIsAbnormal(uint32_t raw)
+{
+    switch (static_cast<esp_reset_reason_t>(raw)) {
+    case ESP_RST_PANIC:
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:
+    case ESP_RST_BROWNOUT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+const char *heltecEventName(uint8_t subsystem, uint8_t operation)
+{
+    if (subsystem == 2 && operation == 3)
+        return "HOBO_RECOVERY";
+    if (subsystem == 3 && operation == 3)
+        return "RADIO_RECOVERY";
+    if (subsystem == 5 && operation == 1)
+        return "12H_REBOOT";
+    if (subsystem == 0)
+        return "NONE";
+    return "OTHER";
+}
+
+void heltecFieldDiagBoot(uint32_t rebootCounter)
+{
+    const bool retainedValid = heltecFieldDiag.magic == HELTEC_FIELD_DIAG_MAGIC;
+    const uint32_t previousBoot = retainedValid ? heltecFieldDiag.boots : 0;
+    const uint32_t previousUptime = retainedValid ? heltecFieldDiag.lastAliveMs : 0;
+    const uint8_t previousSubsystem = retainedValid ? heltecFieldDiag.subsystem : 0;
+    const uint8_t previousOperation = retainedValid ? heltecFieldDiag.operation : 0;
+    const uint32_t previousError = retainedValid ? heltecFieldDiag.error : 0;
+    const uint32_t previousEventBoot = retainedValid ? heltecFieldDiag.eventBoot : 0;
+    const uint32_t previousEventUptime = retainedValid ? heltecFieldDiag.eventUptimeMs : 0;
+    const uint32_t resetReason = static_cast<uint32_t>(esp_reset_reason());
+
+    Preferences diagPrefs;
+    diagPrefs.begin("heltecdiag", false);
+
+    // Persist only completed-boot snapshots. This is written once per boot,
+    // not continuously, and survives a later battery disconnect.
+    if (retainedValid && previousSubsystem != 0 && previousEventBoot == previousBoot) {
+        diagPrefs.putUInt("evBoot", previousEventBoot);
+        diagPrefs.putUInt("evUp", previousEventUptime);
+        diagPrefs.putUInt("evSub", previousSubsystem);
+        diagPrefs.putUInt("evOp", previousOperation);
+        diagPrefs.putUInt("evErr", previousError);
+    }
+    if (heltecResetIsAbnormal(resetReason)) {
+        diagPrefs.putUInt("abReset", resetReason);
+        diagPrefs.putUInt("abUp", previousUptime);
+        const bool eventFromFailedBoot =
+            retainedValid && previousSubsystem != 0 && previousEventBoot == previousBoot;
+        diagPrefs.putUInt("abSub", eventFromFailedBoot ? previousSubsystem : 0);
+        diagPrefs.putUInt("abOp", eventFromFailedBoot ? previousOperation : 0);
+        diagPrefs.putUInt("abErr", eventFromFailedBoot ? previousError : 0);
+    }
+    diagPrefs.end();
+
+    if (!retainedValid)
+        std::memset(&heltecFieldDiag, 0, sizeof(heltecFieldDiag));
+
+    heltecFieldDiag.magic = HELTEC_FIELD_DIAG_MAGIC;
+    heltecFieldDiag.boots = rebootCounter;
+    heltecFieldDiag.previousUptimeMs = previousUptime;
+    heltecFieldDiag.lastAliveMs = 0;
+    heltecFieldDiag.lastResetReason = resetReason;
+
+    LOG_WARN("Heltec V4 diag: boots=%lu reset=%s(%lu) prev=%lums event=%s err=%lu event_boot=%lu event_up=%lums",
+             static_cast<unsigned long>(heltecFieldDiag.boots), heltecResetReasonName(resetReason),
+             static_cast<unsigned long>(resetReason), static_cast<unsigned long>(previousUptime),
+             heltecEventName(heltecFieldDiag.subsystem, heltecFieldDiag.operation),
+             static_cast<unsigned long>(heltecFieldDiag.error), static_cast<unsigned long>(heltecFieldDiag.eventBoot),
+             static_cast<unsigned long>(heltecFieldDiag.eventUptimeMs));
+}
+} // namespace
+
+void esp32FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint32_t error)
+{
+    if (heltecFieldDiag.magic != HELTEC_FIELD_DIAG_MAGIC)
+        return;
+    heltecFieldDiag.subsystem = subsystem;
+    heltecFieldDiag.operation = operation;
+    heltecFieldDiag.error = error;
+    heltecFieldDiag.eventBoot = heltecFieldDiag.boots;
+    heltecFieldDiag.eventUptimeMs = millis();
+}
+
+void esp32FieldDiagPrint()
+{
+    if (heltecFieldDiag.magic != HELTEC_FIELD_DIAG_MAGIC) {
+        LOG_WARN("Heltec V4 diag unavailable");
+        return;
+    }
+    LOG_WARN("Heltec V4 diag: boots=%lu reset=%s(%lu) prev=%lums alive=%lums event=%s err=%lu event_boot=%lu event_up=%lums",
+             static_cast<unsigned long>(heltecFieldDiag.boots),
+             heltecResetReasonName(heltecFieldDiag.lastResetReason),
+             static_cast<unsigned long>(heltecFieldDiag.lastResetReason),
+             static_cast<unsigned long>(heltecFieldDiag.previousUptimeMs),
+             static_cast<unsigned long>(heltecFieldDiag.lastAliveMs),
+             heltecEventName(heltecFieldDiag.subsystem, heltecFieldDiag.operation),
+             static_cast<unsigned long>(heltecFieldDiag.error), static_cast<unsigned long>(heltecFieldDiag.eventBoot),
+             static_cast<unsigned long>(heltecFieldDiag.eventUptimeMs));
+}
+
+void esp32FieldDiagClear()
+{
+    if (heltecFieldDiag.magic == HELTEC_FIELD_DIAG_MAGIC) {
+        heltecFieldDiag.subsystem = 0;
+        heltecFieldDiag.operation = 0;
+        heltecFieldDiag.error = 0;
+        heltecFieldDiag.eventBoot = 0;
+        heltecFieldDiag.eventUptimeMs = 0;
+    }
+
+    Preferences diagPrefs;
+    diagPrefs.begin("heltecdiag", false);
+    diagPrefs.clear();
+    diagPrefs.end();
+    LOG_WARN("Heltec V4 diagnostics cleared");
+}
+
+void esp32FieldDiagFormat(char *out, size_t outSize)
+{
+    if (!out || outSize == 0)
+        return;
+    out[0] = '\0';
+
+    if (heltecFieldDiag.magic != HELTEC_FIELD_DIAG_MAGIC) {
+        snprintf(out, outSize, "HELTEC V4 DIAG unavailable");
+        return;
+    }
+
+    Preferences diagPrefs;
+    diagPrefs.begin("heltecdiag", true);
+    const uint32_t abnormalReset = diagPrefs.getUInt("abReset", 0);
+    const uint32_t abnormalUptime = diagPrefs.getUInt("abUp", 0);
+    const uint32_t savedEventBoot = diagPrefs.getUInt("evBoot", 0);
+    const uint32_t savedEventUptime = diagPrefs.getUInt("evUp", 0);
+    const uint8_t savedSubsystem = static_cast<uint8_t>(diagPrefs.getUInt("evSub", 0));
+    const uint8_t savedOperation = static_cast<uint8_t>(diagPrefs.getUInt("evOp", 0));
+    const uint32_t savedError = diagPrefs.getUInt("evErr", 0);
+    diagPrefs.end();
+
+    uint8_t eventSubsystem = heltecFieldDiag.subsystem;
+    uint8_t eventOperation = heltecFieldDiag.operation;
+    uint32_t eventError = heltecFieldDiag.error;
+    uint32_t eventBoot = heltecFieldDiag.eventBoot;
+    uint32_t eventUptime = heltecFieldDiag.eventUptimeMs;
+    if (eventSubsystem == 0 && savedSubsystem != 0) {
+        eventSubsystem = savedSubsystem;
+        eventOperation = savedOperation;
+        eventError = savedError;
+        eventBoot = savedEventBoot;
+        eventUptime = savedEventUptime;
+    }
+
+    if (abnormalReset != 0) {
+        snprintf(out, outSize,
+                 "HELTEC V4 DIAG\nBoots:%lu Reset:%s(%lu)\nPrev uptime:%lus\nEvent:%s err=%lu @%lus b%lu\nLast abnormal:%s @%lus",
+                 static_cast<unsigned long>(heltecFieldDiag.boots),
+                 heltecResetReasonName(heltecFieldDiag.lastResetReason),
+                 static_cast<unsigned long>(heltecFieldDiag.lastResetReason),
+                 static_cast<unsigned long>(heltecFieldDiag.previousUptimeMs / 1000UL),
+                 heltecEventName(eventSubsystem, eventOperation), static_cast<unsigned long>(eventError),
+                 static_cast<unsigned long>(eventUptime / 1000UL), static_cast<unsigned long>(eventBoot),
+                 heltecResetReasonName(abnormalReset), static_cast<unsigned long>(abnormalUptime / 1000UL));
+    } else {
+        snprintf(out, outSize,
+                 "HELTEC V4 DIAG\nBoots:%lu Reset:%s(%lu)\nPrev uptime:%lus\nEvent:%s err=%lu @%lus b%lu\nLast abnormal:none",
+                 static_cast<unsigned long>(heltecFieldDiag.boots),
+                 heltecResetReasonName(heltecFieldDiag.lastResetReason),
+                 static_cast<unsigned long>(heltecFieldDiag.lastResetReason),
+                 static_cast<unsigned long>(heltecFieldDiag.previousUptimeMs / 1000UL),
+                 heltecEventName(eventSubsystem, eventOperation), static_cast<unsigned long>(eventError),
+                 static_cast<unsigned long>(eventUptime / 1000UL), static_cast<unsigned long>(eventBoot));
+    }
+}
+#endif // HELTEC_V4
 
 // Weak empty variant shutdown prep function.
 // May be redefined by variant files.
@@ -156,6 +390,9 @@ void esp32Setup()
     if (hwven != HW_VENDOR)
         preferences.putUInt("hwVendor", HW_VENDOR);
     preferences.end();
+#if defined(HELTEC_V4)
+    heltecFieldDiagBoot(rebootCounter);
+#endif
     LOG_DEBUG("Number of Device Reboots: %d", rebootCounter);
 #if !MESHTASTIC_EXCLUDE_WIFI
     String version = MeshtasticOTA::getVersion();
@@ -196,6 +433,10 @@ void esp32Setup()
 void esp32Loop()
 {
     esp_task_wdt_reset(); // service our app level watchdog
+#if defined(HELTEC_V4)
+    if (heltecFieldDiag.magic == HELTEC_FIELD_DIAG_MAGIC)
+        heltecFieldDiag.lastAliveMs = millis();
+#endif
 
     // for debug printing
     // radio.radioIf.canSleep();

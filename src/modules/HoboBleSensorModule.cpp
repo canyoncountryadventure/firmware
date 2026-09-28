@@ -848,7 +848,7 @@ void initializeClient()
     loadLoggerLock();
     initialized = true;
     startScan();
-    LOG_INFO("CCA HOBO sensor enabled: MX2001 + MX2201 + MX2203; LOGGER/READ/LOCK/UNLOCK");
+    LOG_INFO("CCA HOBO sensor enabled: MX2001 + MX2201 + MX2203; LOGGER/READ/LOCK/UNLOCK/DIAG");
 }
 
 bool parseCommand(const uint8_t *bytes, size_t size, char command[16], char argument[32])
@@ -964,6 +964,26 @@ ProcessMessage HoboBleSensorModule::handleReceived(const meshtastic_MeshPacket &
     char argument[32] = {};
     if (!parseCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, command, argument))
         return ProcessMessage::CONTINUE;
+
+    if (strcmp(command, "DIAG") == 0 || strcmp(command, "CRASHLOG") == 0) {
+        char reply[230] = {};
+        esp32FieldDiagFormat(reply, sizeof(reply));
+        esp32FieldDiagPrint();
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (strcmp(command, "CLEAR") == 0 && strcmp(argument, "DIAG") == 0) {
+        esp32FieldDiagClear();
+        sendTextReply(mp.from, mp.channel, "HELTEC V4 DIAG cleared");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (strcmp(command, "WATCHDOG") == 0) {
+        sendTextReply(mp.from, mp.channel,
+                      "HELTEC V4 WATCHDOG\nTask watchdog:90s\nPreventive reboot:12h\nDIAG:RTC retained + boot snapshot");
+        return ProcessMessage::CONTINUE;
+    }
 
     if (strcmp(command, "LOGGER") == 0) {
         char reply[230] = {};
@@ -1381,6 +1401,7 @@ int32_t HoboBleSensorModule::runOnce()
         } else {
             ++consecutiveStatusTimeouts;
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
+                esp32FieldDiagEvent(2, 3, consecutiveStatusTimeouts);
                 statusTrackingAvailable = false;
                 nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
                 LOG_WARN("CCA HOBO: STATUS unavailable; automatic TX PAUSED");
@@ -1432,6 +1453,7 @@ int32_t HoboBleSensorModule::runOnce()
         if (reached(now, stateDueMs)) {
             ++consecutiveStatusTimeouts;
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
+                esp32FieldDiagEvent(2, 3, consecutiveStatusTimeouts);
                 statusTrackingAvailable = false;
                 nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
                 LOG_WARN("CCA HOBO: pointer tracking unavailable; automatic TX PAUSED");

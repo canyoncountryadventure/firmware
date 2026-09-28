@@ -98,6 +98,13 @@ extern bool pauseBluetoothLogging;
 
 void nrf52Setup(), esp32Setup(), nrf52Loop(), esp32Loop(), rp2040Setup(), clearBonds(), enterDfuMode();
 
+#if defined(ARCH_ESP32) && defined(HELTEC_V4)
+void esp32FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint32_t error);
+void esp32FieldDiagPrint();
+void esp32FieldDiagClear();
+void esp32FieldDiagFormat(char *out, size_t outSize);
+#endif
+
 meshtastic_DeviceMetadata getDeviceMetadata();
 #if !MESHTASTIC_EXCLUDE_I2C
 void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, ScanI2C::DeviceType deviceType,

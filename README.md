@@ -102,3 +102,19 @@ The Heltec V4 uses the Meshtastic Unified OTA flow. Do not erase flash for routi
 6. GitHub Actions is the normal build path; Wi-Fi OTA is the normal Heltec flash path.
 
 See [`docs/CCA_HELTEC_SENSOR_GATEWAY.md`](docs/CCA_HELTEC_SENSOR_GATEWAY.md) for the operational specification and [`docs/BRANCH_MAP.md`](docs/BRANCH_MAP.md) for branch status.
+
+
+## V4 self-recovery and diagnostics
+
+Heltec Gateway V4 now carries platform-appropriate field recovery instead of the Nordic-only recovery code:
+
+- 90-second ESP32 task watchdog for a stalled main loop;
+- automatic whole-node recovery after repeated SX1262 recovery failure;
+- a preventive reboot every 12 hours on the Heltec V4 gateway;
+- RTC-retained previous-boot uptime and failure breadcrumbs across warm/watchdog/software resets;
+- a small `heltecdiag` NVS snapshot written at boot so the latest abnormal-reset/event record can survive a later power disconnect;
+- `DIAG` or `CRASHLOG` by Meshtastic DM returns boot count, reset reason, previous uptime, last recovery event, and last abnormal reset;
+- `CLEAR DIAG` clears only the dedicated diagnostic namespace and does not erase Meshtastic configuration;
+- `WATCHDOG` reports the active 90-second watchdog and 12-hour preventive reboot policy.
+
+Diagnostic event attribution currently records HOBO STATUS-recovery exhaustion, SX1262 recovery exhaustion, and intentional 12-hour maintenance reboots. An uninstrumented hard freeze is still identified by the ESP32 reset reason (for example `TASK_WDT`) even when there was no subsystem breadcrumb immediately before it.

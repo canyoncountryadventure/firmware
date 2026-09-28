@@ -681,6 +681,10 @@ bool RadioLibInterface::maybeRecoverChipStateLoss()
         LOG_ERROR("Radio recovery exhausted; forcing whole-node recovery");
 #if defined(ARCH_NRF52) && defined(FIELD_RECOVERY_V2)
         nrf52FieldWatchdogTrip();
+#elif defined(ARCH_ESP32) && defined(HELTEC_V4)
+        esp32FieldDiagEvent(3, 3, chipRecoveryFailures);
+        if (rebootAtMsec == 0)
+            rebootAtMsec = millis() + 2000UL;
 #else
         if (rebootAtMsec == 0)
             rebootAtMsec = millis() + 2000UL;
