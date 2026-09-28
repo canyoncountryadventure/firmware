@@ -92,36 +92,51 @@ Do not connect the SEN0308 red lead to `BAT`/`VBAT`. `BAT` is the raw single-cel
 
 The UF2 is USB-only. The OTA ZIP is BLE-only. If a legacy BLE update reaches 100% but stalls during validation/activation, stop retrying and recover with the UF2 over USB. Routine updates should not use a factory-erase image.
 
-## SEN0308 field calibration
+## Soil field calibration
 
-Calibration was measured on this exact SEN0308 + RAK4631/RAK19007 setup at 10-bit ADC resolution.
+The active V4 field calibration is based on **real soil behavior**, not the sensor's open-air/water electrical extremes.
 
-| Condition | Measured ADC10 |
+| Observed condition | ADC10 |
 |---|---:|
-| Dry air | ~634 |
-| Super-dry soil | ~580 |
-| Slightly moist soil | ~294 |
-| Wet/saturated soil | ~0 |
-| Water | ~0 |
+| Soaked soil | **350** |
+| Wet soil | **450** |
+| Good mid-range moisture | **578** |
+| Edge of moist / getting dry | **668** |
+| Lawn needs watering | **730** |
+| Bone-dry soil | **800** |
+| Dry air bench extreme | ~928 |
+| Water bench extreme | ~0 |
 
-The field scale intentionally uses **soil endpoints**, not dry air:
+The firmware percentage scale intentionally uses the **soil endpoints**:
 
-- **0% moisture = ADC10 580**
-- **100% moisture = ADC10 0**
+- **100% moisture = ADC10 350**
+- **0% moisture = ADC10 800**
 - Higher ADC = drier
 - Lower ADC = wetter
+- ADC values below 350 clamp to 100%; values above 800 clamp to 0%.
 
 Conversion:
 
 ```text
-moisture_percent = clamp((580 - ADC10) / 580 * 100, 0, 100)
+moisture_percent = clamp((800 - ADC10) / (800 - 350) * 100, 0, 100)
 ```
+
+Field-condition labels used in DM replies:
+
+| ADC10 range | DM condition |
+|---:|---|
+| <= 425 | **SOAKED** |
+| 426–525 | **WET** |
+| 526–625 | **GOOD** |
+| 626–690 | **GETTING DRY** |
+| 691–750 | **WATER SOON** |
+| > 750 | **DRY/VERY DRY** |
 
 The firmware averages **20 analog samples** separated by **10 ms** before calculating moisture.
 
-Because saturated soil and open water both drive this sensor close to zero, the sensor should be treated as a soil-moisture indicator, not as a way to distinguish saturated soil from standing water.
+The dry-air (~928) and water (~0) readings are retained as useful electrical checks, but they are deliberately excluded from the displayed soil-moisture percentage because they are not realistic soil endpoints.
 
-The reported percentage is a field-calibrated moisture index, **not laboratory volumetric water content**. Soil texture, salinity, temperature, installation contact and sensor-to-sensor variation can shift the response. Preserve and use `ADC10` when comparing sites or refining calibration.
+The reported percentage is a field-calibrated moisture index, **not laboratory volumetric water content**. Preserve and use `ADC10` when comparing sites or refining calibration.
 
 ## Soil telemetry
 
@@ -149,7 +164,7 @@ Current fixed behavior:
 
 - Automatic soil interval: **1 hour**.
 - Automatic soil output channel: **Meshtastic channel 0**.
-- Calibration endpoints: **ADC10 580 = 0%**, **ADC10 0 = 100%**.
+- Calibration endpoints: **ADC10 800 = 0%**, **ADC10 350 = 100%**.
 - `SOIL CAL` reports the endpoints; it does not modify them.
 - `SOIL READ` replies only by DM and does not create an automatic telemetry event.
 - `SOIL TX` forces both the standard telemetry packet and the raw packet.
@@ -178,11 +193,11 @@ Send commands as a direct Meshtastic text message to the node. Commands are case
 
 | Command | What it does |
 |---|---|
-| `SOIL` | Takes a fresh soil reading and replies with moisture % and raw ADC10. |
+| `SOIL` | Takes a fresh soil reading and replies with moisture %, field-condition text, and raw ADC10. |
 | `SOIL READ` | Same as `SOIL`. DM-only; does not create an automatic telemetry event. |
-| `SOIL STATUS` | Shows the last reading, automatic interval, input pin and calibration endpoints. |
-| `SOIL TX` | Takes a fresh reading, broadcasts standard soil telemetry + raw packet, and reports TX status by DM. |
-| `SOIL CAL` | Shows the active dry/wet calibration and sensor direction. |
+| `SOIL STATUS` | Shows the last reading with field-condition text, automatic interval, input pin and calibration endpoints. |
+| `SOIL TX` | Takes a fresh reading, broadcasts standard soil telemetry + raw packet, and reports the field condition plus TX status by DM. |
+| `SOIL CAL` | Shows the active 350–800 field calibration plus the observed wet/good/dry/watering reference points. |
 | `SOIL HELP` | Lists every soil command; bare `HELP` also includes the full soil group. |
 
 ### HOBO commands
@@ -256,7 +271,7 @@ BLE
 STATUS
 ```
 
-For soil validation, compare `SOIL READ` against known conditions. The original bench points were approximately 580 in super-dry soil, 294 in slightly moist soil, and 0 in saturated soil.
+For soil validation, compare `SOIL READ` against the current field references: about 350 soaked, 450 wet, 578 good mid-range, 668 on the moist/dry edge, 730 needing watering, and 800 bone dry.
 
 For HOBO validation, lock the correct logger, reboot, confirm `LOGGER` restores the assignment, then wait through at least one real logger interval and verify automatic telemetry occurs only after the next logger record.
 
@@ -264,8 +279,8 @@ For HOBO validation, lock the correct logger, reboot, confirm `LOGGER` restores 
 
 | Check | Required result |
 |---|---|
-| `SOIL READ` in dry soil | Plausible low percentage and stable ADC10 near the dry calibration range. |
-| `SOIL READ` in moist soil | Lower ADC10 and higher percentage than the dry test. |
+| `SOIL READ` in dry soil | Plausible low percentage, a dry-condition text label, and stable ADC10 near 730–800. |
+| `SOIL READ` in moist soil | Lower ADC10, higher percentage, and a matching WET/GOOD condition label. |
 | `SOIL TX` | DM reports `telemetry=OK raw=OK`; receiver/dashboard gets the standard soil packet. |
 | Reboot | Meshtastic identity, channel configuration and locked HOBO assignment remain intact. |
 | One-hour run | A new automatic soil telemetry event is received. |
