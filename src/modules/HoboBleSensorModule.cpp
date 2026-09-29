@@ -166,6 +166,7 @@ bool haveStatusBaseline = false;
 bool statusTrackingAvailable = true;
 bool intervalPhaseLocked = false;
 uint8_t consecutiveStatusTimeouts = 0;
+uint8_t bleRecoveryCycles = 0;
 uint32_t nextStatusCheckMs = 0;
 uint32_t pendingPointerDetectedMs = 0;
 uint32_t lastAutomaticTxMs = 0;
@@ -674,6 +675,34 @@ void startScan()
 #endif
     scanStartedMs = millis();
     LOG_INFO("CCA HOBO: scanning%s", loggerLockEnabled ? " for locked logger" : " for supported loggers");
+}
+
+void triggerBleRecovery(const char *reason)
+{
+    ++bleRecoveryCycles;
+    LOG_ERROR("CCA HOBO: BLE recovery cycle %u: %s", bleRecoveryCycles, reason ? reason : "unspecified");
+    esp32FieldDiagEvent(2, 3, bleRecoveryCycles);
+
+    // Match RAK V4: tear down the stale central connection and let the
+    // existing disconnect handler reset state, rescan, and reconnect to the
+    // persisted logger lock. If NimBLE already considers the link down,
+    // perform that reset/rescan immediately.
+    state = HoboState::IDLE;
+    statusTrackingAvailable = false;
+    nextStatusCheckMs = 0;
+
+    if (bleRecoveryCycles >= 5) {
+        LOG_ERROR("CCA HOBO: BLE recovery exhausted; scheduling whole-node reboot");
+        if (rebootAtMsec == 0)
+            rebootAtMsec = millis() + 5000UL;
+    }
+
+    if (hoboClient && hoboClient->isConnected()) {
+        hoboClient->disconnect();
+    } else {
+        resetConnectionState();
+        startScan();
+    }
 }
 
 bool chooseUnlockedCandidate()
@@ -1401,14 +1430,12 @@ int32_t HoboBleSensorModule::runOnce()
         } else {
             ++consecutiveStatusTimeouts;
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
-                esp32FieldDiagEvent(2, 3, consecutiveStatusTimeouts);
-                statusTrackingAvailable = false;
-                nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
-                LOG_WARN("CCA HOBO: STATUS unavailable; automatic TX PAUSED");
+                LOG_ERROR("CCA HOBO: STATUS writes failed repeatedly; rebuilding BLE link");
+                triggerBleRecovery("STATUS write failures");
             } else {
                 nextStatusCheckMs = now + 1000;
+                state = HoboState::READY;
             }
-            state = HoboState::READY;
         }
         break;
 
@@ -1416,6 +1443,7 @@ int32_t HoboBleSensorModule::runOnce()
         if (statusReady) {
             statusReady = false;
             consecutiveStatusTimeouts = 0;
+            bleRecoveryCycles = 0;
             statusTrackingAvailable = true;
             if (!haveStatusBaseline) {
                 haveStatusBaseline = true;
@@ -1452,12 +1480,10 @@ int32_t HoboBleSensorModule::runOnce()
         }
         if (reached(now, stateDueMs)) {
             ++consecutiveStatusTimeouts;
+            LOG_WARN("CCA HOBO: STATUS timeout %u/%u", consecutiveStatusTimeouts, STATUS_TIMEOUT_LIMIT);
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
-                esp32FieldDiagEvent(2, 3, consecutiveStatusTimeouts);
-                statusTrackingAvailable = false;
-                nextStatusCheckMs = now + STATUS_RECOVERY_RETRY_MS;
-                LOG_WARN("CCA HOBO: pointer tracking unavailable; automatic TX PAUSED");
-                state = HoboState::READY;
+                LOG_ERROR("CCA HOBO: STATUS responses stale; rebuilding BLE link");
+                triggerBleRecovery("STATUS response timeouts");
             } else {
                 state = HoboState::SEND_STATUS;
                 stateDueMs = now + 1000;
