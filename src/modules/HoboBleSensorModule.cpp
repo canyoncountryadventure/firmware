@@ -1088,7 +1088,9 @@ ProcessMessage HoboBleSensorModule::handleReceived(const meshtastic_MeshPacket &
 
     if (strcmp(command, "LOGGER") == 0) {
         char reply[230] = {};
-        if (connected) {
+        if (bleCollectionSuspended) {
+            snprintf(reply, sizeof(reply), "HOBO BLE PAUSED\\nMesh/cloud active\\nUNLOCK to retry");
+        } else if (connected) {
             snprintf(reply, sizeof(reply), "HOBO CONNECTED\nModel: %s\nMAC: %s\nBLE: %d dBm\nInterval: %s\nLock: %s",
                      loggerTypeName(loggerType), loggerMac, loggerBleRssi,
                      loggerIntervalSeconds ? String(loggerIntervalSeconds).c_str() : "detecting",
@@ -1169,6 +1171,10 @@ ProcessMessage HoboBleSensorModule::handleReceived(const meshtastic_MeshPacket &
     if (strcmp(command, "READ") != 0)
         return ProcessMessage::CONTINUE;
 
+    if (bleCollectionSuspended || writeWorkerStallLogged) {
+        sendTextReply(mp.from, mp.channel, "HOBO BLE unavailable; mesh/cloud gateway remains online");
+        return ProcessMessage::CONTINUE;
+    }
     if (!connected || !serviceReady) {
         sendTextReply(mp.from, mp.channel, "HOBO unavailable");
         return ProcessMessage::CONTINUE;
@@ -1328,25 +1334,27 @@ int32_t HoboBleSensorModule::runOnce()
         }
     }
 
-    if (bleCollectionSuspended) {
-        if (NimBLEDevice::getScan()->isScanning())
-            NimBLEDevice::getScan()->stop();
-        return 1000;
-    }
-
     if (clientConnectFailedEvent.exchange(false)) {
         LOG_WARN("CCA HOBO: connect failed reason=%d", clientDisconnectReason.load());
         rejectCurrentCandidate(TRANSIENT_RETRY_MS);
         resetConnectionState();
-        startScan();
+        if (!bleCollectionSuspended)
+            startScan();
         return 250;
     }
 
     if (clientDisconnectedEvent.exchange(false)) {
         LOG_WARN("CCA HOBO: disconnected reason=%d", clientDisconnectReason.load());
         resetConnectionState();
-        startScan();
+        if (!bleCollectionSuspended)
+            startScan();
         return 250;
+    }
+
+    if (bleCollectionSuspended) {
+        if (NimBLEDevice::getScan()->isScanning())
+            NimBLEDevice::getScan()->stop();
+        return 1000; // Keep mesh reception, HTTPS uploads, and phone commands alive.
     }
 
     if (readFailureReplyPending && readRequester) {
