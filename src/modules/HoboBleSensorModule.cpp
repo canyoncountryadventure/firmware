@@ -864,16 +864,18 @@ bool sendCommand(const uint8_t *command, size_t length, const char *name)
     if (!connected || !serviceReady || !hoboCharacteristic || bleCollectionSuspended)
         return false;
 
-    // Prefer the nonblocking BLE write command when the characteristic supports it.
-    if (hoboCharacteristic->canWriteNoResponse()) {
+    // Preserve the established write-with-response protocol where supported,
+    // but execute its potentially unlimited wait only in the isolated worker.
+    if (!hoboCharacteristic->canWrite()) {
+        if (!hoboCharacteristic->canWriteNoResponse())
+            return false;
         if (!hoboCharacteristic->writeValue(command, length, false)) {
             LOG_WARN("CCA HOBO: %s no-response write failed", name);
             return false;
         }
         return true;
     }
-    if (!hoboCharacteristic->canWrite() || length > sizeof(writeWorkerBytes) ||
-        writeWorkerActive.load(std::memory_order_acquire)) {
+    if (length > sizeof(writeWorkerBytes) || writeWorkerActive.load(std::memory_order_acquire)) {
         LOG_WARN("CCA HOBO: %s write unavailable/busy", name);
         return false;
     }
