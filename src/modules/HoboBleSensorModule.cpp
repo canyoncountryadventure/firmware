@@ -133,6 +133,14 @@ std::atomic<bool> clientConnectFailedEvent{false};
 std::atomic<int> clientDisconnectReason{0};
 std::atomic<bool> connectWorkerFinished{false};
 std::atomic<bool> connectWorkerSucceeded{false};
+std::atomic<bool> writeWorkerActive{false};
+std::atomic<bool> writeWorkerFinished{false};
+std::atomic<bool> writeWorkerSucceeded{false};
+uint8_t writeWorkerBytes[32] = {};
+size_t writeWorkerLength = 0;
+uint32_t writeWorkerStartedMs = 0;
+bool writeWorkerStallLogged = false;
+bool bleCollectionSuspended = false;
 
 bool candidatePending = false;
 char pendingCandidateMac[18] = {};
@@ -700,16 +708,17 @@ void triggerBleRecovery(const char *reason)
     nextStatusCheckMs = 0;
 
     if (bleRecoveryCycles >= 5) {
-        LOG_ERROR("CCA HOBO: BLE recovery exhausted; scheduling whole-node reboot");
-        if (rebootAtMsec == 0)
-            rebootAtMsec = millis() + 5000UL;
+        // A failed local sensor must never reboot an otherwise healthy cloud/mesh gateway.
+        bleCollectionSuspended = true;
+        LOG_ERROR("CCA HOBO: five BLE recoveries exhausted; local reader suspended, mesh/cloud remain online");
     }
 
     if (hoboClient && hoboClient->isConnected()) {
         hoboClient->disconnect();
     } else {
         resetConnectionState();
-        startScan();
+        if (!bleCollectionSuspended)
+            startScan();
     }
 }
 
@@ -839,17 +848,48 @@ bool finishServiceDiscovery()
     return true;
 }
 
+// NimBLE 1.4.3 uses portMAX_DELAY for a write-with-response. A stuck HOBO
+// must not block the Meshtastic task, even after a successful BLE connection.
+void hoboWriteWorker(void *)
+{
+    NimBLERemoteCharacteristic *characteristic = hoboCharacteristic;
+    const bool ok = characteristic && characteristic->writeValue(writeWorkerBytes, writeWorkerLength, true);
+    writeWorkerSucceeded.store(ok, std::memory_order_release);
+    writeWorkerFinished.store(true, std::memory_order_release);
+    vTaskDelete(nullptr);
+}
+
 bool sendCommand(const uint8_t *command, size_t length, const char *name)
 {
-    if (!connected || !serviceReady || !hoboCharacteristic)
+    if (!connected || !serviceReady || !hoboCharacteristic || bleCollectionSuspended)
         return false;
-    const bool response = hoboCharacteristic->canWrite();
-    if (!response && !hoboCharacteristic->canWriteNoResponse()) {
-        LOG_WARN("CCA HOBO: characteristic is not writable");
+
+    // Prefer the nonblocking BLE write command when the characteristic supports it.
+    if (hoboCharacteristic->canWriteNoResponse()) {
+        if (!hoboCharacteristic->writeValue(command, length, false)) {
+            LOG_WARN("CCA HOBO: %s no-response write failed", name);
+            return false;
+        }
+        return true;
+    }
+    if (!hoboCharacteristic->canWrite() || length > sizeof(writeWorkerBytes) ||
+        writeWorkerActive.load(std::memory_order_acquire)) {
+        LOG_WARN("CCA HOBO: %s write unavailable/busy", name);
         return false;
     }
-    if (!hoboCharacteristic->writeValue(command, length, response)) {
-        LOG_WARN("CCA HOBO: %s write failed", name);
+
+    // For devices requiring write acknowledgments, isolate the unlimited GATT
+    // wait in a separate worker. The HOBO state machine awaits its completion.
+    memcpy(writeWorkerBytes, command, length);
+    writeWorkerLength = length;
+    writeWorkerStartedMs = millis();
+    writeWorkerStallLogged = false;
+    writeWorkerFinished.store(false, std::memory_order_release);
+    writeWorkerSucceeded.store(false, std::memory_order_release);
+    writeWorkerActive.store(true, std::memory_order_release);
+    if (xTaskCreate(hoboWriteWorker, "hobo_write", 6144, nullptr, 2, nullptr) != pdPASS) {
+        writeWorkerActive.store(false, std::memory_order_release);
+        LOG_ERROR("CCA HOBO: %s could not start GATT write worker", name);
         return false;
     }
     return true;
@@ -1063,6 +1103,11 @@ ProcessMessage HoboBleSensorModule::handleReceived(const meshtastic_MeshPacket &
             snprintf(reply + used, sizeof(reply) - used, "\nBLE:%s Scan:%s",
                      bleReady ? "ON" : "OFF",
                      connecting ? "CONNECTING" : (scanRunning ? "RUNNING" : "STOPPED"));
+        const size_t usedGATT = strlen(reply);
+        if (usedGATT + 30 < sizeof(reply))
+            snprintf(reply + usedGATT, sizeof(reply) - usedGATT, "\nGATT:%s%s",
+                     writeWorkerActive.load() ? (writeWorkerStallLogged ? "STALLED" : "BUSY") : "IDLE",
+                     bleCollectionSuspended ? " BLE:PAUSED" : "");
         appendSeenList(reply, sizeof(reply));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
@@ -1107,6 +1152,12 @@ ProcessMessage HoboBleSensorModule::handleReceived(const meshtastic_MeshPacket &
 
     if (strcmp(command, "UNLOCK") == 0) {
         clearLoggerLock();
+        if (!writeWorkerActive.load(std::memory_order_acquire)) {
+            bleCollectionSuspended = false;
+            bleRecoveryCycles = 0;
+            if (initialized && !connected && !connecting)
+                startScan();
+        }
         sendTextReply(mp.from, mp.channel, "LOGGER UNLOCKED\nScanning supported HOBOs");
         if (connected && hoboClient)
             hoboClient->disconnect();
@@ -1253,6 +1304,32 @@ int32_t HoboBleSensorModule::runOnce()
             startScan();
             return 250;
         }
+    }
+
+    // A logger's acknowledged GATT write can block forever in NimBLE 1.4.3.
+    // Wait only inside this HOBO task; the gateway main loop keeps running.
+    if (writeWorkerActive.load(std::memory_order_acquire) &&
+        !writeWorkerFinished.load(std::memory_order_acquire)) {
+        if (!writeWorkerStallLogged && (uint32_t)(now - writeWorkerStartedMs) > 10000UL) {
+            writeWorkerStallLogged = true;
+            esp32FieldDiagEvent(2, 4, now - writeWorkerStartedMs);
+            LOG_ERROR("CCA HOBO: GATT write stuck >10s; local reader stalled, mesh/cloud unaffected");
+        }
+        return 100;
+    }
+    if (writeWorkerFinished.exchange(false, std::memory_order_acq_rel)) {
+        const bool writeOk = writeWorkerSucceeded.exchange(false, std::memory_order_acq_rel);
+        writeWorkerActive.store(false, std::memory_order_release);
+        if (!writeOk) {
+            triggerBleRecovery("GATT write failed");
+            return 250;
+        }
+    }
+
+    if (bleCollectionSuspended) {
+        if (NimBLEDevice::getScan()->isScanning())
+            NimBLEDevice::getScan()->stop();
+        return 1000;
     }
 
     if (clientConnectFailedEvent.exchange(false)) {
