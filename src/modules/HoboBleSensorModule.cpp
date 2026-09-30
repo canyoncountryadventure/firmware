@@ -13,6 +13,8 @@
 #include "pb_encode.h"
 
 #include <NimBLEDevice.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <atomic>
 #include <cctype>
 #include <cmath>
@@ -129,6 +131,8 @@ std::atomic<bool> clientConnectedEvent{false};
 std::atomic<bool> clientDisconnectedEvent{false};
 std::atomic<bool> clientConnectFailedEvent{false};
 std::atomic<int> clientDisconnectReason{0};
+std::atomic<bool> connectWorkerFinished{false};
+std::atomic<bool> connectWorkerSucceeded{false};
 
 bool candidatePending = false;
 char pendingCandidateMac[18] = {};
@@ -449,7 +453,7 @@ class HoboScanCallbacks : public NimBLEAdvertisedDeviceCallbacks
             pendingCandidateLikelyMX2001 = info.likelyMX2001;
             pendingCandidateLikelyMX2203 = info.likelyMX2203;
             candidatePending = true;
-            NimBLEDevice::getScan()->stop();
+            // Scanner stop belongs to the Meshtastic task, not the NimBLE host callback.
         }
     }
 };
@@ -664,17 +668,21 @@ void startScan()
 #else
     scan->setAdvertisedDeviceCallbacks(&scanCallbacks, false);
 #endif
-    scan->setActiveScan(true);
-    scan->setInterval(160);
-    scan->setWindow(80);
-#ifdef NIMBLE_TWO
+    // RAK V4's passive 10% scan avoids unnecessary ESP32 Wi-Fi/BLE contention.
+    scan->setActiveScan(false);
+    scan->setInterval(320);
+    scan->setWindow(32);
     scan->setMaxResults(0);
-    scan->start(0, false, true);
+#ifdef NIMBLE_TWO
+    const bool started = scan->start(0, false, true);
 #else
-    scan->start(0, nullptr, false);
+    const bool started = scan->start(0, nullptr, false);
 #endif
     scanStartedMs = millis();
-    LOG_INFO("CCA HOBO: scanning%s", loggerLockEnabled ? " for locked logger" : " for supported loggers");
+    if (!started)
+        LOG_WARN("CCA HOBO: BLE scan start FAILED");
+    else
+        LOG_INFO("CCA HOBO: passive scanning%s", loggerLockEnabled ? " for locked logger" : " for supported loggers");
 }
 
 void triggerBleRecovery(const char *reason)
@@ -748,12 +756,45 @@ bool takePendingCandidate()
     return true;
 }
 
+// NimBLE-Arduino 1.4.3 connect() can block for 31 seconds. Never block
+// Meshtastic's cooperative main loop (mesh RX/TX and gateway upload).
+void hoboConnectWorker(void *)
+{
+    NimBLEClient *client = hoboClient;
+    const NimBLEAddress address(loggerMac, loggerAddressType);
+    bool ok = false;
+    if (client) {
+#ifdef NIMBLE_TWO
+        client->setConnectTimeout(10000); // NimBLE 2: milliseconds
+        ok = client->connect(address, true, false, true); // synchronous only in worker
+#else
+        client->setConnectTimeout(10); // Pinned NimBLE 1.4.3: seconds
+        ok = client->connect(address, true);
+#endif
+        if (ok && client->isConnected()) {
+            NimBLERemoteService *remoteService = client->getService(HOBO_SERVICE_UUID);
+            NimBLERemoteCharacteristic *characteristic =
+                remoteService ? remoteService->getCharacteristic(HOBO_CHAR_UUID) : nullptr;
+            ok = characteristic && characteristic->subscribe(true, notificationCallback, true);
+            if (ok)
+                hoboCharacteristic = characteristic;
+        } else {
+            ok = false;
+        }
+        if (!ok && client->isConnected())
+            client->disconnect();
+    }
+    connectWorkerSucceeded.store(ok, std::memory_order_release);
+    connectWorkerFinished.store(true, std::memory_order_release);
+    vTaskDelete(nullptr);
+}
+
 bool beginConnect()
 {
     if (!takePendingCandidate())
         return false;
 
-    NimBLEDevice::getScan()->stop();
+    NimBLEDevice::getScan()->stop(); // Outside the NimBLE host callback.
     if (!hoboClient) {
         hoboClient = NimBLEDevice::createClient();
         if (!hoboClient)
@@ -761,34 +802,23 @@ bool beginConnect()
         hoboClient->setClientCallbacks(&clientCallbacks, false);
     }
 
-    const NimBLEAddress address(loggerMac, loggerAddressType);
     connecting = true;
-#ifdef NIMBLE_TWO
-    if (!hoboClient->connect(address, true, true, true)) {
-#else
-    if (!hoboClient->connect(address, true)) {
-#endif
+    connectWorkerFinished.store(false, std::memory_order_release);
+    connectWorkerSucceeded.store(false, std::memory_order_release);
+    if (xTaskCreate(hoboConnectWorker, "hobo_link", 8192, nullptr, 2, nullptr) != pdPASS) {
         connecting = false;
         rejectCurrentCandidate(TRANSIENT_RETRY_MS);
+        LOG_ERROR("CCA HOBO: unable to create BLE connection worker");
         return false;
     }
-
-    LOG_INFO("CCA HOBO: connecting %s RSSI=%d", loggerMac, loggerBleRssi);
+    LOG_INFO("CCA HOBO: connection worker started for %s RSSI=%d", loggerMac, loggerBleRssi);
     return true;
 }
 
 bool finishServiceDiscovery()
 {
-    if (!hoboClient || !hoboClient->isConnected())
-        return false;
-
-    NimBLERemoteService *service = hoboClient->getService(HOBO_SERVICE_UUID);
-    if (!service)
-        return false;
-    hoboCharacteristic = service->getCharacteristic(HOBO_CHAR_UUID);
-    if (!hoboCharacteristic)
-        return false;
-    if (!hoboCharacteristic->subscribe(true, notificationCallback, true))
+    // Connection, GATT discovery and subscription already finished in worker.
+    if (!hoboClient || !hoboClient->isConnected() || !hoboCharacteristic)
         return false;
 
     connecting = false;
@@ -1026,6 +1056,13 @@ ProcessMessage HoboBleSensorModule::handleReceived(const meshtastic_MeshPacket &
         } else {
             snprintf(reply, sizeof(reply), "HOBO NOT CONNECTED\nLock: OFF\nScanning");
         }
+        const bool bleReady = nimbleBluetooth && nimbleBluetooth->isActive();
+        const bool scanRunning = bleReady && initialized && NimBLEDevice::getScan()->isScanning();
+        const size_t used = strlen(reply);
+        if (used + 43 < sizeof(reply))
+            snprintf(reply + used, sizeof(reply) - used, "\\nBLE:%s Scan:%s",
+                     bleReady ? "ON" : "OFF",
+                     connecting ? "CONNECTING" : (scanRunning ? "RUNNING" : "STOPPED"));
         appendSeenList(reply, sizeof(reply));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
@@ -1198,6 +1235,26 @@ int32_t HoboBleSensorModule::runOnce()
         return 250;
     }
 
+    // A failed BLE connection must not stop LoRa reception or HTTPS forwarding.
+    if (connecting && !connectWorkerFinished.load(std::memory_order_acquire))
+        return 100;
+
+    if (connectWorkerFinished.exchange(false, std::memory_order_acq_rel)) {
+        const bool ready = connectWorkerSucceeded.exchange(false, std::memory_order_acq_rel);
+        clientConnectedEvent.store(false);
+        if (!ready || !finishServiceDiscovery()) {
+            LOG_WARN("CCA HOBO: connect/GATT/notify failed for %s; mesh/cloud remain active", loggerMac);
+            rejectCurrentCandidate(TRANSIENT_RETRY_MS);
+            if (hoboClient && hoboClient->isConnected())
+                hoboClient->disconnect();
+            resetConnectionState();
+            clientConnectFailedEvent.store(false);
+            clientDisconnectedEvent.store(false);
+            startScan();
+            return 250;
+        }
+    }
+
     if (clientConnectFailedEvent.exchange(false)) {
         LOG_WARN("CCA HOBO: connect failed reason=%d", clientDisconnectReason.load());
         rejectCurrentCandidate(TRANSIENT_RETRY_MS);
@@ -1211,16 +1268,6 @@ int32_t HoboBleSensorModule::runOnce()
         resetConnectionState();
         startScan();
         return 250;
-    }
-
-    if (clientConnectedEvent.exchange(false)) {
-        if (!finishServiceDiscovery()) {
-            LOG_WARN("CCA HOBO: service/characteristic discovery failed for %s", loggerMac);
-            rejectCurrentCandidate(TRANSIENT_RETRY_MS);
-            if (hoboClient && hoboClient->isConnected())
-                hoboClient->disconnect();
-            return 250;
-        }
     }
 
     if (readFailureReplyPending && readRequester) {
