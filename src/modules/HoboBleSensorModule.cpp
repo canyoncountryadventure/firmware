@@ -1089,7 +1089,7 @@ ProcessMessage HoboBleSensorModule::handleReceived(const meshtastic_MeshPacket &
     if (strcmp(command, "LOGGER") == 0) {
         char reply[230] = {};
         if (bleCollectionSuspended) {
-            snprintf(reply, sizeof(reply), "HOBO BLE PAUSED\\nMesh/cloud active\\nUNLOCK to retry");
+            snprintf(reply, sizeof(reply), "HOBO BLE PAUSED\nMesh/cloud active\nUNLOCK to retry");
         } else if (connected) {
             snprintf(reply, sizeof(reply), "HOBO CONNECTED\nModel: %s\nMAC: %s\nBLE: %d dBm\nInterval: %s\nLock: %s",
                      loggerTypeName(loggerType), loggerMac, loggerBleRssi,
