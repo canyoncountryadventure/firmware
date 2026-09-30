@@ -94,6 +94,8 @@ const char *heltecEventName(uint8_t subsystem, uint8_t operation)
 {
     if (subsystem == 2 && operation == 3)
         return "HOBO_RECOVERY";
+    if (subsystem == 2 && operation == 4)
+        return "HOBO_GATT_STALL";
     if (subsystem == 3 && operation == 3)
         return "RADIO_RECOVERY";
     if (subsystem == 5 && operation == 1)
