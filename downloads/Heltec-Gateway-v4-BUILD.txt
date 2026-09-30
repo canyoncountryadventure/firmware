@@ -2,5 +2,5 @@ TARGET=Heltec-Gateway-v4
 HARDWARE=Heltec WiFi LoRa 32 V4 OLED
 ENV=heltec-v4
 PLATFORM=esp32s3
-COMMIT=bb54edd457d84fe103c62a078096187900c8fbf9
-1b42662422abb5f1a4ab24475bd95d6b271e461602b0ced4b932b5f2fd3a7225  Heltec-Gateway-v4.zip
+COMMIT=872448f3aaa39728988555aac10ccaebb51acbf9
+c37f6dcc50d7b672c063e8964c37a1ddfd7cdce79b871c2d9a9f4f4ae0d15c7b  Heltec-Gateway-v4.zip
