@@ -688,10 +688,14 @@ void startScan()
 #else
     scan->setAdvertisedDeviceCallbacks(&scanCallbacks, false);
 #endif
-    // RAK V4's passive 10% scan avoids unnecessary ESP32 Wi-Fi/BLE contention.
-    scan->setActiveScan(false);
-    scan->setInterval(320);
-    scan->setWindow(32);
+    // ESP32 NimBLE does not always expose the HOBO name/service fields from a
+    // passive advertisement. The previously working Heltec build used active
+    // scanning, which requests the logger's scan-response payload. Connection
+    // and scanner shutdown remain outside the NimBLE callback, so restoring
+    // active scan does not restore the old main-loop blocking/panic path.
+    scan->setActiveScan(true);
+    scan->setInterval(160);
+    scan->setWindow(80);
     scan->setMaxResults(0);
 #ifdef NIMBLE_TWO
     const bool started = scan->start(0, false, true);
@@ -702,7 +706,7 @@ void startScan()
     if (!started)
         LOG_WARN("CCA HOBO: BLE scan start FAILED");
     else
-        LOG_INFO("CCA HOBO: passive scanning%s", loggerLockEnabled ? " for locked logger" : " for supported loggers");
+        LOG_INFO("CCA HOBO: active scanning%s", loggerLockEnabled ? " for locked logger" : " for supported loggers");
 }
 
 void triggerBleRecovery(const char *reason)
