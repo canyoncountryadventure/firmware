@@ -1060,7 +1060,7 @@ ProcessMessage HoboBleSensorModule::handleReceived(const meshtastic_MeshPacket &
         const bool scanRunning = bleReady && initialized && NimBLEDevice::getScan()->isScanning();
         const size_t used = strlen(reply);
         if (used + 43 < sizeof(reply))
-            snprintf(reply + used, sizeof(reply) - used, "\\nBLE:%s Scan:%s",
+            snprintf(reply + used, sizeof(reply) - used, "\nBLE:%s Scan:%s",
                      bleReady ? "ON" : "OFF",
                      connecting ? "CONNECTING" : (scanRunning ? "RUNNING" : "STOPPED"));
         appendSeenList(reply, sizeof(reply));
