@@ -79,9 +79,15 @@ static constexpr uint32_t POINTER_FINE_POLL_MS = HOBO_STATUS_POLL_MS;
 static constexpr uint32_t POINTER_INITIAL_SYNC_POLL_MS = HOBO_STATUS_POLL_MS;
 static constexpr uint32_t STATUS_RECOVERY_RETRY_MS = 5000;
 static constexpr uint8_t STATUS_TIMEOUT_LIMIT = 3;
+static constexpr uint8_t READ_TIMEOUT_LIMIT = 3;
+static constexpr uint32_t CONNECT_ATTEMPT_TIMEOUT_MS = 30000UL;
 static constexpr uint32_t REJECT_RETRY_MS = 60000;
 static constexpr uint32_t TRANSIENT_RETRY_MS = 5000;
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
+static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
+static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
+static constexpr uint32_t GATT_WRITE_TIMEOUT_MS = 10000UL;
+static constexpr uint32_t GATT_DISCONNECT_GRACE_MS = 5000UL;
 static constexpr uint32_t UNLOCKED_SCAN_WINDOW_MS = 5000;
 static constexpr uint32_t SEEN_FRESH_MS = 20000;
 static constexpr char LOCK_FILE_PATH[] = "/prefs/heltec_hobo_lock.bin";
@@ -133,6 +139,9 @@ std::atomic<bool> clientConnectFailedEvent{false};
 std::atomic<int> clientDisconnectReason{0};
 std::atomic<bool> connectWorkerFinished{false};
 std::atomic<bool> connectWorkerSucceeded{false};
+std::atomic<bool> connectWorkerAbortRequested{false};
+uint32_t connectWorkerStartedMs = 0;
+bool connectWorkerTimeoutLogged = false;
 std::atomic<bool> writeWorkerActive{false};
 std::atomic<bool> writeWorkerFinished{false};
 std::atomic<bool> writeWorkerSucceeded{false};
@@ -140,6 +149,7 @@ uint8_t writeWorkerBytes[32] = {};
 size_t writeWorkerLength = 0;
 uint32_t writeWorkerStartedMs = 0;
 bool writeWorkerStallLogged = false;
+bool writeWorkerDisconnectRequested = false;
 bool bleCollectionSuspended = false;
 
 bool candidatePending = false;
@@ -178,6 +188,7 @@ bool haveStatusBaseline = false;
 bool statusTrackingAvailable = true;
 bool intervalPhaseLocked = false;
 uint8_t consecutiveStatusTimeouts = 0;
+uint8_t consecutiveReadTimeouts = 0;
 uint8_t bleRecoveryCycles = 0;
 uint32_t nextStatusCheckMs = 0;
 uint32_t pendingPointerDetectedMs = 0;
@@ -657,6 +668,7 @@ void resetConnectionState()
     statusTrackingAvailable = true;
     intervalPhaseLocked = false;
     consecutiveStatusTimeouts = 0;
+    consecutiveReadTimeouts = 0;
     nextStatusCheckMs = 0;
     pendingPointerDetectedMs = 0;
     lastAutomaticTxMs = 0;
@@ -780,11 +792,39 @@ void hoboConnectWorker(void *)
         client->setConnectTimeout(10); // Pinned NimBLE 1.4.3: seconds
         ok = client->connect(address, true);
 #endif
-        if (ok && client->isConnected()) {
-            NimBLERemoteService *remoteService = client->getService(HOBO_SERVICE_UUID);
-            NimBLERemoteCharacteristic *characteristic =
-                remoteService ? remoteService->getCharacteristic(HOBO_CHAR_UUID) : nullptr;
-            ok = characteristic && characteristic->subscribe(true, notificationCallback, true);
+        if (ok && client->isConnected() && !connectWorkerAbortRequested.load(std::memory_order_acquire)) {
+            // Match the proven RAK V4 sequence. HOBOs are not always ready for
+            // service discovery immediately after the BLE link comes up.
+            vTaskDelay(pdMS_TO_TICKS(SERVICE_SETTLE_MS));
+
+            NimBLERemoteService *remoteService = nullptr;
+            for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS && !remoteService; ++attempt) {
+                if (connectWorkerAbortRequested.load(std::memory_order_acquire))
+                    break;
+                remoteService = client->getService(HOBO_SERVICE_UUID);
+                if (!remoteService && attempt < SERVICE_DISCOVERY_ATTEMPTS)
+                    vTaskDelay(pdMS_TO_TICKS(SERVICE_RETRY_DELAY_MS));
+            }
+
+            NimBLERemoteCharacteristic *characteristic = nullptr;
+            for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS && remoteService && !characteristic; ++attempt) {
+                if (connectWorkerAbortRequested.load(std::memory_order_acquire))
+                    break;
+                characteristic = remoteService->getCharacteristic(HOBO_CHAR_UUID);
+                if (!characteristic && attempt < SERVICE_DISCOVERY_ATTEMPTS)
+                    vTaskDelay(pdMS_TO_TICKS(SERVICE_RETRY_DELAY_MS));
+            }
+
+            bool subscribed = false;
+            for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS && characteristic && !subscribed; ++attempt) {
+                if (connectWorkerAbortRequested.load(std::memory_order_acquire))
+                    break;
+                subscribed = characteristic->subscribe(true, notificationCallback, true);
+                if (!subscribed && attempt < SERVICE_DISCOVERY_ATTEMPTS)
+                    vTaskDelay(pdMS_TO_TICKS(SERVICE_RETRY_DELAY_MS));
+            }
+
+            ok = subscribed && !connectWorkerAbortRequested.load(std::memory_order_acquire);
             if (ok)
                 hoboCharacteristic = characteristic;
         } else {
@@ -812,6 +852,9 @@ bool beginConnect()
     }
 
     connecting = true;
+    connectWorkerStartedMs = millis();
+    connectWorkerTimeoutLogged = false;
+    connectWorkerAbortRequested.store(false, std::memory_order_release);
     connectWorkerFinished.store(false, std::memory_order_release);
     connectWorkerSucceeded.store(false, std::memory_order_release);
     if (xTaskCreate(hoboConnectWorker, "hobo_link", 8192, nullptr, 2, nullptr) != pdPASS) {
@@ -842,6 +885,7 @@ bool finishServiceDiscovery()
     haveStatusBaseline = false;
     statusTrackingAvailable = true;
     consecutiveStatusTimeouts = 0;
+    consecutiveReadTimeouts = 0;
     state = HoboState::SEND_INIT;
     stateDueMs = millis() + SERVICE_SETTLE_MS;
     LOG_INFO("CCA HOBO: command channel ready %s", loggerMac);
@@ -886,6 +930,7 @@ bool sendCommand(const uint8_t *command, size_t length, const char *name)
     writeWorkerLength = length;
     writeWorkerStartedMs = millis();
     writeWorkerStallLogged = false;
+    writeWorkerDisconnectRequested = false;
     writeWorkerFinished.store(false, std::memory_order_release);
     writeWorkerSucceeded.store(false, std::memory_order_release);
     writeWorkerActive.store(true, std::memory_order_release);
@@ -1295,8 +1340,18 @@ int32_t HoboBleSensorModule::runOnce()
     }
 
     // A failed BLE connection must not stop LoRa reception or HTTPS forwarding.
-    if (connecting && !connectWorkerFinished.load(std::memory_order_acquire))
+    if (connecting && !connectWorkerFinished.load(std::memory_order_acquire)) {
+        if (!connectWorkerTimeoutLogged &&
+            (uint32_t)(now - connectWorkerStartedMs) > CONNECT_ATTEMPT_TIMEOUT_MS) {
+            connectWorkerTimeoutLogged = true;
+            connectWorkerAbortRequested.store(true, std::memory_order_release);
+            esp32FieldDiagEvent(2, 5, now - connectWorkerStartedMs);
+            LOG_ERROR("CCA HOBO: connect/GATT discovery exceeded 30s; aborting local BLE attempt");
+            if (hoboClient && hoboClient->isConnected())
+                hoboClient->disconnect();
+        }
         return 100;
+    }
 
     if (connectWorkerFinished.exchange(false, std::memory_order_acq_rel)) {
         const bool ready = connectWorkerSucceeded.exchange(false, std::memory_order_acq_rel);
@@ -1318,18 +1373,31 @@ int32_t HoboBleSensorModule::runOnce()
     // Wait only inside this HOBO task; the gateway main loop keeps running.
     if (writeWorkerActive.load(std::memory_order_acquire) &&
         !writeWorkerFinished.load(std::memory_order_acquire)) {
-        if (!writeWorkerStallLogged && (uint32_t)(now - writeWorkerStartedMs) > 10000UL) {
+        if (!writeWorkerStallLogged && (uint32_t)(now - writeWorkerStartedMs) > GATT_WRITE_TIMEOUT_MS) {
             writeWorkerStallLogged = true;
             esp32FieldDiagEvent(2, 4, now - writeWorkerStartedMs);
-            LOG_ERROR("CCA HOBO: GATT write stuck >10s; local reader stalled, mesh/cloud unaffected");
+            LOG_ERROR("CCA HOBO: GATT write stuck >10s; disconnecting logger, mesh/cloud unaffected");
+        }
+        if (writeWorkerStallLogged && !writeWorkerDisconnectRequested) {
+            writeWorkerDisconnectRequested = true;
+            if (hoboClient && hoboClient->isConnected())
+                hoboClient->disconnect();
+        }
+        if (writeWorkerStallLogged &&
+            !bleCollectionSuspended &&
+            (uint32_t)(now - writeWorkerStartedMs) > (GATT_WRITE_TIMEOUT_MS + GATT_DISCONNECT_GRACE_MS)) {
+            bleCollectionSuspended = true;
+            LOG_ERROR("CCA HOBO: GATT worker did not exit after disconnect; local reader paused, mesh/cloud remain online");
         }
         return 100;
     }
     if (writeWorkerFinished.exchange(false, std::memory_order_acq_rel)) {
         const bool writeOk = writeWorkerSucceeded.exchange(false, std::memory_order_acq_rel);
+        const bool writeTimedOut = writeWorkerStallLogged;
         writeWorkerActive.store(false, std::memory_order_release);
-        if (!writeOk) {
-            triggerBleRecovery("GATT write failed");
+        writeWorkerDisconnectRequested = false;
+        if (!writeOk || writeTimedOut) {
+            triggerBleRecovery(writeTimedOut ? "GATT write timeout" : "GATT write failed");
             return 250;
         }
     }
@@ -1469,6 +1537,7 @@ int32_t HoboBleSensorModule::runOnce()
 
     case HoboState::WAIT_READ:
         if (measurementReady) {
+            consecutiveReadTimeouts = 0;
             measurementReady = false;
             if (readPurpose == ReadPurpose::ON_DEMAND && readRequestInProgress) {
                 char reply[190] = {};
@@ -1550,9 +1619,15 @@ int32_t HoboBleSensorModule::runOnce()
                     hoboClient->disconnect();
                 break;
             }
-            readPurpose = ReadPurpose::AUTOMATIC;
-            nextStatusCheckMs = now + 1000;
-            state = HoboState::READY;
+            ++consecutiveReadTimeouts;
+            LOG_WARN("CCA HOBO: automatic NEWREAD64 timeout %u/%u", consecutiveReadTimeouts, READ_TIMEOUT_LIMIT);
+            if (consecutiveReadTimeouts >= READ_TIMEOUT_LIMIT) {
+                triggerBleRecovery("NEWREAD64 timeouts");
+            } else {
+                readPurpose = ReadPurpose::AUTOMATIC;
+                nextStatusCheckMs = now + 1000;
+                state = HoboState::READY;
+            }
         }
         break;
 
@@ -1577,6 +1652,7 @@ int32_t HoboBleSensorModule::runOnce()
         if (statusReady) {
             statusReady = false;
             consecutiveStatusTimeouts = 0;
+            consecutiveReadTimeouts = 0;
             bleRecoveryCycles = 0;
             statusTrackingAvailable = true;
             if (!haveStatusBaseline) {
