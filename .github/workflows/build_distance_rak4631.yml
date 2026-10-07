@@ -1,13 +1,13 @@
-name: Build RAK Water Distance HOBO v2
+name: Build RAK Water Distance HOBO v4
 
 on:
   push:
     branches:
-      - RAK-Water-Distance-HOBO-v2
+      - RAK-Water-Distance-HOBO-v4
   workflow_dispatch:
 
 concurrency:
-  group: RAK-Water-Distance-HOBO-v2
+  group: RAK-Water-Distance-HOBO-v4
   cancel-in-progress: true
 
 permissions:
@@ -17,10 +17,10 @@ jobs:
   build-rak-water-distance-hobo:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout RAK Water Distance HOBO v2 branch
+      - name: Checkout RAK Water Distance HOBO v4 branch
         uses: actions/checkout@v7
         with:
-          ref: RAK-Water-Distance-HOBO-v2
+          ref: RAK-Water-Distance-HOBO-v4
           submodules: recursive
 
       - name: Build RAK4631
@@ -33,7 +33,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: RAK-Water-Distance-HOBO-v2-${{ github.run_number }}
+          name: RAK-Water-Distance-HOBO-v4-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
@@ -55,8 +55,8 @@ jobs:
           test -n "$OTA"
           SCOUT="drone-out/scout.uf2"
           mkdir -p export
-          cp "$UF2" export/RAK-Water-Distance-HOBO-v2.uf2
-          cp "$OTA" export/RAK-Water-Distance-HOBO-v2-OTA.zip
+          cp "$UF2" export/RAK-Water-Distance-HOBO-v4.uf2
+          cp "$OTA" export/RAK-Water-Distance-HOBO-v4-OTA.zip
 
       - name: Checkout firmware download branch
         uses: actions/checkout@v7
@@ -72,26 +72,26 @@ jobs:
           cd publish
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          latest_source_sha="$(git ls-remote origin refs/heads/RAK-Water-Distance-HOBO-v2 | awk '{print $1}')"
+          latest_source_sha="$(git ls-remote origin refs/heads/RAK-Water-Distance-HOBO-v4 | awk '{print $1}')"
           if [[ "$latest_source_sha" != "$GITHUB_SHA" ]]; then echo "Skipping stale publish"; exit 0; fi
           for attempt in 1 2 3 4 5; do
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
-            mkdir -p downloads Self-Recovery-v2s/RAK-Water-Distance-HOBO-v2
-            cp ../export/RAK-Water-Distance-HOBO-v2.uf2 downloads/
-            cp ../export/RAK-Water-Distance-HOBO-v2-OTA.zip downloads/
-            cp ../export/RAK-Water-Distance-HOBO-v2.uf2 Self-Recovery-v2s/RAK-Water-Distance-HOBO-v2/
-            cp ../export/RAK-Water-Distance-HOBO-v2-OTA.zip Self-Recovery-v2s/RAK-Water-Distance-HOBO-v2/
+            mkdir -p downloads Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4
+            cp ../export/RAK-Water-Distance-HOBO-v4.uf2 downloads/
+            cp ../export/RAK-Water-Distance-HOBO-v4-OTA.zip downloads/
+            cp ../export/RAK-Water-Distance-HOBO-v4.uf2 Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4/
+            cp ../export/RAK-Water-Distance-HOBO-v4-OTA.zip Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4/
             git add \
-              downloads/RAK-Water-Distance-HOBO-v2.uf2 \
-              downloads/RAK-Water-Distance-HOBO-v2-OTA.zip \
-              Self-Recovery-v2s/RAK-Water-Distance-HOBO-v2/RAK-Water-Distance-HOBO-v2.uf2 \
-              Self-Recovery-v2s/RAK-Water-Distance-HOBO-v2/RAK-Water-Distance-HOBO-v2-OTA.zip
+              downloads/RAK-Water-Distance-HOBO-v4.uf2 \
+              downloads/RAK-Water-Distance-HOBO-v4-OTA.zip \
+              Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4/RAK-Water-Distance-HOBO-v4.uf2 \
+              Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4/RAK-Water-Distance-HOBO-v4-OTA.zip
             if git diff --cached --quiet; then
               echo "Downloads and user-facing folder already current"
               exit 0
             fi
-            git commit -m "Publish RAK Water Distance HOBO v2 downloads"
+            git commit -m "Publish RAK Water Distance HOBO v4 downloads"
             if git push origin HEAD:field-self-recovery; then
               exit 0
             fi
