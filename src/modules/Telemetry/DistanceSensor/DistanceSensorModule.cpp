@@ -41,6 +41,8 @@ static constexpr uint8_t WATER_MODE_VALUE = 1;
 #if defined(RAK_4631)
 static constexpr uint8_t SENSOR_POWER_PIN = 17;
 static constexpr uint32_t SENSOR_POWER_SETTLE_MS = 1000UL;
+static constexpr bool SENSOR_POWER_BENCH_TOGGLE = true;
+static constexpr uint32_t SENSOR_POWER_BENCH_PERIOD_MS = 10000UL;
 #endif
 
 struct LegacyPersistentConfig
@@ -400,7 +402,8 @@ DistanceReading DistanceSensorModule::readDistance()
     latestReading = activeDriver->read();
 
 #if defined(RAK_4631)
-    setDistanceSensorPower(false);
+    if (!SENSOR_POWER_BENCH_TOGGLE)
+        setDistanceSensorPower(false);
 #endif
 
     if (latestReading.valid()) {
@@ -1022,6 +1025,14 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
 int32_t DistanceSensorModule::runOnce()
 {
     const uint32_t now = millis();
+
+#if defined(RAK_4631)
+    if (SENSOR_POWER_BENCH_TOGGLE) {
+        const bool benchOn = ((now / SENSOR_POWER_BENCH_PERIOD_MS) % 2U) == 0U;
+        setDistanceSensorPower(benchOn);
+    }
+#endif
+
     if (now < BOOT_SETTLE_MS)
         return 1000;
 
@@ -1033,8 +1044,10 @@ int32_t DistanceSensorModule::runOnce()
         lastReportMs = now - intervalMs; // force one health/telemetry sample after boot
         moduleInitialized = true;
 #if defined(RAK_4631)
-        setDistanceSensorPower(false);
-        LOG_INFO("WaterDistance: Pololu 2810 sensor power control ready on IO1/GPIO17; default OFF");
+        if (!SENSOR_POWER_BENCH_TOGGLE)
+            setDistanceSensorPower(false);
+        LOG_INFO("WaterDistance: Pololu 2810 sensor power control ready on IO1/GPIO17; bench toggle=%s",
+                 SENSOR_POWER_BENCH_TOGGLE ? "ON (10s HIGH/10s LOW)" : "OFF");
 #endif
         LOG_INFO("WaterDistance: ready platform=%s sensor=%s interval=%lus calibrated=%s locked=%s",
                  platformName(), distanceSensorTypeName(static_cast<DistanceSensorType>(cfg.sensorType)),
