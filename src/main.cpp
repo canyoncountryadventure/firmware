@@ -313,6 +313,11 @@ void printInfo()
 #ifndef PIO_UNIT_TESTING
 void setup()
 {
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    // Bench test: drive WisBlock IO1 / nRF P0.17 directly, independent of module scheduling.
+    pinMode(17, OUTPUT);
+    digitalWrite(17, LOW);
+#endif
 
     // initialize power HAL layer as early as possible
     powerHAL_init();
@@ -1148,6 +1153,16 @@ void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, Scan
 void loop()
 {
     runASAP = false;
+
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    // Bench test: 10 seconds HIGH, 10 seconds LOW on WisBlock IO1 / nRF P0.17.
+    static int lastBenchState = -1;
+    const int benchState = ((millis() / 10000UL) % 2U) ? HIGH : LOW;
+    if (benchState != lastBenchState) {
+        digitalWrite(17, benchState);
+        lastBenchState = benchState;
+    }
+#endif
 
 #ifdef ARCH_ESP32
     esp32Loop();
