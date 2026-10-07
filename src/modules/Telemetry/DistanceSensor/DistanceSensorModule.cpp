@@ -36,6 +36,13 @@ static constexpr uint32_t DEFAULT_REPORT_INTERVAL_SEC = 3600UL;
 static constexpr uint8_t DISTANCE_PACKET_VERSION = 1;
 static constexpr uint8_t WATER_MODE_VALUE = 1;
 
+// RAK19007 IO1 is Arduino GPIO 17.  It drives the Pololu 2810 ON input.
+// The 2810 physical slide switch must remain OFF for firmware control.
+#if defined(RAK_4631)
+static constexpr uint8_t SENSOR_POWER_PIN = 17;
+static constexpr uint32_t SENSOR_POWER_SETTLE_MS = 1000UL;
+#endif
+
 struct LegacyPersistentConfig
 {
     uint32_t magic;
@@ -90,6 +97,21 @@ bool sequenceNewer(uint32_t a, uint32_t b)
 {
     return static_cast<int32_t>(a - b) > 0;
 }
+
+void setDistanceSensorPower(bool enabled)
+{
+#if defined(RAK_4631)
+    static bool initialized = false;
+    if (!initialized) {
+        pinMode(SENSOR_POWER_PIN, OUTPUT);
+        digitalWrite(SENSOR_POWER_PIN, LOW);
+        initialized = true;
+    }
+    digitalWrite(SENSOR_POWER_PIN, enabled ? HIGH : LOW);
+#else
+    (void)enabled;
+#endif
+}
 } // namespace
 
 DistanceSensorModule::DistanceSensorModule()
@@ -99,6 +121,7 @@ DistanceSensorModule::DistanceSensorModule()
 {
     isPromiscuous = true;
     setDefaults();
+    setDistanceSensorPower(false);
     setIntervalFromNow(1000);
 }
 
@@ -366,7 +389,20 @@ DistanceReading DistanceSensorModule::readDistance()
         return missing;
     }
 
+#if defined(RAK_4631)
+    // Power the ultrasonic sensor only for a measurement.  This drives the
+    // Pololu 2810 ON input from RAK19007 IO1/GPIO17, waits for the A01NYUB
+    // electronics to stabilize, then shuts the sensor back down after read.
+    setDistanceSensorPower(true);
+    delay(SENSOR_POWER_SETTLE_MS);
+#endif
+
     latestReading = activeDriver->read();
+
+#if defined(RAK_4631)
+    setDistanceSensorPower(false);
+#endif
+
     if (latestReading.valid()) {
         sensorReadSuccesses++;
         consecutiveReadErrors = 0;
@@ -996,6 +1032,10 @@ int32_t DistanceSensorModule::runOnce()
         const uint32_t intervalMs = cfg.reportIntervalSec * 1000UL;
         lastReportMs = now - intervalMs; // force one health/telemetry sample after boot
         moduleInitialized = true;
+#if defined(RAK_4631)
+        setDistanceSensorPower(false);
+        LOG_INFO("WaterDistance: Pololu 2810 sensor power control ready on IO1/GPIO17; default OFF");
+#endif
         LOG_INFO("WaterDistance: ready platform=%s sensor=%s interval=%lus calibrated=%s locked=%s",
                  platformName(), distanceSensorTypeName(static_cast<DistanceSensorType>(cfg.sensorType)),
                  static_cast<unsigned long>(cfg.reportIntervalSec), (cfg.flags & FLAG_CALIBRATED) ? "YES" : "NO",
