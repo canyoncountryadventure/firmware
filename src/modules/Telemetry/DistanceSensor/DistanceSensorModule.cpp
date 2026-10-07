@@ -19,6 +19,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if defined(RAK_4631)
+#include <nrf.h>
+#endif
 
 namespace
 {
@@ -40,9 +43,7 @@ static constexpr uint8_t WATER_MODE_VALUE = 1;
 // The 2810 physical slide switch must remain OFF for firmware control.
 #if defined(RAK_4631)
 static constexpr uint8_t SENSOR_POWER_PIN = 17;
-static constexpr uint32_t SENSOR_POWER_SETTLE_MS = 1000UL;
-static constexpr bool SENSOR_POWER_BENCH_TOGGLE = true;
-static constexpr uint32_t SENSOR_POWER_BENCH_PERIOD_MS = 10000UL;
+static constexpr uint32_t SENSOR_POWER_SETTLE_MS = 3000UL;
 #endif
 
 struct LegacyPersistentConfig
@@ -103,13 +104,14 @@ bool sequenceNewer(uint32_t a, uint32_t b)
 void setDistanceSensorPower(bool enabled)
 {
 #if defined(RAK_4631)
-    static bool initialized = false;
-    if (!initialized) {
-        pinMode(SENSOR_POWER_PIN, OUTPUT);
-        digitalWrite(SENSOR_POWER_PIN, LOW);
-        initialized = true;
-    }
-    digitalWrite(SENSOR_POWER_PIN, enabled ? HIGH : LOW);
+    // Drive the actual nRF52840 P0.17 line used by WisBlock IO1 directly.
+    // This bypasses Arduino pin translation and reasserts output direction every time.
+    constexpr uint32_t mask = (1UL << SENSOR_POWER_PIN);
+    NRF_P0->DIRSET = mask;
+    if (enabled)
+        NRF_P0->OUTSET = mask;
+    else
+        NRF_P0->OUTCLR = mask;
 #else
     (void)enabled;
 #endif
@@ -402,8 +404,7 @@ DistanceReading DistanceSensorModule::readDistance()
     latestReading = activeDriver->read();
 
 #if defined(RAK_4631)
-    if (!SENSOR_POWER_BENCH_TOGGLE)
-        setDistanceSensorPower(false);
+    setDistanceSensorPower(false);
 #endif
 
     if (latestReading.valid()) {
@@ -1026,13 +1027,6 @@ int32_t DistanceSensorModule::runOnce()
 {
     const uint32_t now = millis();
 
-#if defined(RAK_4631)
-    if (SENSOR_POWER_BENCH_TOGGLE) {
-        const bool benchOn = ((now / SENSOR_POWER_BENCH_PERIOD_MS) % 2U) == 0U;
-        setDistanceSensorPower(benchOn);
-    }
-#endif
-
     if (now < BOOT_SETTLE_MS)
         return 1000;
 
@@ -1044,10 +1038,8 @@ int32_t DistanceSensorModule::runOnce()
         lastReportMs = now - intervalMs; // force one health/telemetry sample after boot
         moduleInitialized = true;
 #if defined(RAK_4631)
-        if (!SENSOR_POWER_BENCH_TOGGLE)
-            setDistanceSensorPower(false);
-        LOG_INFO("WaterDistance: Pololu 2810 sensor power control ready on IO1/GPIO17; bench toggle=%s",
-                 SENSOR_POWER_BENCH_TOGGLE ? "ON (10s HIGH/10s LOW)" : "OFF");
+        setDistanceSensorPower(false);
+        LOG_INFO("WaterDistance: Pololu 2810 control ready on IO1/P0.17; sensor OFF between reads");
 #endif
         LOG_INFO("WaterDistance: ready platform=%s sensor=%s interval=%lus calibrated=%s locked=%s",
                  platformName(), distanceSensorTypeName(static_cast<DistanceSensorType>(cfg.sensorType)),
