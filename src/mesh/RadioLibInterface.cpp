@@ -650,13 +650,14 @@ void RadioLibInterface::resetAGC()
 
 void RadioLibInterface::periodicRadioMaintenance()
 {
+    // Field nodes prioritize uninterrupted receive. Only intervene when RX is
+    // explicitly offline; do not put a healthy SX1262 through periodic
+    // sleep/calibration cycles while it is waiting for mesh packets.
     if (rxOffline) {
         LOG_WARN("Radio RX offline, retrying recovery");
         if (maybeRecoverChipStateLoss())
             startReceive();
-        return;
     }
-    resetAGC();
 }
 
 bool RadioLibInterface::maybeRecoverChipStateLoss()
