@@ -37,6 +37,8 @@ const char *distanceSensorTypeName(DistanceSensorType type)
         return "SEN0313/A01NYUB";
     case DistanceSensorType::UART_GENERIC:
         return "UART-ULTRASONIC";
+    case DistanceSensorType::MB7388:
+        return "MB7388";
     default:
         return "NONE";
     }
@@ -214,6 +216,82 @@ DistanceReading DFRobotUARTDistanceDriver::read()
     if (sawChecksumError)
         return makeReading(DistanceReadStatus::CHECKSUM_ERROR);
     if (sawHeader)
+        return makeReading(DistanceReadStatus::BAD_FRAME);
+    return makeReading(DistanceReadStatus::TIMEOUT);
+}
+
+
+bool MaxBotixMB7388DistanceDriver::begin()
+{
+    Serial1.begin(9600);
+    initialized = true;
+    return true;
+}
+
+DistanceReading MaxBotixMB7388DistanceDriver::read()
+{
+    if (!initialized)
+        begin();
+
+    // The MB7388 streams ASCII frames continuously as Rdddd<CR>, where dddd
+    // is distance in millimeters. Throw away stale bytes so each requested
+    // sample is fresh after the sensor power-up settle period.
+    while (Serial1.available() > 0)
+        Serial1.read();
+
+    const uint32_t started = millis();
+    char digits[5] = {};
+    uint8_t digitCount = 0;
+    bool inFrame = false;
+    bool sawFrameStart = false;
+    bool sawMalformedFrame = false;
+
+    while ((millis() - started) < 600UL) {
+        while (Serial1.available() > 0) {
+            const char ch = static_cast<char>(Serial1.read());
+
+            if (ch == 'R') {
+                inFrame = true;
+                sawFrameStart = true;
+                digitCount = 0;
+                continue;
+            }
+
+            if (!inFrame)
+                continue;
+
+            if (ch == '\r') {
+                if (digitCount != 4) {
+                    sawMalformedFrame = true;
+                    inFrame = false;
+                    digitCount = 0;
+                    continue;
+                }
+
+                digits[4] = '\0';
+                const uint32_t mm = static_cast<uint32_t>(strtoul(digits, nullptr, 10));
+                if (mm < 500U || mm > 9999U)
+                    return makeReading(DistanceReadStatus::OUT_OF_RANGE, mm);
+
+                return makeReading(DistanceReadStatus::OK, mm);
+            }
+
+            if (ch == '\n')
+                continue;
+
+            if (ch < '0' || ch > '9' || digitCount >= 4) {
+                sawMalformedFrame = true;
+                inFrame = false;
+                digitCount = 0;
+                continue;
+            }
+
+            digits[digitCount++] = ch;
+        }
+        delay(1);
+    }
+
+    if (sawMalformedFrame || sawFrameStart)
         return makeReading(DistanceReadStatus::BAD_FRAME);
     return makeReading(DistanceReadStatus::TIMEOUT);
 }
