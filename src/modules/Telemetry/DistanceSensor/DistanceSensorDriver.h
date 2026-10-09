@@ -16,6 +16,7 @@ enum class DistanceSensorType : uint8_t
     SEN0311_A02YYUW = 2,
     SEN0313_A01NYUB = 3,
     UART_GENERIC = 4,
+    MB7388 = 5,
     NONE = 255
 };
 
