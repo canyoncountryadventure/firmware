@@ -435,6 +435,38 @@ DistanceReading DistanceSensorModule::readDistance()
 
     latestReading = activeDriver->read();
 
+    // Existing v4 nodes may still have a DFRobot UART sensor saved in flash.
+    // If that parser fails but the same powered UART immediately yields a valid
+    // MB7388 Rdddd<CR> frame, migrate this node automatically rather than
+    // requiring a field reset or command. Preserve interval/config, but clear
+    // calibration because it belongs to the previous physical sensor.
+    if (!latestReading.valid() &&
+        (activeType == DistanceSensorType::SEN0311_A02YYUW ||
+         activeType == DistanceSensorType::SEN0313_A01NYUB ||
+         activeType == DistanceSensorType::UART_GENERIC)) {
+        mb7388Driver.begin();
+        const DistanceReading mbReading = mb7388Driver.read();
+        if (mbReading.valid()) {
+            latestReading = mbReading;
+            activeDriver = &mb7388Driver;
+            activeType = DistanceSensorType::MB7388;
+
+            if (cfg.sensorType != static_cast<uint8_t>(DistanceSensorType::MB7388)) {
+                cfg.sensorType = static_cast<uint8_t>(DistanceSensorType::MB7388);
+                cfg.flags &= static_cast<uint8_t>(~(FLAG_CALIBRATED | FLAG_CAL_LOCKED));
+                cfg.stageReferenceMm = 0;
+                cfg.calibrationRawMm = 0;
+                cfg.calibrationStageMm = 0;
+                cfg.calibrationUnix = 0;
+                latestStageValid = false;
+                if (saveConfig())
+                    LOG_INFO("WaterDistance: auto-migrated saved UART sensor to MB7388");
+                else
+                    LOG_WARN("WaterDistance: detected MB7388 but could not persist sensor migration");
+            }
+        }
+    }
+
 #if defined(RAK_4631)
     setDistanceSensorPower(false);
 #endif
