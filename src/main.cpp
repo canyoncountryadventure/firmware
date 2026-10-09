@@ -1,4 +1,7 @@
 #include "configuration.h"
+#if defined(RAK_4631)
+#include <nrf.h>
+#endif
 #if !MESHTASTIC_EXCLUDE_GPS
 #include "GPS.h"
 #endif
@@ -313,6 +316,27 @@ void printInfo()
 #ifndef PIO_UNIT_TESTING
 void setup()
 {
+#if defined(RAK_4631)
+    // Temporary MB7388-100 bench diagnostic. Keep Pololu slide switch OFF.
+    // RAK19007 IO1 is nRF52840 P0.17 and drives the Pololu ON input.
+    Serial.begin(115200);
+    delay(1500);
+
+    constexpr uint32_t mbPowerMask = (1UL << 17);
+    NRF_P0->DIRSET = mbPowerMask;
+    NRF_P0->OUTSET = mbPowerMask;
+
+    Serial1.begin(9600);
+    delay(1000);
+
+    Serial.println();
+    Serial.println("=== MB7388-100 DIAGNOSTIC ===");
+    Serial.println("IO1/P0.17: HIGH (Pololu ON)");
+    Serial.println("UART RX1: 9600 baud");
+    Serial.println("Expected MaxBotix frames: R#### followed by CR");
+    Serial.println("Listening...");
+    return;
+#endif
 
     // initialize power HAL layer as early as possible
     powerHAL_init();
@@ -1147,6 +1171,39 @@ void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, Scan
 #ifndef PIO_UNIT_TESTING
 void loop()
 {
+#if defined(RAK_4631)
+    static char mbLine[24] = {};
+    static uint8_t mbPos = 0;
+    static uint32_t lastHeartbeat = 0;
+    static uint32_t frameCount = 0;
+
+    while (Serial1.available()) {
+        const char ch = static_cast<char>(Serial1.read());
+        if (ch == '\\r') {
+            mbLine[mbPos] = '\\0';
+            if (mbPos > 0) {
+                ++frameCount;
+                Serial.print("MB7388 RAW: ");
+                Serial.println(mbLine);
+            }
+            mbPos = 0;
+        } else if (ch != '\\n') {
+            if (mbPos < sizeof(mbLine) - 1)
+                mbLine[mbPos++] = ch;
+            else
+                mbPos = 0;
+        }
+    }
+
+    if ((uint32_t)(millis() - lastHeartbeat) >= 2000UL) {
+        lastHeartbeat = millis();
+        Serial.print("HEARTBEAT IO1=HIGH frames=");
+        Serial.println(frameCount);
+    }
+
+    delay(10);
+    return;
+#endif
     runASAP = false;
 
 #ifdef ARCH_ESP32
