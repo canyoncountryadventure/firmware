@@ -35,7 +35,7 @@ static constexpr uint8_t LEGACY_CONFIG_VERSION = 1;
 
 static constexpr uint32_t BOOT_SETTLE_MS = 8000UL;
 static constexpr uint32_t SENSOR_RETRY_MS = 30000UL;
-static constexpr uint32_t DEFAULT_REPORT_INTERVAL_SEC = 60UL;
+static constexpr uint32_t DEFAULT_REPORT_INTERVAL_SEC = 3600UL;
 static constexpr uint8_t DISTANCE_PACKET_VERSION = 1;
 static constexpr uint8_t WATER_MODE_VALUE = 1;
 
@@ -134,7 +134,7 @@ void DistanceSensorModule::setDefaults()
     memset(&cfg, 0, sizeof(cfg));
     cfg.magic = CONFIG_MAGIC;
     cfg.version = CONFIG_VERSION;
-    cfg.sensorType = static_cast<uint8_t>(DistanceSensorType::SEN0313_A01NYUB);
+    cfg.sensorType = static_cast<uint8_t>(DistanceSensorType::MB7388);
     cfg.reportIntervalSec = DEFAULT_REPORT_INTERVAL_SEC;
 }
 
@@ -154,7 +154,7 @@ bool DistanceSensorModule::configValid(const PersistentConfig &record) const
 {
     if (record.magic != CONFIG_MAGIC || record.version != CONFIG_VERSION)
         return false;
-    if (record.sensorType > static_cast<uint8_t>(DistanceSensorType::UART_GENERIC))
+    if (record.sensorType > static_cast<uint8_t>(DistanceSensorType::MB7388))
         return false;
     if ((record.flags & static_cast<uint8_t>(~(FLAG_CALIBRATED | FLAG_CAL_LOCKED))) != 0)
         return false;
@@ -309,7 +309,7 @@ bool DistanceSensorModule::loadConfig()
     if (migrateLegacyConfig())
         return true;
 
-    LOG_INFO("WaterDistance: no valid config; creating defaults (A01NYUB, 1 hour, uncalibrated)");
+    LOG_INFO("WaterDistance: no valid config; creating defaults (MB7388, 1 hour, uncalibrated)");
     saveConfig();
     return false;
 }
@@ -326,17 +326,41 @@ bool DistanceSensorModule::autoDetectSensor()
         return true;
     }
 
+#if defined(RAK_4631)
+    setDistanceSensorPower(true);
+    delay(SENSOR_POWER_SETTLE_MS);
+#endif
+
+    mb7388Driver.begin();
+    DistanceReading probe = mb7388Driver.read();
+    if (probe.valid()) {
+        activeDriver = &mb7388Driver;
+        activeType = DistanceSensorType::MB7388;
+        latestReading = probe;
+#if defined(RAK_4631)
+        setDistanceSensorPower(false);
+#endif
+        LOG_INFO("WaterDistance: AUTO detected MB7388");
+        return true;
+    }
+
     uartDriver.setType(DistanceSensorType::UART_GENERIC);
     uartDriver.begin();
-    const DistanceReading probe = uartDriver.read();
+    probe = uartDriver.read();
     if (probe.valid()) {
         activeDriver = &uartDriver;
         activeType = DistanceSensorType::UART_GENERIC;
         latestReading = probe;
-        LOG_INFO("WaterDistance: AUTO detected compatible UART ultrasonic");
+#if defined(RAK_4631)
+        setDistanceSensorPower(false);
+#endif
+        LOG_INFO("WaterDistance: AUTO detected compatible DFRobot UART ultrasonic");
         return true;
     }
 
+#if defined(RAK_4631)
+    setDistanceSensorPower(false);
+#endif
     LOG_WARN("WaterDistance: AUTO found no supported sensor");
     return false;
 }
@@ -363,6 +387,14 @@ bool DistanceSensorModule::configureSensor(DistanceSensorType requested, bool pe
         if (!sen0590.begin())
             return false;
         activeDriver = &sen0590;
+        activeType = requested;
+        return true;
+    }
+
+    if (requested == DistanceSensorType::MB7388) {
+        if (!mb7388Driver.begin())
+            return false;
+        activeDriver = &mb7388Driver;
         activeType = requested;
         return true;
     }
@@ -395,8 +427,8 @@ DistanceReading DistanceSensorModule::readDistance()
 
 #if defined(RAK_4631)
     // Power the ultrasonic sensor only for a measurement.  This drives the
-    // Pololu 2810 ON input from RAK19007 IO1/GPIO17, waits for the A01NYUB
-    // electronics to stabilize, then shuts the sensor back down after read.
+    // Pololu 2810 ON input from RAK19007 IO1/GPIO17, waits for the
+    // ultrasonic electronics to stabilize, then shuts the sensor back down after read.
     setDistanceSensorPower(true);
     delay(SENSOR_POWER_SETTLE_MS);
 #endif
@@ -826,7 +858,7 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
         sendTextReply(mp.from, mp.channel,
                       "WATER HELP 1/4 CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK | WATER INSTALL | WATER READ | WATER RAW | WATER VERIFY");
         sendTextReply(mp.from, mp.channel,
-                      "WATER HELP 2/4 SENSOR: WATER SENSOR | WATER SENSOR AUTO | WATER SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER SENSOR A02YYUW | WATER SENSOR SEN0313 | WATER SENSOR A01NYUB");
+                      "WATER HELP 2/4 SENSOR: WATER SENSOR | WATER SENSOR MB7388 | WATER SENSOR AUTO | WATER SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER SENSOR A02YYUW | WATER SENSOR SEN0313 | WATER SENSOR A01NYUB");
         sendTextReply(mp.from, mp.channel,
                       "WATER HELP 3/4 CAL: WATER CAL STATUS | WATER CAL STAGE 1.42FT | WATER CAL LOCK | WATER CAL UNLOCK | WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL RESET CONFIRM");
         sendTextReply(mp.from, mp.channel,
@@ -855,9 +887,11 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
             requested = DistanceSensorType::SEN0311_A02YYUW;
         else if (strcmp(arg, "SEN0313") == 0 || strcmp(arg, "A01NYUB") == 0)
             requested = DistanceSensorType::SEN0313_A01NYUB;
+        else if (strcmp(arg, "MB7388") == 0 || strcmp(arg, "MAXBOTIX") == 0)
+            requested = DistanceSensorType::MB7388;
 
         if (requested == DistanceSensorType::NONE) {
-            sendTextReply(mp.from, mp.channel, "SENSOR options: A01NYUB, A02YYUW, SEN0590, AUTO");
+            sendTextReply(mp.from, mp.channel, "SENSOR options: MB7388, A01NYUB, A02YYUW, SEN0590, AUTO");
             return ProcessMessage::CONTINUE;
         }
 
@@ -998,7 +1032,7 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
             latestStageValid = false;
             lastReportMs = millis();
             sendTextReply(mp.from, mp.channel,
-                          "WATER RESET complete: A01NYUB, 1HR, uncalibrated. Meshtastic identity/channels/keys untouched.");
+                          "WATER RESET complete: MB7388, 1HR, uncalibrated. Meshtastic identity/channels/keys untouched.");
         }
         return ProcessMessage::CONTINUE;
     }
