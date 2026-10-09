@@ -1176,18 +1176,34 @@ void loop()
     static uint8_t mbPos = 0;
     static uint32_t lastHeartbeat = 0;
     static uint32_t frameCount = 0;
+    static uint32_t byteCount = 0;
+    static uint32_t edgeCount = 0;
+    static bool edgeInit = false;
+    static bool lastRxLevel = true;
+
+    // Watch the actual RAK RX1 electrical line directly (nRF52840 P0.15).
+    const bool rxLevel = (NRF_P0->IN & (1UL << 15)) != 0;
+    if (!edgeInit) {
+        lastRxLevel = rxLevel;
+        edgeInit = true;
+    } else if (rxLevel != lastRxLevel) {
+        ++edgeCount;
+        lastRxLevel = rxLevel;
+    }
 
     while (Serial1.available()) {
+        ++byteCount;
         const char ch = static_cast<char>(Serial1.read());
-        if (ch == '\\r') {
-            mbLine[mbPos] = '\\0';
+
+        if (ch == '\r') {
+            mbLine[mbPos] = '\0';
             if (mbPos > 0) {
                 ++frameCount;
                 Serial.print("MB7388 RAW: ");
                 Serial.println(mbLine);
             }
             mbPos = 0;
-        } else if (ch != '\\n') {
+        } else if (ch != '\n') {
             if (mbPos < sizeof(mbLine) - 1)
                 mbLine[mbPos++] = ch;
             else
@@ -1197,11 +1213,17 @@ void loop()
 
     if ((uint32_t)(millis() - lastHeartbeat) >= 2000UL) {
         lastHeartbeat = millis();
-        Serial.print("HEARTBEAT IO1=HIGH frames=");
+        Serial.print("RX1=");
+        Serial.print(rxLevel ? "HIGH" : "LOW");
+        Serial.print(" edges=");
+        Serial.print(edgeCount);
+        Serial.print(" bytes=");
+        Serial.print(byteCount);
+        Serial.print(" frames=");
         Serial.println(frameCount);
     }
 
-    delay(10);
+    delayMicroseconds(100);
     return;
 #endif
     runASAP = false;
