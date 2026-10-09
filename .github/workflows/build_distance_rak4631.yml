@@ -1,13 +1,13 @@
-name: Build RAK Water Distance HOBO v4
+name: Build MB7388 Diagnostic RAK4631
 
 on:
   push:
     branches:
-      - RAK-Water-Distance-HOBO-v4
+      - diag-MB7388-100-20261009
   workflow_dispatch:
 
 concurrency:
-  group: RAK-Water-Distance-HOBO-v4
+  group: diag-MB7388-100-20261009
   cancel-in-progress: true
 
 permissions:
@@ -20,7 +20,7 @@ jobs:
       - name: Checkout RAK Water Distance HOBO v4 branch
         uses: actions/checkout@v7
         with:
-          ref: RAK-Water-Distance-HOBO-v4
+          ref: diag-MB7388-100-20261009
           submodules: recursive
 
       - name: Build RAK4631
@@ -33,7 +33,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: RAK-Water-Distance-HOBO-v4-${{ github.run_number }}
+          name: MB7388-Diagnostic-RAK4631-${{ github.run_number }}
           overwrite: true
           retention-days: 30
           path: |
@@ -55,47 +55,6 @@ jobs:
           test -n "$OTA"
           SCOUT="drone-out/scout.uf2"
           mkdir -p export
-          cp "$UF2" export/RAK-Water-Distance-HOBO-v4.uf2
-          cp "$OTA" export/RAK-Water-Distance-HOBO-v4-OTA.zip
+          cp "$UF2" export/MB7388-Diagnostic-RAK4631.uf2
+          cp "$OTA" export/MB7388-Diagnostic-RAK4631-OTA.zip
 
-      - name: Checkout firmware download branch
-        uses: actions/checkout@v7
-        with:
-          ref: field-self-recovery
-          path: publish
-          fetch-depth: 0
-
-      - name: Publish permanent downloads
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd publish
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          latest_source_sha="$(git ls-remote origin refs/heads/RAK-Water-Distance-HOBO-v4 | awk '{print $1}')"
-          if [[ "$latest_source_sha" != "$GITHUB_SHA" ]]; then echo "Skipping stale publish"; exit 0; fi
-          for attempt in 1 2 3 4 5; do
-            git fetch origin field-self-recovery
-            git reset --hard origin/field-self-recovery
-            mkdir -p downloads Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4
-            cp ../export/RAK-Water-Distance-HOBO-v4.uf2 downloads/
-            cp ../export/RAK-Water-Distance-HOBO-v4-OTA.zip downloads/
-            cp ../export/RAK-Water-Distance-HOBO-v4.uf2 Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4/
-            cp ../export/RAK-Water-Distance-HOBO-v4-OTA.zip Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4/
-            git add \
-              downloads/RAK-Water-Distance-HOBO-v4.uf2 \
-              downloads/RAK-Water-Distance-HOBO-v4-OTA.zip \
-              Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4/RAK-Water-Distance-HOBO-v4.uf2 \
-              Self-Recovery-v2s/RAK-Water-Distance-HOBO-v4/RAK-Water-Distance-HOBO-v4-OTA.zip
-            if git diff --cached --quiet; then
-              echo "Downloads and user-facing folder already current"
-              exit 0
-            fi
-            git commit -m "Publish RAK Water Distance HOBO v4 downloads"
-            if git push origin HEAD:field-self-recovery; then
-              exit 0
-            fi
-            sleep $((attempt * 3))
-          done
-          echo "Failed to publish downloads after retries" >&2
-          exit 1
