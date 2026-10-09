@@ -36,4 +36,17 @@ class DFRobotUARTDistanceDriver : public DistanceSensorDriver
     uint32_t maximumMm() const;
 };
 
+class MaxBotixMB7388DistanceDriver : public DistanceSensorDriver
+{
+  public:
+    bool begin() override;
+    DistanceReading read() override;
+    const char *name() const override { return "MB7388"; }
+    const char *interfaceName() const override { return "UART 9600 TTL"; }
+    DistanceSensorType type() const override { return DistanceSensorType::MB7388; }
+
+  private:
+    bool initialized = false;
+};
+
 #endif
