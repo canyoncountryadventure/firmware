@@ -233,11 +233,15 @@ DistanceReading MaxBotixMB7388DistanceDriver::read()
     if (!initialized)
         begin();
 
-    // The MB7388 streams ASCII frames continuously as Rdddd<CR>, where dddd
-    // is distance in millimeters. Throw away stale bytes so each requested
-    // sample is fresh after the sensor power-up settle period.
-    while (Serial1.available() > 0)
-        Serial1.read();
+    // The sensor has already been powered for the module's settle period.
+    // At 6 Hz, several Rdddd<CR> frames can accumulate while we wait and may
+    // overflow the UART RX buffer. Restart the UART here so we begin with an
+    // empty receiver, then capture the next fresh frame from the still-powered
+    // MB7388 instead of trying to recover from an overfilled stale buffer.
+    Serial1.end();
+    delay(5);
+    Serial1.begin(9600);
+    initialized = true;
 
     const uint32_t started = millis();
     char digits[5] = {};
@@ -246,7 +250,7 @@ DistanceReading MaxBotixMB7388DistanceDriver::read()
     bool sawFrameStart = false;
     bool sawMalformedFrame = false;
 
-    while ((millis() - started) < 600UL) {
+    while ((millis() - started) < 1500UL) {
         while (Serial1.available() > 0) {
             const char ch = static_cast<char>(Serial1.read());
 
