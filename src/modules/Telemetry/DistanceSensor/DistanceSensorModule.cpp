@@ -426,11 +426,18 @@ DistanceReading DistanceSensorModule::readDistance()
     }
 
 #if defined(RAK_4631)
-    // Power the ultrasonic sensor only for a measurement.  This drives the
-    // Pololu 2810 ON input from RAK19007 IO1/GPIO17, waits for the
-    // ultrasonic electronics to stabilize, then shuts the sensor back down after read.
+    // Power the ultrasonic sensor only for a measurement.  For the MB7388,
+    // keep RX1 drained during warm-up so its ~6 Hz stream cannot overflow the
+    // UART buffer before we ask the driver for a fresh complete frame.
     setDistanceSensorPower(true);
-    delay(SENSOR_POWER_SETTLE_MS);
+    const uint32_t warmupStarted = millis();
+    while ((millis() - warmupStarted) < SENSOR_POWER_SETTLE_MS) {
+        if (activeType == DistanceSensorType::MB7388) {
+            while (Serial1.available() > 0)
+                Serial1.read();
+        }
+        delay(1);
+    }
 #endif
 
     latestReading = activeDriver->read();
