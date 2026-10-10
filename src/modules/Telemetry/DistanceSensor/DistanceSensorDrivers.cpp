@@ -233,15 +233,10 @@ DistanceReading MaxBotixMB7388DistanceDriver::read()
     if (!initialized)
         begin();
 
-    // The sensor has already been powered for the module's settle period.
-    // At 6 Hz, several Rdddd<CR> frames can accumulate while we wait and may
-    // overflow the UART RX buffer. Restart the UART here so we begin with an
-    // empty receiver, then capture the next fresh frame from the still-powered
-    // MB7388 instead of trying to recover from an overfilled stale buffer.
-    Serial1.end();
-    delay(5);
-    Serial1.begin(9600);
-    initialized = true;
+    // The module drains RX while the sensor warms up. Discard any
+    // final partial/stale bytes, then capture the next fresh MB7388 frame.
+    while (Serial1.available() > 0)
+        Serial1.read();
 
     const uint32_t started = millis();
     char digits[5] = {};
