@@ -43,7 +43,7 @@ static constexpr uint8_t WATER_MODE_VALUE = 1;
 // The 2810 physical slide switch must remain OFF for firmware control.
 #if defined(RAK_4631)
 static constexpr uint8_t SENSOR_POWER_PIN = 17;
-static constexpr uint32_t SENSOR_POWER_SETTLE_MS = 3000UL;
+static constexpr uint32_t SENSOR_POWER_SETTLE_MS = 8000UL;
 #endif
 
 struct LegacyPersistentConfig
