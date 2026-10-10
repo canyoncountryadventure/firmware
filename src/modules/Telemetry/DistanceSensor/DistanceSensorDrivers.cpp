@@ -245,7 +245,7 @@ DistanceReading MaxBotixMB7388DistanceDriver::read()
     bool sawFrameStart = false;
     bool sawMalformedFrame = false;
 
-    while ((millis() - started) < 1500UL) {
+    while ((millis() - started) < 3000UL) {
         while (Serial1.available() > 0) {
             const char ch = static_cast<char>(Serial1.read());
 
