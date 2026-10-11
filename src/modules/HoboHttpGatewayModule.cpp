@@ -325,8 +325,8 @@ bool HoboHttpGatewayModule::enqueueSoil(const meshtastic_MeshPacket &mp)
 bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp)
 {
     const uint32_t from = getFrom(&mp);
-    // Pack Creek and Cliff are both deployed as authoritative DS water stations.
-    if (from != PACK_CREEK_NODE && from != CLIFF_SENSOR_NODE)
+    // Accept distance packets from the configured water-station IDs.
+    if (from != SWELL_NODE && from != PACK_CREEK_NODE && from != CLIFF_SENSOR_NODE)
         return false;
     // DistanceSensorModule v3 sends a 24-byte DS/version-1 water packet.
     if (mp.decoded.payload.size != 24)
