@@ -26,6 +26,8 @@ constexpr uint32_t MOAB_NODE = 2650172798UL;
 constexpr uint32_t PACK_CREEK_NODE = 4241345683UL; // !fccdcc93
 constexpr uint32_t WINGATE_SOIL_NODE = 2004386937UL; // !77788479
 constexpr uint32_t CLIFF_SENSOR_NODE = 3388602087UL; // !c9f9f6e7
+constexpr uint32_t CC01_NODE = 1695962694UL; // !65165646
+constexpr uint32_t CC02_NODE = 2425602407UL; // !9093c167
 
 uint16_t readLE16(const uint8_t *p)
 {
@@ -120,7 +122,8 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     // IDs only: public station names and sensor labels are assigned by Vercel.
     if (from != HIDDEN_VALLEY_NODE && from != REVIVED_NODE && from != FISHLAKE_NODE &&
         from != SWELL_NODE && from != HELTEC_HOME_NODE && from != MOAB_NODE &&
-        from != PACK_CREEK_NODE && from != WINGATE_SOIL_NODE && from != CLIFF_SENSOR_NODE)
+        from != PACK_CREEK_NODE && from != WINGATE_SOIL_NODE && from != CLIFF_SENSOR_NODE &&
+        from != CC01_NODE && from != CC02_NODE)
         return false;
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     if (!nodeDB->isFavorite(from))
@@ -326,7 +329,7 @@ bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp
 {
     const uint32_t from = getFrom(&mp);
     // Accept distance packets from the configured water-station IDs.
-    if (from != SWELL_NODE && from != PACK_CREEK_NODE && from != CLIFF_SENSOR_NODE)
+    if (from != SWELL_NODE && from != PACK_CREEK_NODE && from != CLIFF_SENSOR_NODE && from != CC01_NODE)
         return false;
     // DistanceSensorModule v3 sends a 24-byte DS/version-1 water packet.
     if (mp.decoded.payload.size != 24)
