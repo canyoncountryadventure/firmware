@@ -38,15 +38,17 @@ jobs:
       - name: Name downloads
         env:
           SENSOR: ${{ matrix.sensor }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           mkdir -p export
-          uf2_path="$(find release -maxdepth 1 -name '*.uf2' -print -quit)"
-          ota_path="$(find release -maxdepth 1 -name '*-ota.zip' -print -quit)"
+          uf2_path="$(find release -maxdepth 1 -name "firmware-$TARGET-*.uf2" -print -quit)"
+          ota_path="$(find release -maxdepth 1 -name "firmware-$TARGET-*-ota.zip" -print -quit)"
           test -n "$uf2_path"
           test -n "$ota_path"
           cp "$uf2_path" "export/RAK-Water-HOBO-v5-$SENSOR.uf2"
           cp "$ota_path" "export/RAK-Water-HOBO-v5-$SENSOR-OTA.zip"
+          python3 bin/verify_rak_v5.py "export/RAK-Water-HOBO-v5-$SENSOR.uf2" "$GITHUB_SHA"
           sha256sum export/* > "export/SHA256-$SENSOR.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
