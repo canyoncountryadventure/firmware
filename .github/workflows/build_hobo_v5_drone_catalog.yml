@@ -1,0 +1,109 @@
+name: Build matched Water HOBO V5 drone Scouts
+on:
+  push:
+    branches: [Remote-Drone-Flashing-v2]
+    paths:
+      - '.github/workflows/build_hobo_v5_drone_catalog.yml'
+      - 'tools/verify_drone_v5.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: water-hobo-v5-drone-catalog
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sensor: SEN0313
+            target_env: rak4631_sen0313_v5
+            ota_sha256: 6a77c09907489d80dcf6940a4c768940cced9092cd7bc4a8671505a6d260dfb2
+          - sensor: MB7388
+            target_env: rak4631_mb7388_v5
+            ota_sha256: f17d85068d1f6e72af68d8eabc189f9445c337cb52229781df07682fc6b2ff00
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: recursive
+      - name: Install build and compression tools
+        run: python -m pip install platformio lz4
+      - name: Download and verify exact published V5 OTA
+        env:
+          SENSOR: ${{ matrix.sensor }}
+          OTA_SHA256: ${{ matrix.ota_sha256 }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 "https://raw.githubusercontent.com/canyoncountryadventure/firmware/9deed6c8e62eb92776807fbf91e80c36cc2bcf96/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-$SENSOR-OTA.zip" --output target.zip
+          printf '%s  target.zip\n' "$OTA_SHA256" | sha256sum --check
+          python tools/build_drone_embedded_firmware.py target.zip src/experimental/embedded_dfu_image.h
+      - name: Build autonomous RAK4631 Scout
+        run: pio run -e rak4631_drone_flasher
+      - name: Verify embedded payload and package Scout
+        env:
+          SENSOR: ${{ matrix.sensor }}
+          TARGET_ENV: ${{ matrix.target_env }}
+          OTA_SHA256: ${{ matrix.ota_sha256 }}
+        run: |
+          set -euo pipefail
+          scout="$(find .pio/build/rak4631_drone_flasher -maxdepth 1 -name 'firmware-*.uf2' -print -quit)"
+          test -n "$scout"
+          mkdir -p export
+          output="export/Drone-RAK-Water-HOBO-v5-$SENSOR.uf2"
+          cp "$scout" "$output"
+          python tools/verify_drone_v5.py "$output" target.zip src/experimental/embedded_dfu_image.h
+          {
+            echo "Drone flasher: $(basename "$output")"
+            echo 'Target branch: RAK-Water-Distance-HOBO-v5'
+            echo 'Target commit: 659d1f4ca0d9e6f4e83c4e3733ba799a062a28b6'
+            echo "Target environment: $TARGET_ENV"
+            echo "Target OTA SHA-256: $OTA_SHA256"
+            echo 'Target download catalog commit: 9deed6c8e62eb92776807fbf91e80c36cc2bcf96'
+            echo 'Embedded payload: verified LZ4-compressed application OTA'
+            echo 'Scout implementation branch: Remote-Drone-Flashing-v2'
+            echo "Scout implementation commit: $GITHUB_SHA"
+            echo "Scout UF2 bytes: $(stat -c%s "$output")"
+            sha256sum "$output"
+          } > "$output.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: drone-water-hobo-v5-${{ matrix.sensor }}
+          path: export/*
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: drone-water-hobo-v5-*
+          merge-multiple: true
+          path: built
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: Remote-Drone-Flashing-v2
+          path: publish
+          fetch-depth: 0
+      - name: Publish verified V5 drone downloads
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          latest="$(git ls-remote origin refs/heads/Remote-Drone-Flashing-v2 | awk '{print $1}')"
+          if [ "$latest" != "$GITHUB_SHA" ]; then exit 0; fi
+          mkdir -p downloads/RAK-Water-HOBO-v5
+          cp ../built/* downloads/RAK-Water-HOBO-v5/
+          git add downloads/RAK-Water-HOBO-v5
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Publish matched SEN0313 and MB7388 V5 drone Scouts'
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:Remote-Drone-Flashing-v2; then exit 0; fi
+            git pull --rebase origin Remote-Drone-Flashing-v2
+          done
+          exit 1
