@@ -1,191 +1,214 @@
-> **V4 recovery hardening:** this V4 target retains the proven V3 sensor behavior and adds retained nRF52 reset/failure diagnostics, bounded BLE pairing/disconnect waits, a bounded LPCOMP readiness path, and subsystem-specific breadcrumbs before watchdog recovery. Use `DIAG`/local serial to inspect retained reset context where supported.
+# RAK Water Distance + HOBO V5
 
-> **CURRENT BRANCH: RAK-Water-Distance-HOBO-v4 — HOBO V4.** Every firmware file linked in the **V4 downloads** table below has `-v4` in its filename. The unchanged `Remote-Drone-Flashing-v2` branch hosts the **V4** compressed Scout files; its branch name is not the firmware image version. The rest of this document describes this V4 configuration (including inherited V2 safeguards).
+Custom Meshtastic firmware for **RAK4631**, combining a UART water-distance sensor with a Bluetooth HOBO logger. Two builds are available: **SEN0313 / A01NYUB** for Pack Creek and **MaxBotix MB7388** for Cottonwood. Site names are deployment examples; neither build is tied to a node ID or site.
 
-## V4 downloads — use the file for this exact station
+HOBO support: **MX2001** water level and temperature, **MX2201** temperature, and **MX2203** temperature.
 
-| File | Purpose | Link |
-|---|---|---|
-| `RAK-Water-Distance-HOBO-v4.uf2` | **V4 field radio** — normal USB UF2, for the RAK4631 node | [Download V4 target UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v4.uf2) |
-| `RAK-Water-Distance-HOBO-v4-OTA.zip` | **V4 field radio** — BLE OTA update package (not a UF2) | [Download V4 target OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v4-OTA.zip) |
-| `Drone-RAK-Water-Distance-HOBO-v4.uf2` | **V4 drone Scout** — flash ONLY onto the *separate RAK4631 carried by the drone*, never onto the field node | [Download matching V4 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v4.uf2) |
-| `RAK-Water-Distance-HOBO-v4-BUILD.txt` | Target build commit and checksums | [View V4 build manifest](https://github.com/canyoncountryadventure/firmware/blob/field-self-recovery/downloads/RAK-Water-Distance-HOBO-v4-BUILD.txt) |
-| `Drone-RAK-Water-Distance-HOBO-v4.uf2.txt` | Scout's embedded target branch, target commit, and checksum | [View V4 Scout manifest](https://github.com/canyoncountryadventure/firmware/blob/Remote-Drone-Flashing-v2/downloads/Drone-RAK-Water-Distance-HOBO-v4.uf2.txt) |
+## Download V5
 
-**Before a remote update:** compare the target commit in the Scout manifest with the target build manifest. If these differ, use a fresh matching Scout image; do not assume different builds are paired. For USB updates, use the normal target UF2, **not** the `Drone-` UF2.
+Download the build matching your distance sensor. **UF2 is for USB installation; OTA ZIP is for Nordic BLE DFU.**
 
-**V4 operating behavior:** `STATUS` checks the HOBO logger write pointer on a **30-second** healthy-link cadence. The HOBO's internal logging interval is unchanged; automatic mesh telemetry is sent only on a confirmed new record. A manual `READ` remains independent. V4 inherits non-destructive field recovery and the target's existing `DFU` command.
+| Sensor / deployment | USB firmware | BLE DFU firmware | Checksums |
+| --- | --- | --- | --- |
+| SEN0313 / A01NYUB — Pack Creek | [Download SEN0313 UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-SEN0313.uf2) | [Download SEN0313 OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-SEN0313-OTA.zip) | [SHA-256](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/SHA256-SEN0313.txt) |
+| MB7388 — Cottonwood | [Download MB7388 UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-MB7388.uf2) | [Download MB7388 OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-MB7388-OTA.zip) | [SHA-256](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/SHA256-MB7388.txt) |
 
-**Source:** [RAK-Water-Distance-HOBO-v4](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v4) · **V4 target build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v4.yml?query=branch%3ARAK-Water-Distance-HOBO-v4) · **V4 matching Scout build:** [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_hobo_v4_drone_catalog.yml).
+The links above follow the latest published V5 build. At this documentation update, the verified firmware is **Meshtastic 2.7.26, source commit `659d1f4ca0d9e6f4e83c4e3733ba799a062a28b6`**, built October 12, 2026 UTC. A documentation commit does not change the firmware in these downloads.
 
----
+- [Successful build and tests](https://github.com/canyoncountryadventure/firmware/actions/runs/38201820946)
+- [V5 source branch](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v5)
+- [Build workflow](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_water_v5.yml?query=branch%3ARAK-Water-Distance-HOBO-v5)
+- [Immutable copies of this verified build](https://github.com/canyoncountryadventure/firmware/tree/9deed6c8e62eb92776807fbf91e80c36cc2bcf96/downloads/RAK-Water-HOBO-v5)
 
-> **HOBO V4 (retaining Field-Recovery v2 safeguards):** hardened SX1262 recovery, dual nRF52 watchdog channels, missed RX/TX IRQ polling, guarded AGC calibration, radio rail power-cycle recovery, flash-safe reboot, 12-hour burn-in reboot, and increased nRF52/BLE task stacks. Sensor behavior from RAK-Water-Distance-HOBO-v1 is retained.
+These downloads are for **RAK4631 / nRF52840**, not Heltec. A matching V5 DroneScout build has not been produced; the older V4 Scout download is not a V5 artifact.
 
-# RAK Water Distance + HOBO v4
+## Why we updated
 
-Production combined firmware for **RAK4631 + RAK19007** field nodes that must do both:
+Cottonwood's V4 logs showed repeated HOBO service-discovery failures and connection timeouts. They also showed that the node received and decrypted `LOGGER` DMs and transmitted replies. Lack of a visible reply therefore did not prove the radio had stopped receiving.
 
-- ultrasonic water-level / stage monitoring, and
-- BLE collection from supported HOBO MX loggers.
+V4 eventually deliberately stopped feeding the independent field watchdog. The resulting hardware reset recovered the logger in that capture: after reboot it reached the BLE command channel and identified an **MX2001**. This demonstrated that recovery could work, but the process left several failure paths unbounded or uncounted.
 
-**Branch:** `RAK-Water-Distance-HOBO-v4`
+The audit found four concrete problems: discovery/setup failures did not count toward BLE recovery, scan recovery relied on an SDK running flag that could remain stale after failure, initialization writes could retry without a deadline, and command replies on this branch did not request acknowledgment. V5 addresses those paths and makes the logger's model and recovery state visible.
 
-This branch is built from the current **RAK Water Distance v1** firmware and then adds the proven HOBO reader/recovery stack. It replaces the older combined distance/HOBO builds.
+**The underlying RF/GATT trigger is still unproven.** The Cottonwood capture does not establish Pack Creek's exact cause; that needs Pack Creek's own log. V5 has passed builds and fault-injection tests, but still needs live deployment validation.
 
-## Scope
+## V4 → V5 differences
 
-Water side:
+V5 is based on [V4 commit `42af584`](https://github.com/canyoncountryadventure/firmware/commit/42af584eaff4f72fdbb99c64ac8ed1339375e78c). The V4 branch is unchanged.
 
-- DFRobot SEN0313 / A01NYUB — default
-- DFRobot SEN0311 / A02YYUW
-- DFRobot SEN0590
-- permanent water mode
-- fresh-frame distance reads
-- stage calibration with automatic lock
-- configurable report interval
-- redundant A/B persistent config with sequence, CRC32, exact-size checking, truncation before overwrite, and read-back verification
-- water telemetry on Meshtastic channel 0
+| Area | V4 | V5 |
+| --- | --- | --- |
+| BLE discovery | Discovery in the connection callback; setup failures could escape the recovery counter | Service discovery, characteristic discovery, and notification setup run in bounded module-task stages; exhausted stages enter recovery |
+| Setup deadlines | Initialization writes could retry indefinitely | 45-second GATT setup deadline; 30-second bootstrap deadline through the first successful STATUS baseline |
+| Scanner recovery | Relied on cached `isRunning()` state | Checks scan start/resume results; restarts disconnected scanning every 30 seconds even with a stale running flag; 5-second scan retry backoff |
+| Acquisition scanning | 10% receive window | 50% receive window while seeking a logger; scanning stops while connecting or connected |
+| Bad link cleanup | Incomplete cancellation/disconnect escalation | Checks cancellation; a disconnect stalled for 10 seconds or a failed cancellation escalates to the field watchdog |
+| Reset escalation | Five counted BLE recovery failures; discovery failures were not counted | Five recovery failures spanning at least two minutes trigger the independent 90-second watchdog; discovery/setup failures participate |
+| Advertisement selection | Could attempt non-connectable HOBO advertisements | Ignores non-connectable advertisements |
+| `LOGGER` | MAC-focused response | Verified MX2001/MX2201/MX2203 model, connection/recovery state, lock and last error; persisted historical identity is explicitly labeled |
+| Locking | Bare `LOCK` after a verified connection | Also accepts `LOCK AA:BB:CC:DD:EE:FF` before connecting; target persists |
+| DM replies | Acknowledgment disabled on this water branch | HOBO, system, and water replies request acknowledgment/retry |
+| Sensor builds | Shared sensor configuration | Separate SEN0313 and MB7388 build defaults; saved sensor selection still takes precedence |
 
-HOBO side:
+### What stays the same
 
-- MX2001
-- MX2201
-- MX2203
-- BLE scanning/collection using the existing universal HOBO reader
-- HOBO diagnostics plus automatic BLE link recovery owned by the HOBO telemetry state machine
+- Existing saved sensor selection, calibration, distance measurement interval, logger lock, node identity, keys, and channels remain compatible with an ordinary application update.
+- Distance configuration format and cloud telemetry formats are unchanged.
+- The MB7388 cold-start settling fix, existing LoRa recovery, and 12-hour preventive reboot are retained.
+- HOBO STATUS is polled every 30 seconds. Automatic telemetry is sent only when the logger has a **new recorded sample**. An initial successful probe does not fabricate an hourly record.
+- V5 does not change the logger's configured recording interval. If the MX2001 records hourly, a connected logger may still wait until the next record before new automatic telemetry appears.
 
-Trail-counter logic is intentionally excluded.
+## Install and verify
 
-## Recovery ownership
+### USB / UF2
 
-The combined build uses **one node-recovery command/diagnostic module**: the HOBO self-recovery module. The standalone distance recovery supervisor is not instantiated. BLE scanner/link lifecycle remains owned by the HOBO telemetry state machine, which handles connection timeouts and repeated STATUS/NEWREAD failures. This avoids competing BLE owners and duplicate reboot command handlers while retaining the independent Field-Recovery v2 watchdog escalation path.
+1. Download the UF2 matching the distance sensor.
+2. Connect the RAK4631 over a USB data cable and double-tap reset to enter its UF2 bootloader.
+3. Copy the UF2 onto the bootloader drive. The node reboots after installation.
+4. Reconnect in Meshtastic and DM the checks below directly to the node.
 
-Water configuration persistence remains handled by the Water Distance v1 module.
+Use an ordinary application update to preserve settings. A factory erase/reset is a separate operation and can remove configuration.
 
-## Water field setup
+### BLE DFU / OTA ZIP
 
-Use a second Meshtastic node to DM the field node:
+Download the matching **OTA ZIP** and leave it zipped. Use a Nordic DFU client, put the node into DFU mode with the existing `DFU` command, and select the ZIP as the application update package. This is Nordic BLE DFU, not a Meshtastic text-file transfer. USB remains the fallback if the node cannot receive the DFU command.
 
-```text
-WATER STATUS
-WATER RAW
-WATER VERIFY
-WATER INTERVAL 1H
-WATER CAL STAGE 1.42FT
-WATER CAL STATUS
-WATER TELEMETRY NOW
-```
-
-Replace `1.42FT` with the independently measured stage at the site. The `WATER` prefix is **required** in this combined build. Bare `READ`, `STATUS`, and other unprefixed commands are reserved for the HOBO/recovery side so the two command systems cannot collide.
-
-After calibration, completely remove power, reconnect it, then verify:
+### First checks after flashing
 
 ```text
+VERSION
+LOGGER
+READ
 WATER STATUS
 WATER CAL STATUS
-WATER READ
+WATCHDOG
 ```
 
-To discard a bench/test calibration before deployment:
+`VERSION` should identify V5. `LOGGER` should show the actual verified model when identified. `READ` requests a HOBO reading; `WATER READ` requests the distance sensor instead.
+
+**Saved settings override build defaults.** Flashing the MB7388 build onto a node previously configured for SEN0313 does not silently switch its stored sensor selection. Check `WATER SENSOR`; when a change is intended, use one of:
 
 ```text
-WATER CAL RESET CONFIRM
+WATER SENSOR MB7388
+WATER SENSOR SEN0313
 ```
 
-This clears only water calibration; sensor selection and reporting interval are preserved.
+Then check `WATER STATUS` and the calibration before relying on reported stage. Preserve an existing valid calibration; changing the sensor or physical installation may require recalibration.
 
-## RAK UART mapping
+To choose a specific HOBO before it connects:
 
 ```text
-UART1 RX -> logical pin 15
-UART1 TX -> logical pin 16
+LOCK AA:BB:CC:DD:EE:FF
+LOGGER
 ```
 
-For the streaming A01NYUB, sensor TX goes to the node UART RX.
+Replace the example with the intended logger's actual address. Do not guess an address from another site's logger. Bare `LOCK` still locks the currently connected, identified logger; `UNLOCK` removes the restriction.
 
-## Water persistence
+## What `LOGGER` tells you
 
-Water settings are stored in redundant A/B flash records. The inactive slot is rewound and truncated before each write, then the complete record is re-opened and verified before it becomes active. The previous valid slot remains the fallback until verification succeeds.
+An identified logger response includes:
 
-Normal battery loss, solar shutdown, reboot, watchdog reset, or ordinary non-destructive firmware updates do not intentionally erase water calibration, interval, Meshtastic identity, channels, keys, or NodeDB.
+```text
+HOBO CONNECTED
+Model: MX2001
+Target/Candidate: AA:BB:CC:DD:EE:FF
+BLE: -73 dBm
+Interval: 3600 sec
+Lock: ON
+Last error: ...
+```
 
-## A01NYUB power note
+When disconnected after a previous identification, it can instead show:
 
-A01NYUB ranges continuously while powered, so its blue LED keeps blinking even when water telemetry is hourly. Actual sensor sleep requires hardware power gating with a load switch or high-side MOSFET.
+```text
+HOBO SCANNING
+Model: Not identified
+Last verified: MX2001
+Last MAC: AA:BB:CC:DD:EE:FF
+Lock: ON
+Failures: 0
+Last error: ...
+```
 
-## Useful DM commands
+These are example values. `Last verified` is historical, not proof of a current connection. The firmware only reports the current model after reading and validating it. Other states include `CONNECTING`, `IDENTIFYING`, `RECOVERING`, and `RESET PENDING`. The last error is diagnostic history and may remain visible after recovery.
 
-Send bare `HELP` for the complete six-message station command reference. Send `WATER HELP` for the complete four-message water-only reference. Bare `READ` is the **HOBO** read; water commands are deliberately prefixed with `WATER` so the two sensor systems cannot collide.
+## DM command reference
 
-### Water side
+Send commands as **direct messages to the node**. In the combined build, prefix distance-sensor commands with `WATER`; bare `READ` belongs to HOBO. `HELP` and `WATER HELP` provide the on-device reference.
 
-| Command | What it does |
-|---|---|
-| `WATER` | Alias for `WATER HELP`. |
-| `WATER HELP` | Lists every supported water command in four numbered messages. |
-| `WATER STATUS` | Reports water sensor, interval, calibration, and readiness. |
-| `WATER CHECK` | Runs the water readiness/status check. |
-| `WATER INSTALL` | Runs the same installation/readiness status check. |
-| `WATER SENSOR` | Shows configured and active distance-sensor drivers. |
-| `WATER SENSOR AUTO` | Automatically tries supported distance-sensor drivers. |
-| `WATER SENSOR SEN0590` | Selects the SEN0590 I2C driver. |
-| `WATER SENSOR SEN0311` | Selects the SEN0311 UART driver. |
-| `WATER SENSOR A02YYUW` | Alias for the SEN0311/A02YYUW UART driver. |
-| `WATER SENSOR SEN0313` | Selects the SEN0313 UART driver. |
-| `WATER SENSOR A01NYUB` | Alias for the SEN0313/A01NYUB UART driver. |
-| `WATER READ` | Takes a fresh water-distance reading and reports stage if calibrated. |
-| `WATER RAW` | Returns raw distance without stage conversion. |
-| `WATER VERIFY` | Takes multiple fresh readings and reports median/range/spread. |
-| `WATER INTERVAL 1H` | Saves the automatic water-report interval; duration units are accepted by the parser. |
-| `WATER CAL STATUS` | Shows saved water calibration and lock state. |
-| `WATER CAL STAGE 1.42FT` | Calibrates stage from a known field measurement. |
-| `WATER CAL LOCK` | Locks an existing water calibration. |
-| `WATER CAL UNLOCK` | Requests calibration unlock and returns the confirmation command. |
-| `WATER CAL UNLOCK CONFIRM` | Unlocks calibration without erasing it. |
-| `WATER CAL RESET` | Requests calibration reset and returns the confirmation command. |
-| `WATER CAL RESET CONFIRM` | Clears only the water calibration. |
-| `WATER RESET WATER` | Requests a water-subsystem reset and returns the confirmation command. |
-| `WATER RESET WATER CONFIRM` | Resets water settings to defaults without factory-resetting Meshtastic. |
-| `WATER TELEMETRY NOW` | Immediately queues a fresh water telemetry packet. |
-| `WATER MODE` | Reports that this image is permanently water-only; it does not change mode. |
+| HOBO command | Purpose |
+| --- | --- |
+| `LOGGER` | Model, state, address/last verified identity, lock, and recovery diagnostics |
+| `READ` | Request a current HOBO reading in a DM reply |
+| `LOCK` | Persist the connected, identified logger as the target |
+| `LOCK AA:BB:CC:DD:EE:FF` | Persist an explicit target before connection |
+| `UNLOCK` | Remove the logger address restriction |
+| `AUTO` | Report automatic polling/new-record transmission behavior |
+| `SCAN`, `RECONNECT` | Report state-machine ownership; these do not manually restart the scanner |
 
-### HOBO / system / recovery side
+| Water command | Purpose |
+| --- | --- |
+| `WATER`, `WATER HELP` | Command reference |
+| `WATER STATUS`, `WATER CHECK`, `WATER INSTALL` | Installation/configuration status |
+| `WATER SENSOR` | Show sensor selection |
+| `WATER SENSOR MB7388` | Select MaxBotix MB7388 |
+| `WATER SENSOR SEN0313`, `WATER SENSOR A01NYUB` | Select SEN0313 / A01NYUB |
+| `WATER SENSOR AUTO`, `SEN0590`, `SEN0311`, `A02YYUW` | Other supported selections; each requires the full `WATER SENSOR` prefix |
+| `WATER READ`, `WATER RAW`, `WATER VERIFY` | Measurement and sensor diagnostics |
+| `WATER INTERVAL 1H` | Example distance measurement interval setting |
+| `WATER CAL STATUS` | Show stored calibration |
+| `WATER CAL STAGE 1.42FT` | Example: calibrate using a known current stage; replace with the measured value |
+| `WATER CAL LOCK` | Lock calibration |
+| `WATER CAL UNLOCK`, `WATER CAL UNLOCK CONFIRM` | Unlock calibration with confirmation |
+| `WATER CAL RESET`, `WATER CAL RESET CONFIRM` | Clear calibration with confirmation |
+| `WATER RESET WATER`, `WATER RESET WATER CONFIRM` | Reset water configuration with confirmation |
+| `WATER TELEMETRY NOW` | Request water telemetry now |
+| `WATER MODE` | Report operating mode |
 
-| Command | What it does |
-|---|---|
-| `HELP` | Lists **all** HOBO, system, recovery, DFU, and water commands in six numbered messages. |
-| `READ` | Requests an immediate fresh HOBO reading without consuming the automatic pointer. |
-| `LOGGER` | Shows HOBO model, MAC, BLE RSSI, logging interval, target, and lock state. |
-| `LOCK` / `UNLOCK` | Saves or clears the persistent HOBO assignment. |
-| `AUTO` | Reports pointer-gated automatic HOBO state. |
-| `STATUS` / `HEALTH` | Reports overall self-recovery health. |
-| `BLE` | Reports HOBO BLE/scanner state. |
-| `POWER` / `BATTERY` | Reports battery/power status. |
-| `STATS` | Reports recovery counters and reset/boot information. |
-| `NODES` | Reports the current Meshtastic NodeDB count. |
-| `UPTIME` | Reports node uptime. |
-| `VERSION` | Reports V4 firmware identity/platform. |
-| `WATCHDOG` | Reports watchdog state. |
-| `PING` / `WAKE` | Quick end-to-end DM/liveness checks. |
-| `SCAN` | Legacy diagnostic command; V4 recovery owns BLE scanning automatically. |
-| `RECONNECT` | Legacy diagnostic command; V4 recovery owns HOBO link recovery automatically. |
-| `RECOVER` / `REBOOT` | Performs the safe non-destructive recovery reboot. |
-| `DFU` | Arms the target for the matched drone/BLE DFU workflow. |
+| System command | Purpose |
+| --- | --- |
+| `PING`, `WAKE` | Connectivity check |
+| `VERSION`, `UPTIME` | Build and runtime information |
+| `STATUS`, `HEALTH` | Node health summary |
+| `BLE`, `WATCHDOG` | BLE and watchdog diagnostics |
+| `POWER`, `BATTERY` | Power information |
+| `STATS`, `NODES` | Radio/node diagnostics |
+| `DIAG`, `CRASHLOG` | Saved diagnostics |
+| `CLEAR DIAG` | Clear saved diagnostics |
+| `RECOVER`, `REBOOT` | Request a software reboot |
+| `DFU` | Enter Nordic BLE DFU mode |
 
-Commands are case-insensitive. A leading `/` is optional where supported.
+## Recovery behavior and tradeoffs
 
-## Build and flashing
+The node keeps seeking a logger. **No advertisements alone do not cause repeated watchdog resets.** When actual connection/setup failures accumulate, recovery can escalate to the independent hardware watchdog. Five failures must span at least two minutes before that escalation; once the watchdog is deliberately starved, reset takes about 90 seconds. These are recovery thresholds, not a guaranteed time to connect.
 
-Meshtastic base remains pinned to the validated **2.7.26** baseline.
+The 12-hour preventive software reboot is separate from the hardware watchdog path. Both restart firmware, but they have different triggers/reset mechanisms. Neither establishes that an intermittent peripheral, RF, or logger problem has disappeared.
 
-Use normal RAK4631 UF2 or BLE DFU packages for routine updates. **Do not use factory-erase images for normal upgrades.**
+The wider scan window improves acquisition opportunities but increases power use while disconnected. Acknowledged replies add LoRa traffic and still depend on a working mesh route. V5 does not guarantee an immediate connection or immediate cloud update.
 
-A successful compile is required, but field deployment still requires real sensor, HOBO BLE, calibration-persistence, telemetry, and recovery testing on the actual assembled node.
+## Validation and remaining checks
 
+**Passed:** both RAK4631 target builds, host fault-injection tests, and download packaging checks in [run 38201820946](https://github.com/canyoncountryadventure/firmware/actions/runs/38201820946). Fault-injection tests exercise extracted firmware code for stale scanner state, failed scan starts/cancellation, discovery failure escalation, successful setup, and truthful model reporting.
 
-## Command-reply retry protection
+The published UF2 files were checked for nRF52840 family ID, block structure, application address bounds, source commit, V5 label, and LOGGER labels. Both UF2 files are 1,495,552 bytes. OTA ZIP integrity and application manifests were also checked.
 
-Normal water and HOBO command replies are sent without requesting mesh ACK/retry. This prevents one diagnostic reply from being retransmitted repeatedly when the controller-side ACK path is weak or unavailable. The firmware-update `DFU` path remains separately protected by its reliable update workflow.
+| Verified build | UF2 SHA-256 |
+| --- | --- |
+| SEN0313 | `e72aea487939657622371a0072938bf812cfede0e70bb234101bf98bfb93d1a9` |
+| MB7388 | `d9979b96f5ad4d57dd5764331a55d52fc94eebeb950b574a906f04ee7e943151` |
 
-The water command parser accepts only explicit `WATER ...` commands in this combined build. Bare `READ`, `STATUS`, `SENSOR`, and similar text is ignored by the water module.
+These hashes describe source `659d1f4`; use the linked checksum files for a future latest build.
+
+**Still required on hardware:** battery startup without a manual reset, logger absent then returning, disconnect during discovery/reading, DM replies during recovery, saved settings across a watchdog reset, and a 24-hour run with the expected recorded telemetry. Compilation and simulated failures do not replace these checks.
+
+For a failure report, capture serial logs from power-on through recovery and include `VERSION`, `LOGGER`, `WATCHDOG`, `WATER STATUS`, the logger model/address, power source, and whether any reset was manual. A Pack Creek-specific log is needed to diagnose Pack Creek's exact failure.
+
+## Developer reference
+
+```sh
+python3 test/test_hobo_v5/test_hobo_v5.py
+pio run -e rak4631_sen0313_v5
+pio run -e rak4631_mb7388_v5
+```
+
+Build environments are defined in `variants/nrf52840/rak4631/platformio.ini`. The build workflow verifies target-specific artifacts before publishing downloads. [V5 engineering notes](V5-WATER-HOBO.md) document the audit and compatibility details.
