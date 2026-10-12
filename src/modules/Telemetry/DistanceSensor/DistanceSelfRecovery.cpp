@@ -9,10 +9,10 @@
 #include "PowerFSM.h"
 #include "main.h"
 
-#include <nrf.h>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <nrf.h>
 
 namespace
 {
@@ -21,7 +21,7 @@ static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
 static constexpr uint32_t WDT_TIMEOUT_SECONDS = 15UL * 60UL;
 static constexpr uint32_t WDT_TICKS_PER_SECOND = 32768UL;
 static constexpr uint32_t WDT_RELOAD_MAGIC = 0x6E524635UL;
-static constexpr char FIRMWARE_LABEL[] = "WATER DISTANCE 2.0";
+static constexpr char FIRMWARE_LABEL[] = "WATER DISTANCE + HOBO V5";
 
 bool watchdogOwned = false;
 bool watchdogChecked = false;
@@ -96,7 +96,8 @@ void initializeWatchdog()
     watchdogChecked = true;
 
     if (NRF_WDT->RUNSTATUS != 0) {
-        LOG_INFO("Water recovery: on-chip watchdog already running; leaving ownership unchanged");
+        LOG_INFO("Water recovery: on-chip watchdog already running; leaving "
+                 "ownership unchanged");
         return;
     }
 
@@ -179,7 +180,9 @@ ProcessMessage DistanceSelfRecoveryModule::handleReceived(const meshtastic_MeshP
             snprintf(reply, sizeof(reply), "WATCHDOG:running=YES owner=WATER timeout=%lus reset=0x%08lX",
                      static_cast<unsigned long>(WDT_TIMEOUT_SECONDS), static_cast<unsigned long>(resetReasonAtBoot));
         } else {
-            snprintf(reply, sizeof(reply), "WATCHDOG:running=%s owner=CORE/OTHER custom_timeout=N/A reset=0x%08lX",
+            snprintf(reply, sizeof(reply),
+                     "WATCHDOG:running=%s owner=CORE/OTHER custom_timeout=N/A "
+                     "reset=0x%08lX",
                      NRF_WDT->RUNSTATUS ? "YES" : "NO", static_cast<unsigned long>(resetReasonAtBoot));
         }
 #endif
@@ -199,7 +202,8 @@ ProcessMessage DistanceSelfRecoveryModule::handleReceived(const meshtastic_MeshP
         setIntervalFromNow(100);
 #endif
         sendTextReply(mp.from, mp.channel,
-                      "RECOVERY:flash-safe reboot in 2 sec. Meshtastic identity/keys/channels and WATER calibration/settings are preserved.");
+                      "RECOVERY:flash-safe reboot in 2 sec. Meshtastic "
+                      "identity/keys/channels and WATER calibration/settings are preserved.");
         return ProcessMessage::CONTINUE;
     }
 

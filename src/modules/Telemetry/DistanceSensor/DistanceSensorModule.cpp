@@ -46,8 +46,7 @@ static constexpr uint8_t SENSOR_POWER_PIN = 17;
 static constexpr uint32_t SENSOR_POWER_SETTLE_MS = 8000UL;
 #endif
 
-struct LegacyPersistentConfig
-{
+struct LegacyPersistentConfig {
     uint32_t magic;
     uint8_t version;
     uint8_t sensorType;
@@ -105,7 +104,8 @@ void setDistanceSensorPower(bool enabled)
 {
 #if defined(RAK_4631)
     // Drive the actual nRF52840 P0.17 line used by WisBlock IO1 directly.
-    // This bypasses Arduino pin translation and reasserts output direction every time.
+    // This bypasses Arduino pin translation and reasserts output direction every
+    // time.
     constexpr uint32_t mask = (1UL << SENSOR_POWER_PIN);
     NRF_P0->DIRSET = mask;
     if (enabled)
@@ -119,8 +119,7 @@ void setDistanceSensorPower(bool enabled)
 } // namespace
 
 DistanceSensorModule::DistanceSensorModule()
-    : SinglePortModule("distance_sensor", meshtastic_PortNum_TEXT_MESSAGE_APP),
-      concurrency::OSThread("distance_sensor"),
+    : SinglePortModule("distance_sensor", meshtastic_PortNum_TEXT_MESSAGE_APP), concurrency::OSThread("distance_sensor"),
       uartDriver(DistanceSensorType::UART_GENERIC)
 {
     isPromiscuous = true;
@@ -134,7 +133,11 @@ void DistanceSensorModule::setDefaults()
     memset(&cfg, 0, sizeof(cfg));
     cfg.magic = CONFIG_MAGIC;
     cfg.version = CONFIG_VERSION;
+#if defined(V5_DEFAULT_SENSOR_SEN0313)
+    cfg.sensorType = static_cast<uint8_t>(DistanceSensorType::SEN0313_A01NYUB);
+#else
     cfg.sensorType = static_cast<uint8_t>(DistanceSensorType::MB7388);
+#endif
     cfg.reportIntervalSec = DEFAULT_REPORT_INTERVAL_SEC;
 }
 
@@ -207,8 +210,9 @@ bool DistanceSensorModule::saveConfig()
         }
 
         // Adafruit LittleFS FILE_O_WRITE opens at EOF rather than truncating.
-        // This is the inactive A/B slot, so reset it to exactly one record before writing.
-        // The currently active slot remains untouched until this new record verifies.
+        // This is the inactive A/B slot, so reset it to exactly one record before
+        // writing. The currently active slot remains untouched until this new
+        // record verifies.
         if (!file.seek(0) || !file.truncate()) {
             LOG_WARN("WaterDistance: failed to truncate config slot %c", targetSlot == 0 ? 'A' : 'B');
             file.close();
@@ -252,8 +256,8 @@ bool DistanceSensorModule::migrateLegacyConfig()
     }
 
     if (readLength != sizeof(legacy) || legacy.magic != LEGACY_CONFIG_MAGIC || legacy.version != LEGACY_CONFIG_VERSION ||
-        legacy.sensorType > static_cast<uint8_t>(DistanceSensorType::UART_GENERIC) ||
-        legacy.reportIntervalSec < 5UL || legacy.reportIntervalSec > 86400UL || legacy.checksum != legacyChecksum(legacy))
+        legacy.sensorType > static_cast<uint8_t>(DistanceSensorType::UART_GENERIC) || legacy.reportIntervalSec < 5UL ||
+        legacy.reportIntervalSec > 86400UL || legacy.checksum != legacyChecksum(legacy))
         return false;
 
     setDefaults();
@@ -267,8 +271,7 @@ bool DistanceSensorModule::migrateLegacyConfig()
     if (!saveConfig())
         return false;
 
-    LOG_INFO("WaterDistance: migrated valid legacy config; calibration=%s",
-             (cfg.flags & FLAG_CALIBRATED) ? "YES" : "NO");
+    LOG_INFO("WaterDistance: migrated valid legacy config; calibration=%s", (cfg.flags & FLAG_CALIBRATED) ? "YES" : "NO");
     return true;
 }
 
@@ -296,7 +299,8 @@ bool DistanceSensorModule::loadConfig()
             activeConfigSlot = 1;
         }
 
-        LOG_INFO("WaterDistance: restored slot=%c seq=%lu sensor=%s interval=%lus calibrated=%s locked=%s",
+        LOG_INFO("WaterDistance: restored slot=%c seq=%lu sensor=%s interval=%lus "
+                 "calibrated=%s locked=%s",
                  activeConfigSlot == 0 ? 'A' : 'B', static_cast<unsigned long>(cfg.sequence),
                  distanceSensorTypeName(static_cast<DistanceSensorType>(cfg.sensorType)),
                  static_cast<unsigned long>(cfg.reportIntervalSec), (cfg.flags & FLAG_CALIBRATED) ? "YES" : "NO",
@@ -309,7 +313,9 @@ bool DistanceSensorModule::loadConfig()
     if (migrateLegacyConfig())
         return true;
 
-    LOG_INFO("WaterDistance: no valid config; creating defaults (MB7388, 1 hour, uncalibrated)");
+    LOG_INFO("WaterDistance v5: no valid config; creating defaults (sensor=%u, 1 "
+             "hour, uncalibrated)",
+             cfg.sensorType);
     saveConfig();
     return false;
 }
@@ -448,8 +454,7 @@ DistanceReading DistanceSensorModule::readDistance()
     // requiring a field reset or command. Preserve interval/config, but clear
     // calibration because it belongs to the previous physical sensor.
     if (!latestReading.valid() &&
-        (activeType == DistanceSensorType::SEN0311_A02YYUW ||
-         activeType == DistanceSensorType::SEN0313_A01NYUB ||
+        (activeType == DistanceSensorType::SEN0311_A02YYUW || activeType == DistanceSensorType::SEN0313_A01NYUB ||
          activeType == DistanceSensorType::UART_GENERIC)) {
         mb7388Driver.begin();
         const DistanceReading mbReading = mb7388Driver.read();
@@ -469,7 +474,8 @@ DistanceReading DistanceSensorModule::readDistance()
                 if (saveConfig())
                     LOG_INFO("WaterDistance: auto-migrated saved UART sensor to MB7388");
                 else
-                    LOG_WARN("WaterDistance: detected MB7388 but could not persist sensor migration");
+                    LOG_WARN("WaterDistance: detected MB7388 but could not persist "
+                             "sensor migration");
             }
         }
     }
@@ -567,9 +573,9 @@ bool DistanceSensorModule::sendDistanceTelemetry()
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
 
-    LOG_INFO("WaterDistance TX sensor=%s raw=%lumm stage=%ldmm valid=%s seq=%u",
-             distanceSensorTypeName(activeType), static_cast<unsigned long>(latestReading.distanceMm),
-             static_cast<long>(latestStageMm), latestStageValid ? "YES" : "NO", telemetrySequence);
+    LOG_INFO("WaterDistance TX sensor=%s raw=%lumm stage=%ldmm valid=%s seq=%u", distanceSensorTypeName(activeType),
+             static_cast<unsigned long>(latestReading.distanceMm), static_cast<long>(latestStageMm),
+             latestStageValid ? "YES" : "NO", telemetrySequence);
     return true;
 }
 
@@ -591,7 +597,7 @@ bool DistanceSensorModule::sendTextReply(uint32_t destination, uint8_t channel, 
     packet->decoded.want_response = false;
     packet->to = destination;
     packet->channel = channel;
-    packet->want_ack = false;
+    packet->want_ack = true;
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
     return true;
@@ -644,9 +650,10 @@ bool DistanceSensorModule::calibrateStage(int32_t knownStageMm, uint32_t request
 
     char reply[230] = {};
     snprintf(reply, sizeof(reply),
-             "CAL SAVED + LOCKED\nRaw median: %.3f ft (%lumm)\nKnown stage: %.3f ft\nReference: %.3f ft\nSample spread: %lumm",
-             median / 304.8f, static_cast<unsigned long>(median), knownStageMm / 304.8f,
-             cfg.stageReferenceMm / 304.8f, static_cast<unsigned long>(maxMm - minMm));
+             "CAL SAVED + LOCKED\nRaw median: %.3f ft (%lumm)\nKnown stage: %.3f "
+             "ft\nReference: %.3f ft\nSample spread: %lumm",
+             median / 304.8f, static_cast<unsigned long>(median), knownStageMm / 304.8f, cfg.stageReferenceMm / 304.8f,
+             static_cast<unsigned long>(maxMm - minMm));
     sendTextReply(requester, channel, reply);
     return true;
 }
@@ -663,20 +670,21 @@ void DistanceSensorModule::replyStatus(uint32_t requester, uint8_t channel, bool
     char reply[230] = {};
     if (latestStageValid) {
         snprintf(reply, sizeof(reply),
-                 "WATER NODE %s\nReady:%s Sensor:%s\nCal:%s %s Interval:%lus\nLast:%s %lumm Stage:%.3fft\nReads OK/ERR:%lu/%lu",
-                 platformName(), ready ? "YES" : "NO", distanceSensorTypeName(activeType),
-                 calibrated ? "VALID" : "NOT SET", locked ? "LOCKED" : "UNLOCKED",
-                 static_cast<unsigned long>(cfg.reportIntervalSec), distanceReadStatusName(latestReading.status),
-                 static_cast<unsigned long>(latestReading.distanceMm), latestStageMm / 304.8f,
-                 static_cast<unsigned long>(sensorReadSuccesses), static_cast<unsigned long>(sensorReadErrors));
+                 "WATER NODE %s\nReady:%s Sensor:%s\nCal:%s %s "
+                 "Interval:%lus\nLast:%s %lumm Stage:%.3fft\nReads OK/ERR:%lu/%lu",
+                 platformName(), ready ? "YES" : "NO", distanceSensorTypeName(activeType), calibrated ? "VALID" : "NOT SET",
+                 locked ? "LOCKED" : "UNLOCKED", static_cast<unsigned long>(cfg.reportIntervalSec),
+                 distanceReadStatusName(latestReading.status), static_cast<unsigned long>(latestReading.distanceMm),
+                 latestStageMm / 304.8f, static_cast<unsigned long>(sensorReadSuccesses),
+                 static_cast<unsigned long>(sensorReadErrors));
     } else {
         snprintf(reply, sizeof(reply),
-                 "WATER NODE %s\nReady:%s Sensor:%s\nCal:%s %s Interval:%lus\nLast:%s %lumm Stage:N/A\nReads OK/ERR:%lu/%lu",
-                 platformName(), ready ? "YES" : "NO", distanceSensorTypeName(activeType),
-                 calibrated ? "VALID" : "NOT SET", locked ? "LOCKED" : "UNLOCKED",
-                 static_cast<unsigned long>(cfg.reportIntervalSec), distanceReadStatusName(latestReading.status),
-                 static_cast<unsigned long>(latestReading.distanceMm), static_cast<unsigned long>(sensorReadSuccesses),
-                 static_cast<unsigned long>(sensorReadErrors));
+                 "WATER NODE %s\nReady:%s Sensor:%s\nCal:%s %s "
+                 "Interval:%lus\nLast:%s %lumm Stage:N/A\nReads OK/ERR:%lu/%lu",
+                 platformName(), ready ? "YES" : "NO", distanceSensorTypeName(activeType), calibrated ? "VALID" : "NOT SET",
+                 locked ? "LOCKED" : "UNLOCKED", static_cast<unsigned long>(cfg.reportIntervalSec),
+                 distanceReadStatusName(latestReading.status), static_cast<unsigned long>(latestReading.distanceMm),
+                 static_cast<unsigned long>(sensorReadSuccesses), static_cast<unsigned long>(sensorReadErrors));
     }
     sendTextReply(requester, channel, reply);
 }
@@ -696,11 +704,12 @@ void DistanceSensorModule::replyRead(uint32_t requester, uint8_t channel, bool r
         snprintf(reply, sizeof(reply), "RAW: %lumm = %.2f cm = %.3f ft", static_cast<unsigned long>(r.distanceMm),
                  r.distanceMm / 10.0f, r.distanceMm / 304.8f);
     } else if (latestStageValid) {
-        snprintf(reply, sizeof(reply), "WATER READ\nRaw: %.3f ft (%lumm)\nStage: %.3f ft (%.1f cm)",
-                 r.distanceMm / 304.8f, static_cast<unsigned long>(r.distanceMm), latestStageMm / 304.8f,
-                 latestStageMm / 10.0f);
+        snprintf(reply, sizeof(reply), "WATER READ\nRaw: %.3f ft (%lumm)\nStage: %.3f ft (%.1f cm)", r.distanceMm / 304.8f,
+                 static_cast<unsigned long>(r.distanceMm), latestStageMm / 304.8f, latestStageMm / 10.0f);
     } else {
-        snprintf(reply, sizeof(reply), "WATER READ\nRaw: %.3f ft (%lumm)\nStage: NOT CALIBRATED\nUse WATER CAL STAGE 1.42FT",
+        snprintf(reply, sizeof(reply),
+                 "WATER READ\nRaw: %.3f ft (%lumm)\nStage: NOT CALIBRATED\nUse "
+                 "WATER CAL STAGE 1.42FT",
                  r.distanceMm / 304.8f, static_cast<unsigned long>(r.distanceMm));
     }
     sendTextReply(requester, channel, reply);
@@ -726,14 +735,15 @@ void DistanceSensorModule::replyCalibration(uint32_t requester, uint8_t channel)
                  locked ? "LOCKED" : "UNLOCKED");
     } else if (cfg.calibrationRawMm != 0) {
         snprintf(reply, sizeof(reply),
-                 "CAL STATUS\nCalibration:VALID %s\nReference:%.3fft\nAt cal: raw %.3fft, stage %.3fft\nSaved seq:%lu",
+                 "CAL STATUS\nCalibration:VALID %s\nReference:%.3fft\nAt cal: raw "
+                 "%.3fft, stage %.3fft\nSaved seq:%lu",
                  locked ? "LOCKED" : "UNLOCKED", cfg.stageReferenceMm / 304.8f, cfg.calibrationRawMm / 304.8f,
                  cfg.calibrationStageMm / 304.8f, static_cast<unsigned long>(cfg.sequence));
     } else {
         snprintf(reply, sizeof(reply),
-                 "CAL STATUS\nCalibration:VALID %s\nReference:%.3fft\nMigrated legacy calibration\nSaved seq:%lu",
-                 locked ? "LOCKED" : "UNLOCKED", cfg.stageReferenceMm / 304.8f,
-                 static_cast<unsigned long>(cfg.sequence));
+                 "CAL STATUS\nCalibration:VALID %s\nReference:%.3fft\nMigrated "
+                 "legacy calibration\nSaved seq:%lu",
+                 locked ? "LOCKED" : "UNLOCKED", cfg.stageReferenceMm / 304.8f, static_cast<unsigned long>(cfg.sequence));
     }
     sendTextReply(requester, channel, reply);
 }
@@ -758,11 +768,15 @@ void DistanceSensorModule::replyVerify(uint32_t requester, uint8_t channel)
 
     char reply[220] = {};
     if (latestStageValid) {
-        snprintf(reply, sizeof(reply), "VERIFY OK\nMedian:%lumm (%.3fft)\nRange:%lu-%lumm Spread:%lumm\nStage:%.3fft",
+        snprintf(reply, sizeof(reply),
+                 "VERIFY OK\nMedian:%lumm (%.3fft)\nRange:%lu-%lumm "
+                 "Spread:%lumm\nStage:%.3fft",
                  static_cast<unsigned long>(median), median / 304.8f, static_cast<unsigned long>(minMm),
                  static_cast<unsigned long>(maxMm), static_cast<unsigned long>(maxMm - minMm), latestStageMm / 304.8f);
     } else {
-        snprintf(reply, sizeof(reply), "VERIFY OK\nMedian:%lumm (%.3fft)\nRange:%lu-%lumm Spread:%lumm\nStage:NOT CALIBRATED",
+        snprintf(reply, sizeof(reply),
+                 "VERIFY OK\nMedian:%lumm (%.3fft)\nRange:%lu-%lumm "
+                 "Spread:%lumm\nStage:NOT CALIBRATED",
                  static_cast<unsigned long>(median), median / 304.8f, static_cast<unsigned long>(minMm),
                  static_cast<unsigned long>(maxMm), static_cast<unsigned long>(maxMm - minMm));
     }
@@ -893,15 +907,22 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
         return ProcessMessage::CONTINUE;
 
     if (strcmp(command, "HELP") == 0) {
-        // Split the complete water command reference into LoRa-safe messages so every command is explicit.
+        // Split the complete water command reference into LoRa-safe messages so
+        // every command is explicit.
         sendTextReply(mp.from, mp.channel,
-                      "WATER HELP 1/4 CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK | WATER INSTALL | WATER READ | WATER RAW | WATER VERIFY");
+                      "WATER HELP 1/4 CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK "
+                      "| WATER INSTALL | WATER READ | WATER RAW | WATER VERIFY");
         sendTextReply(mp.from, mp.channel,
-                      "WATER HELP 2/4 SENSOR: WATER SENSOR | WATER SENSOR MB7388 | WATER SENSOR AUTO | WATER SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER SENSOR A02YYUW | WATER SENSOR SEN0313 | WATER SENSOR A01NYUB");
+                      "WATER HELP 2/4 SENSOR: WATER SENSOR | WATER SENSOR MB7388 | WATER "
+                      "SENSOR AUTO | WATER SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER "
+                      "SENSOR A02YYUW | WATER SENSOR SEN0313 | WATER SENSOR A01NYUB");
         sendTextReply(mp.from, mp.channel,
-                      "WATER HELP 3/4 CAL: WATER CAL STATUS | WATER CAL STAGE 1.42FT | WATER CAL LOCK | WATER CAL UNLOCK | WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL RESET CONFIRM");
+                      "WATER HELP 3/4 CAL: WATER CAL STATUS | WATER CAL STAGE "
+                      "1.42FT | WATER CAL LOCK | WATER CAL UNLOCK | WATER CAL "
+                      "UNLOCK CONFIRM | WATER CAL RESET | WATER CAL RESET CONFIRM");
         sendTextReply(mp.from, mp.channel,
-                      "WATER HELP 4/4 CONFIG: WATER INTERVAL 1H | WATER RESET WATER | WATER RESET WATER CONFIRM | WATER TELEMETRY NOW | WATER MODE");
+                      "WATER HELP 4/4 CONFIG: WATER INTERVAL 1H | WATER RESET WATER | WATER "
+                      "RESET WATER CONFIRM | WATER TELEMETRY NOW | WATER MODE");
         return ProcessMessage::CONTINUE;
     }
 
@@ -936,7 +957,9 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
 
         const DistanceSensorType current = static_cast<DistanceSensorType>(cfg.sensorType);
         if (requested != current && (cfg.flags & FLAG_CAL_LOCKED) != 0) {
-            sendTextReply(mp.from, mp.channel, "SENSOR change blocked: calibration is LOCKED. Use CAL UNLOCK CONFIRM or CAL RESET CONFIRM.");
+            sendTextReply(mp.from, mp.channel,
+                          "SENSOR change blocked: calibration is LOCKED. Use CAL "
+                          "UNLOCK CONFIRM or CAL RESET CONFIRM.");
             return ProcessMessage::CONTINUE;
         }
 
@@ -1026,7 +1049,9 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
             cfg.flags = previous;
             sendTextReply(mp.from, mp.channel, "CAL UNLOCK failed: persistent save verification failed");
         } else {
-            sendTextReply(mp.from, mp.channel, "CAL UNLOCKED. Existing calibration remains active until replaced/reset.");
+            sendTextReply(mp.from, mp.channel,
+                          "CAL UNLOCKED. Existing calibration remains active until "
+                          "replaced/reset.");
         }
         return ProcessMessage::CONTINUE;
     }
@@ -1048,7 +1073,9 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
             cfg = previous;
             sendTextReply(mp.from, mp.channel, "CAL RESET failed: persistent save verification failed");
         } else {
-            sendTextReply(mp.from, mp.channel, "CAL RESET complete. Sensor/interval preserved; calibration cleared.");
+            sendTextReply(mp.from, mp.channel,
+                          "CAL RESET complete. Sensor/interval preserved; "
+                          "calibration cleared.");
         }
         return ProcessMessage::CONTINUE;
     }
@@ -1071,7 +1098,8 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
             latestStageValid = false;
             lastReportMs = millis();
             sendTextReply(mp.from, mp.channel,
-                          "WATER RESET complete: MB7388, 1HR, uncalibrated. Meshtastic identity/channels/keys untouched.");
+                          "WATER RESET complete: sensor build default, 1HR, uncalibrated. "
+                          "Meshtastic identity/channels/keys untouched.");
         }
         return ProcessMessage::CONTINUE;
     }
@@ -1089,7 +1117,9 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
     }
 
     if (strncmp(command, "MODE", 4) == 0) {
-        sendTextReply(mp.from, mp.channel, "This firmware is WATER-ONLY. WATER mode is permanent; no MODE command is needed.");
+        sendTextReply(mp.from, mp.channel,
+                      "This firmware is WATER-ONLY. WATER mode is permanent; no "
+                      "MODE command is needed.");
         return ProcessMessage::CONTINUE;
     }
 
@@ -1112,9 +1142,11 @@ int32_t DistanceSensorModule::runOnce()
         moduleInitialized = true;
 #if defined(RAK_4631)
         setDistanceSensorPower(false);
-        LOG_INFO("WaterDistance: Pololu 2810 control ready on IO1/P0.17; sensor OFF between reads");
+        LOG_INFO("WaterDistance: Pololu 2810 control ready on IO1/P0.17; sensor "
+                 "OFF between reads");
 #endif
-        LOG_INFO("WaterDistance: ready platform=%s sensor=%s interval=%lus calibrated=%s locked=%s",
+        LOG_INFO("WaterDistance: ready platform=%s sensor=%s interval=%lus "
+                 "calibrated=%s locked=%s",
                  platformName(), distanceSensorTypeName(static_cast<DistanceSensorType>(cfg.sensorType)),
                  static_cast<unsigned long>(cfg.reportIntervalSec), (cfg.flags & FLAG_CALIBRATED) ? "YES" : "NO",
                  (cfg.flags & FLAG_CAL_LOCKED) ? "YES" : "NO");

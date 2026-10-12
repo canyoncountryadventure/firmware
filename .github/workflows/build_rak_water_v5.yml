@@ -1,0 +1,89 @@
+name: Build RAK Water HOBO v5
+on:
+  push:
+    branches: [RAK-Water-Distance-HOBO-v5]
+  workflow_dispatch:
+concurrency:
+  group: rak-water-hobo-v5
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  recovery-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: python3 test/test_hobo_v5/test_hobo_v5.py
+  build:
+    needs: recovery-tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sensor: SEN0313
+            target: rak4631_sen0313_v5
+          - sensor: MB7388
+            target: rak4631_mb7388_v5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: recursive
+      - name: Build RAK4631 ${{ matrix.sensor }}
+        uses: meshtastic/gh-action-firmware@39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
+        with:
+          pio_platform: nrf52840
+          pio_env: ${{ matrix.target }}
+          pio_target: build
+      - name: Name downloads
+        env:
+          SENSOR: ${{ matrix.sensor }}
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          uf2_path="$(find release -maxdepth 1 -name '*.uf2' -print -quit)"
+          ota_path="$(find release -maxdepth 1 -name '*-ota.zip' -print -quit)"
+          test -n "$uf2_path"
+          test -n "$ota_path"
+          cp "$uf2_path" "export/RAK-Water-HOBO-v5-$SENSOR.uf2"
+          cp "$ota_path" "export/RAK-Water-HOBO-v5-$SENSOR-OTA.zip"
+          sha256sum export/* > "export/SHA256-$SENSOR.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: RAK-Water-HOBO-v5-${{ matrix.sensor }}
+          path: export/*
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: RAK-Water-HOBO-v5-*
+          merge-multiple: true
+          path: export
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: field-self-recovery
+          path: publish
+      - name: Publish v5 downloads
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          latest_source_sha="$(git ls-remote origin refs/heads/RAK-Water-Distance-HOBO-v5 | awk '{print $1}')"
+          if [ "$latest_source_sha" != "$GITHUB_SHA" ]; then exit 0; fi
+          mkdir -p downloads/RAK-Water-HOBO-v5
+          cp ../export/* downloads/RAK-Water-HOBO-v5/
+          git add downloads/RAK-Water-HOBO-v5
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Publish RAK SEN0313 and MB7388 HOBO v5 downloads'
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:field-self-recovery; then exit 0; fi
+            git pull --rebase origin field-self-recovery
+          done
+          exit 1

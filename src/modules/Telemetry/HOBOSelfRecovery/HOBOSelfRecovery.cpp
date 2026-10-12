@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V4";
+static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -45,8 +45,7 @@ bool isCommand(const uint8_t *bytes, size_t size, const char *expected)
     for (size_t i = 0; i < expectedLength; ++i) {
         if (p[i] == '\0')
             return false;
-        if (std::toupper(static_cast<unsigned char>(p[i])) !=
-            std::toupper(static_cast<unsigned char>(expected[i])))
+        if (std::toupper(static_cast<unsigned char>(p[i])) != std::toupper(static_cast<unsigned char>(expected[i])))
             return false;
     }
 
@@ -68,8 +67,7 @@ const char *platformName()
 } // namespace
 
 HOBOSelfRecoveryModule::HOBOSelfRecoveryModule()
-    : SinglePortModule("hobo_self_recovery", meshtastic_PortNum_TEXT_MESSAGE_APP),
-      concurrency::OSThread("hobo_self_recovery")
+    : SinglePortModule("hobo_self_recovery", meshtastic_PortNum_TEXT_MESSAGE_APP), concurrency::OSThread("hobo_self_recovery")
 {
     isPromiscuous = true;
     resetReasonAtBoot = readResetReason();
@@ -95,32 +93,41 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     char reply[230] = {};
 
     if (isCommand(payload, payloadSize, "HELP")) {
-        // Split the complete command reference into LoRa-safe messages so no command is truncated.
+        // Split the complete command reference into LoRa-safe messages so no
+        // command is truncated.
         sendTextReply(mp.from, mp.channel,
-                      "HELP 1/6 HOBO: HELP | READ | LOGGER | LOCK | UNLOCK | AUTO | STATUS | HEALTH | BLE");
+                      "HELP 1/6 HOBO: HELP | READ | LOGGER | LOCK | LOCK <MAC> | "
+                      "UNLOCK | AUTO | STATUS | HEALTH | BLE");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 2/6 SYSTEM: POWER | BATTERY | STATS | DIAG | CLEAR DIAG | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | SCAN | RECONNECT | RECOVER | REBOOT | DFU");
+                      "HELP 2/6 SYSTEM: POWER | BATTERY | STATS | DIAG | CLEAR "
+                      "DIAG | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | "
+                      "SCAN | RECONNECT | RECOVER | REBOOT | DFU");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 3/6 WATER CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK | WATER INSTALL | WATER READ | WATER RAW | WATER VERIFY");
+                      "HELP 3/6 WATER CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK "
+                      "| WATER INSTALL | WATER READ | WATER RAW | WATER VERIFY");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 4/6 WATER SENSOR: WATER SENSOR | WATER SENSOR AUTO | WATER SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER SENSOR A02YYUW");
+                      "HELP 4/6 WATER SENSOR: WATER SENSOR | WATER SENSOR AUTO | WATER "
+                      "SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER SENSOR A02YYUW");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 5/6 WATER SENSOR/CAL: WATER SENSOR SEN0313 | WATER SENSOR A01NYUB | WATER CAL STATUS | WATER CAL STAGE 1.42FT | WATER CAL LOCK");
+                      "HELP 5/6 WATER SENSOR/CAL: WATER SENSOR SEN0313 | WATER SENSOR "
+                      "A01NYUB | WATER CAL STATUS | WATER CAL STAGE 1.42FT | WATER CAL LOCK");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 6/6 WATER CONFIG: WATER INTERVAL 1H | WATER CAL UNLOCK | WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL RESET CONFIRM | WATER RESET WATER | WATER RESET WATER CONFIRM | WATER TELEMETRY NOW | WATER MODE");
+                      "HELP 6/6 WATER CONFIG: WATER INTERVAL 1H | WATER CAL UNLOCK "
+                      "| WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL "
+                      "RESET CONFIRM | WATER RESET WATER | WATER RESET WATER "
+                      "CONFIRM | WATER TELEMETRY NOW | WATER MODE");
         return ProcessMessage::CONTINUE;
     }
 
     if (isCommand(payload, payloadSize, "PING") || isCommand(payload, payloadSize, "WAKE")) {
-        snprintf(reply, sizeof(reply), "PONG %s uptime=%lus", platformName(),
-                 static_cast<unsigned long>(millis() / 1000UL));
+        snprintf(reply, sizeof(reply), "PONG %s uptime=%lus", platformName(), static_cast<unsigned long>(millis() / 1000UL));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
     if (isCommand(payload, payloadSize, "VERSION")) {
-        snprintf(reply, sizeof(reply), "%s\nHW:%s\nSensors:%s\nHOBO poll:30s | DFU:ON",
-                 FIRMWARE_LABEL, platformName(), "HOBO + WATER DISTANCE");
+        snprintf(reply, sizeof(reply), "%s\nHW:%s\nSensors:%s\nHOBO poll:30s | DFU:ON", FIRMWARE_LABEL, platformName(),
+                 "HOBO + WATER DISTANCE");
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
@@ -136,8 +143,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
             snprintf(reply, sizeof(reply), "POWER: %umV %u%% battery=%s charging=%s",
                      static_cast<unsigned int>(powerStatus->getBatteryVoltageMv()),
                      static_cast<unsigned int>(powerStatus->getBatteryChargePercent()),
-                     powerStatus->getHasBattery() ? "YES" : "NO",
-                     powerStatus->getIsCharging() ? "YES" : "NO");
+                     powerStatus->getHasBattery() ? "YES" : "NO", powerStatus->getIsCharging() ? "YES" : "NO");
         } else {
             snprintf(reply, sizeof(reply), "POWER: status unavailable");
         }
@@ -155,7 +161,8 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     if (isCommand(payload, payloadSize, "AUTO")) {
         sendTextReply(mp.from, mp.channel,
-                      "AUTO: ON. STATUS every 30s; TX on new logger record only. BLE failures self-recover.");
+                      "AUTO: ON. STATUS every 30s; TX on new logger record only. "
+                      "BLE failures self-recover.");
         return ProcessMessage::CONTINUE;
     }
 
@@ -168,7 +175,9 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     if (isCommand(payload, payloadSize, "DIAG") || isCommand(payload, payloadSize, "CRASHLOG")) {
         nrf52FieldDiagPrint();
-        sendTextReply(mp.from, mp.channel, "DIAG printed to local serial log; retained state survives watchdog/software resets.");
+        sendTextReply(mp.from, mp.channel,
+                      "DIAG printed to local serial log; retained state survives "
+                      "watchdog/software resets.");
         return ProcessMessage::CONTINUE;
     }
 
@@ -179,8 +188,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     }
 
     if (isCommand(payload, payloadSize, "NODES")) {
-        snprintf(reply, sizeof(reply), "NODES: %u mesh nodes",
-                 static_cast<unsigned int>(nodeDB->getNumMeshNodes()));
+        snprintf(reply, sizeof(reply), "NODES: %u mesh nodes", static_cast<unsigned int>(nodeDB->getNumMeshNodes()));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
@@ -188,13 +196,14 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     if (isCommand(payload, payloadSize, "STATS")) {
         const auto *radio = RadioLibInterface::instance;
         snprintf(reply, sizeof(reply),
-                 "STATS: radio_recover=%lu/%lu tx=%lu last_tx=%lus cmd_reboots=%lu reset=0x%08lX",
+                 "STATS: radio_recover=%lu/%lu tx=%lu last_tx=%lus cmd_reboots=%lu "
+                 "reset=0x%08lX",
                  radio ? static_cast<unsigned long>(radio->radioRecoverySuccesses) : 0UL,
                  radio ? static_cast<unsigned long>(radio->radioRecoveryAttempts) : 0UL,
                  radio ? static_cast<unsigned long>(radio->txGood) : 0UL,
-                 radio && radio->lastTxCompleteMs ? static_cast<unsigned long>((millis() - radio->lastTxCompleteMs) / 1000UL) : 0UL,
-                 static_cast<unsigned long>(commandRecoveryCount),
-                 static_cast<unsigned long>(resetReasonAtBoot));
+                 radio && radio->lastTxCompleteMs ? static_cast<unsigned long>((millis() - radio->lastTxCompleteMs) / 1000UL)
+                                                  : 0UL,
+                 static_cast<unsigned long>(commandRecoveryCount), static_cast<unsigned long>(resetReasonAtBoot));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
@@ -204,9 +213,9 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         const unsigned int pct = powerStatus ? powerStatus->getBatteryChargePercent() : 0;
         const auto *radio = RadioLibInterface::instance;
         snprintf(reply, sizeof(reply),
-                 "%s %s\nUp:%lus Power:%umV/%u%% BLE:%u\nTX:%lu RadioRec:%lu/%lu Reset:0x%08lX",
-                 FIRMWARE_LABEL, platformName(),
-                 static_cast<unsigned long>(millis() / 1000UL), mv, pct,
+                 "%s %s\nUp:%lus Power:%umV/%u%% BLE:%u\nTX:%lu RadioRec:%lu/%lu "
+                 "Reset:0x%08lX",
+                 FIRMWARE_LABEL, platformName(), static_cast<unsigned long>(millis() / 1000UL), mv, pct,
                  static_cast<unsigned int>(Bluefruit.Central.connected()),
                  radio ? static_cast<unsigned long>(radio->txGood) : 0UL,
                  radio ? static_cast<unsigned long>(radio->radioRecoverySuccesses) : 0UL,
@@ -218,7 +227,8 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     if (isCommand(payload, payloadSize, "SCAN") || isCommand(payload, payloadSize, "RECONNECT")) {
         sendTextReply(mp.from, mp.channel,
-                      "BLE recovery is automatic in V4; scanner/link lifecycle is owned by the HOBO state machine.");
+                      "BLE recovery is automatic in V5; scanner/link lifecycle is "
+                      "owned by the HOBO state machine.");
         return ProcessMessage::CONTINUE;
     }
 
@@ -227,7 +237,8 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         if (rebootAtMsec == 0)
             rebootAtMsec = millis() + 2000UL;
         sendTextReply(mp.from, mp.channel,
-                      "RECOVERY: flash-safe whole-node reboot scheduled in 2 sec; settings and logger lock preserved.");
+                      "RECOVERY: flash-safe whole-node reboot scheduled in 2 sec; "
+                      "settings and logger lock preserved.");
         return ProcessMessage::CONTINUE;
     }
 
@@ -253,7 +264,7 @@ bool HOBOSelfRecoveryModule::sendTextReply(uint32_t destination, uint8_t channel
     packet->decoded.want_response = false;
     packet->to = destination;
     packet->channel = channel;
-    packet->want_ack = false;
+    packet->want_ack = true;
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
     return true;
@@ -264,9 +275,10 @@ int32_t HOBOSelfRecoveryModule::runOnce()
     if (millis() < BOOT_SETTLE_MS)
         return 5000;
 
-    // Scanner and central-link lifecycle intentionally belong to the HOBO telemetry state machine.
-    // This supervisor only exposes diagnostics/commands; exhausted BLE/radio recovery trips the
-    // independent field watchdog channel in the owning subsystem.
+    // Scanner and central-link lifecycle intentionally belong to the HOBO
+    // telemetry state machine. This supervisor only exposes diagnostics/commands;
+    // exhausted BLE/radio recovery trips the independent field watchdog channel
+    // in the owning subsystem.
     return SUPERVISOR_INTERVAL_MS;
 }
 
