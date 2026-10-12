@@ -1,0 +1,11 @@
+Drone flasher: Drone-RAK-Water-HOBO-v5-MB7388.uf2
+Target branch: RAK-Water-Distance-HOBO-v5
+Target commit: 659d1f4ca0d9e6f4e83c4e3733ba799a062a28b6
+Target environment: rak4631_mb7388_v5
+Target OTA SHA-256: f17d85068d1f6e72af68d8eabc189f9445c337cb52229781df07682fc6b2ff00
+Target download catalog commit: 9deed6c8e62eb92776807fbf91e80c36cc2bcf96
+Embedded payload: verified LZ4-compressed application OTA
+Scout implementation branch: Remote-Drone-Flashing-v2
+Scout implementation commit: 0da2abc87405fb38049162e8d1255236075db7e1
+Scout UF2 bytes: 1336320
+349ec78656474c381ce8a874c40ed416fc85a72a5e6ce3d63be62a796581cd47  export/Drone-RAK-Water-HOBO-v5-MB7388.uf2
