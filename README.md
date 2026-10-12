@@ -6,12 +6,12 @@ HOBO support: **MX2001** water level and temperature, **MX2201** temperature, an
 
 ## Download V5
 
-Download the build matching your distance sensor. **UF2 is for USB installation; OTA ZIP is for Nordic BLE DFU.**
+Download the build matching your distance sensor. **Field UF2 is for USB installation; OTA ZIP is for Nordic BLE DFU; Drone Scout UF2 goes on the separate RAK4631 carried by the drone.**
 
-| Sensor / deployment | USB firmware | BLE DFU firmware | Checksums |
-| --- | --- | --- | --- |
-| SEN0313 / A01NYUB — Pack Creek | [Download SEN0313 UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-SEN0313.uf2) | [Download SEN0313 OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-SEN0313-OTA.zip) | [SHA-256](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/SHA256-SEN0313.txt) |
-| MB7388 — Cottonwood | [Download MB7388 UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-MB7388.uf2) | [Download MB7388 OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-MB7388-OTA.zip) | [SHA-256](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/SHA256-MB7388.txt) |
+| Sensor / deployment | Field USB firmware | Field BLE DFU firmware | Drone Scout firmware | Checksums / Scout manifest |
+| --- | --- | --- | --- | --- |
+| SEN0313 / A01NYUB — Pack Creek | [Download SEN0313 UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-SEN0313.uf2) | [Download SEN0313 OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-SEN0313-OTA.zip) | [Download SEN0313 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/RAK-Water-HOBO-v5/Drone-RAK-Water-HOBO-v5-SEN0313.uf2) | [Field SHA-256](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/SHA256-SEN0313.txt) · [Scout manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/RAK-Water-HOBO-v5/Drone-RAK-Water-HOBO-v5-SEN0313.uf2.txt) |
+| MB7388 — Cottonwood | [Download MB7388 UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-MB7388.uf2) | [Download MB7388 OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/RAK-Water-HOBO-v5-MB7388-OTA.zip) | [Download MB7388 drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/RAK-Water-HOBO-v5/Drone-RAK-Water-HOBO-v5-MB7388.uf2) | [Field SHA-256](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/RAK-Water-HOBO-v5/SHA256-MB7388.txt) · [Scout manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/RAK-Water-HOBO-v5/Drone-RAK-Water-HOBO-v5-MB7388.uf2.txt) |
 
 The links above follow the latest published V5 build. At this documentation update, the verified firmware is **Meshtastic 2.7.26, source commit `659d1f4ca0d9e6f4e83c4e3733ba799a062a28b6`**, built October 12, 2026 UTC. A documentation commit does not change the firmware in these downloads.
 
@@ -20,7 +20,7 @@ The links above follow the latest published V5 build. At this documentation upda
 - [Build workflow](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_water_v5.yml?query=branch%3ARAK-Water-Distance-HOBO-v5)
 - [Immutable copies of this verified build](https://github.com/canyoncountryadventure/firmware/tree/9deed6c8e62eb92776807fbf91e80c36cc2bcf96/downloads/RAK-Water-HOBO-v5)
 
-These downloads are for **RAK4631 / nRF52840**, not Heltec. A matching V5 DroneScout build has not been produced; the older V4 Scout download is not a V5 artifact.
+These downloads are for **RAK4631 / nRF52840**, not Heltec. Each V5 Scout embeds the exact published V5 OTA application for its sensor build. The Scout implementation remains on `Remote-Drone-Flashing-v2`; that branch name identifies the flasher implementation, not the embedded field-firmware generation. **An older V4 Scout installs its embedded V4 firmware; it does not fetch V5 from the internet.**
 
 ## Why we updated
 
@@ -72,6 +72,22 @@ Use an ordinary application update to preserve settings. A factory erase/reset i
 ### BLE DFU / OTA ZIP
 
 Download the matching **OTA ZIP** and leave it zipped. Use a Nordic DFU client, put the node into DFU mode with the existing `DFU` command, and select the ZIP as the application update package. This is Nordic BLE DFU, not a Meshtastic text-file transfer. USB remains the fallback if the node cannot receive the DFU command.
+
+### Drone flashing — autonomous Scout
+
+Use the matching **Drone Scout UF2** from the download table. The Scout is a **separate RAK4631 carried by the drone**. Flashing a `Drone-*.uf2` onto the field node replaces its normal sensor application with the flasher.
+
+1. Download the SEN0313 or MB7388 Scout and its manifest. Check that the manifest's **Target commit** is `659d1f4ca0d9e6f4e83c4e3733ba799a062a28b6` for this release and that its target OTA checksum matches the selected published field OTA ZIP. Verify the Scout UF2 checksum in the manifest.
+2. Install the Scout UF2 onto the separate drone RAK4631 over USB. This Scout carries the compressed application internally; it needs no PC, SD card, internet, or phone connection during the transfer.
+3. Power the Scout and position it within BLE range of the intended field radio. From your separate Meshtastic controller, DM **`DFU` to the field radio**. The field radio must already run firmware with our remote DFU hook, such as the existing V4 or V5 target firmware.
+4. The field radio stores and verifies the update-result callback marker, then reboots into the AdaDFU bootloader. The Scout detects the Legacy DFU service and automatically transfers its embedded application.
+5. The field radio validates and activates the application, reboots into Meshtastic, and queues the update-result DM to the requester. Verify `VERSION`, `LOGGER`, and `WATER STATUS` afterward. A callback is queued over the mesh; reception still depends on the route.
+
+Put only the intended nearby field node into DFU at a time: the Scout detects compatible DFU advertisements rather than selecting a Meshtastic node ID. If the target cannot receive the `DFU` DM, flying the Scout nearby does not itself switch the target into its bootloader.
+
+The drone transfer installs the same application as the matching V5 field OTA ZIP and retains the target's compatible stored settings. A saved sensor selection still overrides the build default. Changing the payload requires flashing the other matching Scout image onto the drone RAK4631; the Scout does not choose SEN0313 versus MB7388 automatically.
+
+The original Scout/target protocol has been demonstrated on hardware. **These exact V5 Scout payloads are build- and package-verified; a physical end-to-end V5 transfer remains to be tested.**
 
 ### First checks after flashing
 
@@ -190,7 +206,7 @@ The wider scan window improves acquisition opportunities but increases power use
 
 **Passed:** both RAK4631 target builds, host fault-injection tests, and download packaging checks in [run 38201820946](https://github.com/canyoncountryadventure/firmware/actions/runs/38201820946). Fault-injection tests exercise extracted firmware code for stale scanner state, failed scan starts/cancellation, discovery failure escalation, successful setup, and truthful model reporting.
 
-The published UF2 files were checked for nRF52840 family ID, block structure, application address bounds, source commit, V5 label, and LOGGER labels. Both UF2 files are 1,495,552 bytes. OTA ZIP integrity and application manifests were also checked.
+The published field UF2 files were checked for nRF52840 family ID, block structure, application address bounds, source commit, V5 label, and LOGGER labels. Both UF2 files are 1,495,552 bytes. OTA ZIP integrity and application manifests were also checked.
 
 | Verified build | UF2 SHA-256 |
 | --- | --- |
@@ -202,6 +218,12 @@ These hashes describe source `659d1f4`; use the linked checksum files for a futu
 **Still required on hardware:** battery startup without a manual reset, logger absent then returning, disconnect during discovery/reading, DM replies during recovery, saved settings across a watchdog reset, and a 24-hour run with the expected recorded telemetry. Compilation and simulated failures do not replace these checks.
 
 For a failure report, capture serial logs from power-on through recovery and include `VERSION`, `LOGGER`, `WATCHDOG`, `WATER STATUS`, the logger model/address, power source, and whether any reset was manual. A Pack Creek-specific log is needed to diagnose Pack Creek's exact failure.
+
+### V5 drone Scout verification
+
+Both Scout builds and publication passed in [run 38313709229](https://github.com/canyoncountryadventure/firmware/actions/runs/38313709229). The workflow builds both sensor payloads from the already-published OTA ZIPs, pinned by immutable catalog commit and SHA-256. The packaging check verifies nRF52840 UF2 family/address/block structure, the exact embedded DFU init packet, and byte-for-byte LZ4 decompression back to the corresponding V5 application. The build also checks the Scout's streaming decoder against that application.
+
+Each linked Scout manifest records the embedded target source commit, target environment, OTA checksum, Scout implementation commit, UF2 size, and UF2 checksum. A newer README commit is not a different firmware payload. After a firmware change, rebuild the matching Scout before using it to install that new version.
 
 ## Developer reference
 
