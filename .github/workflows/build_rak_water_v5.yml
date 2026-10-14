@@ -1,4 +1,4 @@
-name: Build verified RAK Water HOBO V5 and matched Scouts
+name: DIAGNOSTIC RAK HOBO V5 IO1 OFF and matched Scouts
 on:
   push:
     branches: [diag/v5-pololu-io1-off]
@@ -17,7 +17,7 @@ on:
       - "tools/publish_rak_v5_readme.py"
   workflow_dispatch:
 concurrency:
-  group: rak-water-hobo-v5
+  group: rak-water-hobo-v5-diag-io1-off
   cancel-in-progress: true
 env:
   PLATFORMIO_SETTING_ENABLE_TELEMETRY: "false"
@@ -96,7 +96,7 @@ jobs:
           (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: RAK-HOBO-v5-Audit-Repair-${{ matrix.sensor }}
+          name: RAK-HOBO-DIAG-IO1-OFF-${{ matrix.sensor }}
           path: export/*
           if-no-files-found: error
           retention-days: 30
