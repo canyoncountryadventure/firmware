@@ -1,3 +1,26 @@
+# HOBO BLE diagnostic: Pololu IO1 OFF
+
+> **TEST ONLY — NOT PRODUCTION FIRMWARE.** These diagnostic applications force RAK19007 IO1 / nRF52840 P0.17 LOW, leaving the Pololu 2810 sensor output disabled. The ultrasonic sensor cannot provide valid distance/stage/discharge while this firmware is installed. **Do not use these images for operational water monitoring.** The original `RAK-Water-Distance-HOBO-v5` production branch remains unchanged.
+
+This branch is a controlled electrical-load isolation test for Cottonwood (MB7388) and Swell/Pack Creek (SEN0313). No wiring changes, no calibration erase, no HOBO BLE protocol changes. The `HOBO DIAG` mesh direct-message command reports GAP connect/timeouts/disconnects, candidate address type, and most recent BLE error; `LOGGER` reports model and current BLE state. Diagnostics are on-demand, not unsolicited error alerts.
+
+## Diagnostic downloads
+
+The following branch-local binaries and exact matched drone Scouts are published **only after** both builds and package verification pass. If a link returns 404, consult the [diagnostic workflow](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_water_v5.yml?query=branch%3Adiag%2Fv5-pololu-io1-off) for the latest build status. **Never flash a drone Scout UF2 onto the field station.**
+
+| Sensor | Field RAK4631 USB UF2 | Field BLE DFU OTA ZIP | Separate drone Scout UF2 | Scout manifest |
+| --- | --- | --- | --- | --- |
+| SEN0313 (Swell/Pack Creek) | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/RAK-HOBO-v5-IO1-OFF-SEN0313.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/RAK-HOBO-v5-IO1-OFF-SEN0313-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/Drone-RAK-HOBO-v5-IO1-OFF-SEN0313.uf2) | [Manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/Drone-RAK-HOBO-v5-IO1-OFF-SEN0313.uf2.txt) |
+| MB7388 (Cottonwood) | [UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/RAK-HOBO-v5-IO1-OFF-MB7388.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/RAK-HOBO-v5-IO1-OFF-MB7388-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/Drone-RAK-HOBO-v5-IO1-OFF-MB7388.uf2) | [Manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/Drone-RAK-HOBO-v5-IO1-OFF-MB7388.uf2.txt) |
+
+[SHA-256 checksums](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/SHA256SUMS.txt) | [Source commit and workflow run](https://raw.githubusercontent.com/canyoncountryadventure/firmware/diag/v5-pololu-io1-off/downloads/diag-v5-pololu-io1-off/BUILD.txt)
+
+**Field diagnostic procedure:** Record `VERSION`, `LOGGER`, and `WATER CAL STATUS` before flashing. Flash the appropriate **field** firmware without factory erase, then wait for startup and send `HOBO DIAG` and `LOGGER` via direct mesh messages. Repeat after 1–2 minutes. Watch GAP connections, connection timeouts, local failures, and model verification. The automatic water measurement code still runs; only the sensor power output is disabled. Restore the original production firmware after the controlled BLE test.
+
+---
+
+## Original production V5 documentation (reference only)
+
 # RAK Water Distance + HOBO V5
 
 RAK4631 firmware for **SEN0313/A01NYUB** or **MaxBotix MB7388** distance sensing, plus HOBO **MX2001**, **MX2201**, and **MX2203** loggers. Sensor builds are not tied to a station ID. Pack Creek/Swell use SEN0313; Cottonwood uses MB7388 when that sensor is installed.
