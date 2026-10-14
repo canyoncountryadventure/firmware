@@ -1,106 +1,248 @@
-"""Fault-injection checks compiled from the firmware's real recovery/LOGGER code."""
+"""Compile actual lifecycle functions against fault-injected Bluefruit boundaries.
+
+These host tests do not simulate SoftDevice timing or establish RF reliability.
+"""
+
 from pathlib import Path
 import re
 import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[2]
-source = (root / 'src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp').read_text()
+source = (
+    root
+    / "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp"
+).read_text()
+platform = (root / "src/platform/nrf52/NRF52Bluetooth.cpp").read_text()
 
-def block(signature):
-    start = re.search(re.escape(signature) + r"\s*\{", source).start()
-    opening = source.index('{', start)
-    depth = 1
-    pos = opening + 1
+
+def block(signature, text=source):
+    match = re.search(re.escape(signature).replace(r"\ ", r"\s*") + r"\s*\{", text)
+    assert match, signature
+    opening = text.index("{", match.start())
+    depth, pos = 1, opening + 1
     while depth:
-        depth += (source[pos] == '{') - (source[pos] == '}')
+        depth += (text[pos] == "{") - (text[pos] == "}")
         pos += 1
-    return source[start:pos]
+    return text[match.start() : pos]
 
-logger_start = source.index('char reply[220]', source.index('"LOGGER"'))
-logger_end = source.index('sendTextReply(mp.from', logger_start)
-logger_body = source[logger_start:logger_end]
-stage_start = source.index('case UniversalState::DISCOVER_SERVICE:', source.index('int32_t HOBOMX'))
-stage_end = source.index('case UniversalState::SEND_INIT:', stage_start)
-discovery_body = source[stage_start:stage_end]
 
-prelude = r'''
+prelude = r"""
+#include <atomic>
 #include <cassert>
+#include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#define LOG_ERROR(...) ((void)0)
-#define LOG_INFO(...) ((void)0)
-#define LOG_WARN(...) ((void)0)
+#include <vector>
+#define LOG_ERROR(...) do {if(false) printf(__VA_ARGS__);}while(0)
+#define LOG_INFO(...) do {if(false) printf(__VA_ARGS__);}while(0)
+#define LOG_WARN(...) do {if(false) printf(__VA_ARGS__);}while(0)
 constexpr uint16_t BLE_CONN_HANDLE_INVALID=65535;
+constexpr unsigned BLE_MAX_CONNECTION=8;
 constexpr uint32_t NRF_SUCCESS=0,NRF_ERROR_INVALID_STATE=8;
-constexpr uint32_t SCAN_RETRY_MS=5000,RECOVERY_MIN_FAILURE_MS=120000;
-constexpr unsigned SERVICE_DISCOVERY_ATTEMPTS=3,SERVICE_RETRY_DELAY_MS=350,COMMAND_DELAY_MS=400;
+constexpr unsigned BLE_GAP_EVT_TIMEOUT=1,BLE_GAP_TIMEOUT_SRC_CONN=2,BLE_GATTC_EVT_PRIM_SRVC_DISC_RSP=3;
 uint32_t clockMs=100; uint32_t millis(){return clockMs;}
+void delay(uint32_t t){clockMs+=t;} void yield(){clockMs++;}
+namespace concurrency {struct Lock {bool held=false;};struct LockGuard {
+ Lock& lock;LockGuard(Lock* l):lock(*l){assert(!lock.held);lock.held=true;}
+ ~LockGuard(){lock.held=false;}};}
 namespace Throttle {bool isWithinTimespanMs(uint32_t last,uint32_t duration){return uint32_t(clockMs-last)<duration;}}
-enum class LoggerType:uint8_t {UNKNOWN,MX2001,MX2201,MX2203,UNSUPPORTED};
-enum class UniversalState:uint8_t {IDLE,DISCOVER_SERVICE,DISCOVER_CHARACTERISTIC,ENABLE_NOTIFY,SEND_INIT};
-bool connecting=false,connected=false,recoveryPending=false,watchdogRecoveryPending=false;
-bool scanRestartRequested=false,statusTrackingAvailable=true,discoveryResponseSeen=false;
-bool loggerLockEnabled=false; uint8_t loggerMac[6]={},lastVerifiedAddr[6]={};
-LoggerType loggerType=LoggerType::UNKNOWN,lastVerifiedType=LoggerType::UNKNOWN;
-int loggerBleRssi=-70; unsigned loggerIntervalSeconds=3600;
-uint16_t discoveryGattStatus=0xFFFF,discoveryServiceCount=0,connectionHandle=BLE_CONN_HANDLE_INVALID;
-uint8_t bleRecoveryCycles=0,discoveryAttempts=0;
-uint32_t firstBleFailureMs=0,disconnectDueMs=0,connectAttemptStartedMs=0;
-uint32_t lastScanKickMs=0,scanRetryDueMs=0,stateDueMs=0,bootstrapStartedMs=0;
-char lastBleFailure[48]="none";
-UniversalState universalState=UniversalState::IDLE;
-unsigned watchdogTrips=0;void nrf52FieldWatchdogTrip(){watchdogTrips++;}
+struct ble_gap_addr_t {uint8_t addr[6]={};uint8_t addr_type=1;};
+struct ble_gap_evt_adv_report_t {struct {bool connectable=true;} type;
+ ble_gap_addr_t peer_addr;int8_t rssi=-72;struct {uint8_t* p_data=nullptr;uint16_t len=0;}data;};
+struct ble_evt_t {struct {unsigned evt_id=0;}header;struct {
+ struct {uint16_t conn_handle=BLE_CONN_HANDLE_INVALID;}common_evt;
+ struct {struct {struct {unsigned src=0;}timeout;}params;}gap_evt;
+ struct {uint16_t gatt_status=0;struct {struct {uint16_t count=1;}prim_srvc_disc_rsp;}params;}gattc_evt;}evt;};
+struct Scan {bool running=false,startOk=true,resumeOk=true,stopOk=true;unsigned starts=0,stops=0,resumes=0;
+ bool start(int){starts++;if(startOk)running=true;return startOk;}
+ bool stop(){stops++;if(stopOk)running=false;return stopOk;}
+ bool resume(){resumes++;return resumeOk;}bool isRunning(){return running;}};
+struct BF {Scan Scanner;bool links[BLE_MAX_CONNECTION]={};bool phones[BLE_MAX_CONNECTION]={};
+ std::vector<uint16_t> disconnects;bool connectOk=true;uint8_t addressType=0;
+ struct CentralType {BF* bf;unsigned connected(){unsigned n=0;for(bool v:bf->links)n+=v;return n;}
+ bool connected(uint16_t h){return h<BLE_MAX_CONNECTION && bf->links[h];}
+ bool connect(ble_gap_evt_adv_report_t* r){bf->addressType=r->peer_addr.addr_type;return bf->connectOk;}}Central{this};
+ struct PeriphType {BF* bf;unsigned connected(){unsigned n=0;for(bool v:bf->phones)n+=v;return n;}
+ bool connected(uint16_t h){return h<BLE_MAX_CONNECTION&&bf->phones[h];}}Periph{this};
+ bool disconnect(uint16_t h){disconnects.push_back(h);if(h<BLE_MAX_CONNECTION){phones[h]=false;links[h]=false;}return true;}
+} Bluefruit;
+uint32_t cancelResult=NRF_SUCCESS;unsigned cancels=0;
+uint32_t sd_ble_gap_connect_cancel(){cancels++;return cancelResult;}
 void nrf52FieldDiagEvent(int,int,int){}
-uint32_t cancelResult=NRF_SUCCESS;uint32_t sd_ble_gap_connect_cancel(){return cancelResult;}
-struct Scan {bool running=true,startOk=true,resumeOk=true;unsigned starts=0;
- bool stop(){return false;} bool start(int){starts++;if(startOk)running=true;return startOk;}
- bool resume(){return resumeOk;}};
-struct BF {Scan Scanner;struct {unsigned connected(){return 1;}} Central;
- bool disconnect(uint16_t){return true;}} Bluefruit;
-struct Svc {bool ok=false;bool discover(uint16_t){return ok;}} hoboService;
-struct Chr {bool ok=true;bool discover(){return ok;}bool enableNotify(){return ok;}} hoboCharacteristic;
-void rejectCurrentCandidate(uint32_t){}
-constexpr uint32_t TRANSIENT_RETRY_MS=5000;
-bool reached(uint32_t now,uint32_t due){return int32_t(now-due)>=0;}
-void makeHumanMac(const uint8_t* raw,uint8_t* human){for(int i=0;i<6;i++)human[i]=raw[5-i];}
-const char* loggerTypeName(LoggerType t){switch(t){case LoggerType::MX2001:return "MX2001";
-case LoggerType::MX2201:return "MX2201";case LoggerType::MX2203:return "MX2203";default:return "UNKNOWN";}}
+struct Svc {unsigned calls=0,failures=0;bool drop=false;bool discover(uint16_t); }hoboService;
+struct Chr {unsigned discoverCalls=0,notifyCalls=0,discoverFailures=0,notifyFailures=0;
+ bool discover();bool enableNotify();}hoboCharacteristic;
 void triggerBleRecovery(const char*);
-'''
-methods = '\n'.join(block(name) for name in ['void resumeScanner()', 'bool restartScanner(uint32_t now)', 'void triggerBleRecovery(const char *reason)'])
-helpers = '\nvoid discoveryTick(){uint32_t now=millis();switch(universalState){\n'+discovery_body+'default:break;}}\n'
-helpers += '\nconst char* loggerSummary(){static char output[220];\n'+logger_body+'snprintf(output,sizeof(output),"%s",reply);return output;}\n'
-tests = r'''
-void reset(){connecting=false;connected=false;recoveryPending=false;watchdogRecoveryPending=false;
-bleRecoveryCycles=0;firstBleFailureMs=0;watchdogTrips=0;scanRestartRequested=false;clockMs=100;
-Bluefruit.Scanner=Scan{};connectionHandle=1;universalState=UniversalState::IDLE;}
+"""
+globals_text = source[
+    source.index("enum class LoggerType") : source.index("bool reached(")
+]
+uuid_text = source[
+    source.index("static const uint8_t HOBO_SERVICE_UUID") : source.index(
+        "BLEClientService hoboService"
+    )
+]
+candidate_struct = source[
+    source.index("struct CandidateInfo") : source.index(
+        "CandidateInfo inspectAdvertisement"
+    )
+]
+methods = "\n".join(
+    block(signature)
+    for signature in [
+        "bool reached(uint32_t now, uint32_t target)",
+        "void makeHumanMac(const uint8_t in[6], uint8_t out[6])",
+        "bool containsAsciiIgnoreCase(const uint8_t *data, uint16_t length, const char *needle)",
+        "CandidateInfo inspectAdvertisement(const ble_gap_evt_adv_report_t *report)",
+        "bool isRejectedCandidate(const uint8_t rawAddr[6])",
+        "void rejectCurrentCandidate(uint32_t retryMs = REJECT_RETRY_MS)",
+        "void resetMeasurementCapture()",
+        "void resumeScanner()",
+        "bool restartScanner(uint32_t now)",
+        "void bleEventCallback(ble_evt_t *event)",
+        "void scanCallback(ble_gap_evt_adv_report_t *report)",
+        "void triggerBleRecovery(const char *reason)",
+        "void connectCallback(uint16_t connHandle)",
+        "void disconnectCallback(uint16_t connHandle, uint8_t reason)",
+        "const char *loggerTypeName(LoggerType type)",
+    ]
+)
+logger_start = source.index("char reply[220]", source.index('"LOGGER"'))
+logger_body = source[logger_start : source.index("sendTextReply(mp.from", logger_start)]
+lifecycle_start = source.index(
+    "    if (setupInProgress || recoveryPending)", source.index("int32_t HOBOMX")
+)
+lifecycle_end = source.index("    if (readRequestPending &&", lifecycle_start)
+lifecycle = (
+    "int lifecycleTick(){const uint32_t now=millis();\n"
+    + source[lifecycle_start:lifecycle_end]
+    + "return 100;}\n"
+)
+helpers = r"""
+bool Svc::discover(uint16_t h){assert(setupInProgress);assert(lifecycleTick()==500);calls++;
+ if(drop){Bluefruit.links[h]=false;return false;}
+ return calls>failures;}
+bool Chr::discover(){assert(setupInProgress);return ++discoverCalls>discoverFailures;}
+bool Chr::enableNotify(){assert(setupInProgress);return ++notifyCalls>notifyFailures;}
+struct NRF52Bluetooth {void disconnect();};
+"""
+helpers += block("void NRF52Bluetooth::disconnect()", platform)
+helpers += (
+    "\nconst char* loggerSummary(){static char output[220];\n"
+    + logger_body
+    + 'snprintf(output,sizeof(output),"%s",reply);return output;}\n'
+)
+tests = r"""
+void reset(){connecting=false;connected=false;setupInProgress=false;recoveryPending=false;
+ connectionHandle=BLE_CONN_HANDLE_INVALID;connectAttemptStartedMs=100;clockMs=100;
+ bleRecoveryCycles=0;scanRestartRequested=false;connectTimedOut=false;scanRetryDueMs=0;
+ universalState=UniversalState::IDLE;loggerLockEnabled=false;haveRejectedAddr=false;
+ Bluefruit.Scanner=Scan{};Bluefruit.disconnects.clear();Bluefruit.connectOk=true;
+ memset(Bluefruit.links,0,sizeof(Bluefruit.links));memset(Bluefruit.phones,0,sizeof(Bluefruit.phones));
+ hoboService=Svc{};hoboCharacteristic=Chr{};cancels=0;cancelResult=NRF_SUCCESS;
+ memset(candidateAddrRaw,0,6);memset(lockedAddrRaw,0,6);}
+void beginConnect(){connecting=true;Bluefruit.links[1]=true;connectCallback(1);}
 int main(){
- reset();Bluefruit.Scanner.resumeOk=false;resumeScanner();assert(scanRestartRequested);
- assert(Bluefruit.Scanner.running);assert(restartScanner(clockMs));assert(!scanRestartRequested);assert(Bluefruit.Scanner.starts==1);
- reset();Bluefruit.Scanner.startOk=false;assert(!restartScanner(clockMs));assert(bleRecoveryCycles==1);assert(scanRetryDueMs==5100);
- reset();for(int i=0;i<4;i++){clockMs=100+i*10000;triggerBleRecovery("service discovery");}
- assert(watchdogTrips==0);clockMs=120100;triggerBleRecovery("service discovery");assert(watchdogTrips==1);
- reset();connecting=true;connectAttemptStartedMs=100;cancelResult=123;triggerBleRecovery("connect timeout");assert(watchdogTrips==1);
- reset();connected=true;universalState=UniversalState::DISCOVER_SERVICE;discoveryAttempts=0;stateDueMs=0;hoboService.ok=false;
- for(int i=0;i<3;i++){clockMs=1000+i*500;discoveryTick();}
- assert(bleRecoveryCycles==1);assert(recoveryPending);assert(strstr(lastBleFailure,"service:")!=nullptr);
- reset();connected=true;universalState=UniversalState::DISCOVER_SERVICE;discoveryAttempts=0;stateDueMs=0;hoboService.ok=true;
- for(int i=0;i<3;i++){clockMs=1000+i*500;discoveryTick();}
- assert(universalState==UniversalState::SEND_INIT);assert(bootstrapStartedMs>0);assert(watchdogTrips==0);
+ reset();beginConnect();assert(!setupInProgress);assert(connected);assert(connectionHandle==1);
+ assert(universalState==UniversalState::SEND_INIT);assert(hoboService.calls==1);
+ assert(hoboCharacteristic.discoverCalls==1&&hoboCharacteristic.notifyCalls==1);
+ assert(stateDueMs==bootstrapStartedMs+500);
+ reset();hoboService.failures=2;beginConnect();assert(hoboService.calls==3);assert(universalState==UniversalState::SEND_INIT);
+ for(unsigned stage=0;stage<3;stage++){
+  reset();if(stage==0)hoboService.failures=3;
+  if(stage==1)hoboCharacteristic.discoverFailures=3;
+  if(stage==2)hoboCharacteristic.notifyFailures=3;
+  beginConnect();assert(!setupInProgress);assert(recoveryPending);assert(universalState==UniversalState::IDLE);
+  assert(Bluefruit.disconnects.size()==1);assert(haveRejectedAddr);
+  if(stage==0)assert(strstr(lastBleFailure,"rsp=0 gatt=FFFF n=0"));
+  disconnectCallback(1,0x13);assert(!connected&&!recoveryPending);
+  clockMs=scanRetryDueMs;assert(restartScanner(clockMs));assert(Bluefruit.Scanner.starts==1);
+ }
+ reset();hoboService.drop=true;beginConnect();assert(hoboService.calls==1);assert(!setupInProgress);
+ disconnectCallback(1,0x08);assert(!connected);assert(!recoveryPending);
+ reset();beginConnect();disconnectCallback(2,0x13);assert(connected&&connectionHandle==1);
+ disconnectCallback(1,0x13);assert(!connected);
+ reset();connecting=false;Bluefruit.links[1]=true;connectCallback(1);assert(!connected);assert(Bluefruit.disconnects.size()==1);
+ reset();connecting=true;triggerBleRecovery("connect timeout");assert(cancels==1&&!connecting);
+ assert(scanRetryDueMs==5100);clockMs=scanRetryDueMs;assert(restartScanner(clockMs));
+ reset();connecting=true;cancelResult=NRF_ERROR_INVALID_STATE;Bluefruit.links[1]=true;
+ triggerBleRecovery("connect timeout");assert(!restartScanner(clockMs));assert(Bluefruit.Scanner.starts==0);
+ connectCallback(1);assert(Bluefruit.disconnects.size()==1);
+ reset();connecting=true;cancelResult=NRF_ERROR_INVALID_STATE;Bluefruit.Scanner.running=true;
+ Bluefruit.Scanner.stopOk=false;Bluefruit.Scanner.resumeOk=false;
+ triggerBleRecovery("connect timeout");clockMs=scanRetryDueMs;assert(lifecycleTick()==500);
+ assert(Bluefruit.Scanner.starts==1);
+ reset();connecting=true;cancelResult=123;triggerBleRecovery("cancel failure");assert(connecting);assert(!restartScanner(clockMs));
+ reset();for(int i=0;i<300;i++){clockMs+=5000;triggerBleRecovery("RF unavailable");}
+ assert(bleRecoveryCycles==255);assert(restartScanner(clockMs));
+ reset();Bluefruit.Scanner.running=true;Bluefruit.Scanner.resumeOk=false;Bluefruit.Scanner.stopOk=false;
+ resumeScanner();assert(scanRestartRequested);assert(restartScanner(clockMs));assert(!scanRestartRequested);
+ reset();Bluefruit.Scanner.startOk=false;assert(!restartScanner(clockMs));assert(scanRetryDueMs==5100);
+ reset();ble_evt_t event;event.header.evt_id=BLE_GAP_EVT_TIMEOUT;
+ event.evt.gap_evt.params.timeout.src=BLE_GAP_TIMEOUT_SRC_CONN;bleEventCallback(&event);assert(connectTimedOut);
+ reset();connectionHandle=1;event.header.evt_id=BLE_GATTC_EVT_PRIM_SRVC_DISC_RSP;
+ event.evt.common_evt.conn_handle=2;discoveryResponseSeen=false;bleEventCallback(&event);assert(!discoveryResponseSeen);
+ event.evt.common_evt.conn_handle=1;bleEventCallback(&event);assert(discoveryResponseSeen&&discoveryGattStatus==0&&discoveryServiceCount==1);
+ reset();uint8_t ad[]={3,0xFF,0xC5,0};ble_gap_evt_adv_report_t report;
+ report.data.p_data=ad;report.data.len=sizeof(ad);report.peer_addr.addr_type=3;
+ scanCallback(&report);assert(connecting);assert(Bluefruit.addressType==3);assert(Bluefruit.Scanner.stops==1);
+ reset();Bluefruit.Scanner.running=true;Bluefruit.Scanner.stopOk=false;Bluefruit.Scanner.resumeOk=false;
+ Bluefruit.connectOk=false;scanCallback(&report);assert(!connecting);assert(Bluefruit.Scanner.running);
+ assert(lifecycleTick()==500);assert(Bluefruit.Scanner.starts==0);
+ clockMs=scanRetryDueMs;assert(lifecycleTick()==500);assert(Bluefruit.Scanner.starts==1);
+ reset();connecting=true;Bluefruit.Scanner.running=true;Bluefruit.Scanner.stopOk=false;
+ Bluefruit.Scanner.resumeOk=false;triggerBleRecovery("connect timeout");assert(!connecting);
+ clockMs=scanRetryDueMs;assert(lifecycleTick()==500);assert(Bluefruit.Scanner.starts==1);
+ reset();report.type.connectable=false;scanCallback(&report);assert(!connecting);assert(Bluefruit.Scanner.resumes==1);
+ reset();report.type.connectable=true;loggerLockEnabled=true;lockedAddrRaw[0]=1;scanCallback(&report);
+ assert(!connecting&&Bluefruit.Scanner.resumes==1);
+ uint8_t malformed[]={31,0xFF,0xC5,0};report.data.p_data=malformed;assert(!inspectAdvertisement(&report).candidate);
+ reset();Bluefruit.links[1]=true;Bluefruit.phones[5]=true;NRF52Bluetooth phone;phone.disconnect();
+ assert(Bluefruit.links[1]&&!Bluefruit.phones[5]);assert(Bluefruit.disconnects.size()==1&&Bluefruit.disconnects[0]==5);
+ reset();Bluefruit.links[1]=true;phone.disconnect();assert(Bluefruit.links[1]&&Bluefruit.disconnects.empty());
  reset();for(auto type:{LoggerType::MX2001,LoggerType::MX2201,LoggerType::MX2203}){
- connected=true;loggerType=type;const char* reply=loggerSummary();assert(strstr(reply,loggerTypeName(type)));assert(strstr(reply,"CONNECTED"));assert(strlen(reply)<219);}
+ connected=true;loggerType=type;assert(strstr(loggerSummary(),loggerTypeName(type)));}
  connected=false;loggerType=LoggerType::UNKNOWN;lastVerifiedType=LoggerType::MX2001;
  assert(strstr(loggerSummary(),"Model: Not identified"));assert(strstr(loggerSummary(),"Last verified: MX2001"));
- lastVerifiedType=LoggerType::UNKNOWN;assert(strstr(loggerSummary(),"Model: Not identified"));assert(!strstr(loggerSummary(),"Model: MX2001"));
- puts("PASS: stale scanner, failed starts/cancel, discovery failure escalation, successful setup, and truthful LOGGER models");
+ clockMs=10;rejectedUntilMs=20;haveRejectedAddr=true;assert(isRejectedCandidate(candidateAddrRaw));
+ clockMs=20;assert(!isRejectedCandidate(candidateAddrRaw));
+ assert(reached(20,0xFFFFFFF0U));assert(!reached(0xFFFFFFF0U,20));
+ puts("PASS: callback setup, three discovery failure stages, dropped/stale links, cancel races, scanning, address types, sparse phone handles, models, rollover");
 }
-'''
-# initializer_list is required for the model-family loop.
+"""
+# A reset is not an acceptable outcome of these ordinary BLE faults.
+assert "nrf52FieldWatchdogTrip" not in source
+assert "UniversalState::DISCOVER_SERVICE" not in source
+assert "scanRestartRequested || !Bluefruit.Scanner.isRunning()" in source
+assert "Bluefruit.Scanner.setInterval(320, 32)" in source
 with tempfile.TemporaryDirectory() as directory:
-    cpp = Path(directory)/'faults.cpp'
-    cpp.write_text('#include <initializer_list>\n'+prelude+methods+helpers+tests)
-    binary = Path(directory)/'faults'
-    subprocess.run(['g++','-std=c++17','-Wall','-Wextra','-Werror',str(cpp),'-o',str(binary)],check=True)
-    subprocess.run([str(binary)],check=True)
+    cpp = Path(directory) / "faults.cpp"
+    cpp.write_text(
+        prelude
+        + globals_text
+        + uuid_text
+        + candidate_struct
+        + methods
+        + lifecycle
+        + helpers
+        + tests
+    )
+    binary = Path(directory) / "faults"
+    subprocess.run(
+        [
+            "g++",
+            "-std=c++17",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-fsanitize=address,undefined",
+            str(cpp),
+            "-o",
+            str(binary),
+        ],
+        check=True,
+    )
+    subprocess.run([str(binary)], check=True)

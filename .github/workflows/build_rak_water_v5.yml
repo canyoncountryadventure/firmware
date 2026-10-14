@@ -1,11 +1,26 @@
-name: Build RAK Water HOBO v5
+name: Build verified RAK Water HOBO V5 and matched Scouts
 on:
   push:
     branches: [RAK-Water-Distance-HOBO-v5]
+    paths:
+      - "src/**"
+      - "test/test_hobo_v5/**"
+      - "variants/**"
+      - "boards/**"
+      - "bin/**"
+      - "tools/build_drone_embedded_firmware.py"
+      - "tools/verify_drone_audit.py"
+      - "platformio.ini"
+      - "version.properties"
+      - "userPrefs.jsonc"
+      - ".github/workflows/build_rak_water_v5.yml"
+      - "tools/publish_rak_v5_readme.py"
   workflow_dispatch:
 concurrency:
   group: rak-water-hobo-v5
   cancel-in-progress: true
+env:
+  PLATFORMIO_SETTING_ENABLE_TELEMETRY: "false"
 permissions:
   contents: read
 jobs:
@@ -13,7 +28,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - run: python3 test/test_hobo_v5/test_hobo_v5.py
+      - run: |
+          python3 test/test_hobo_v5/test_hobo_v5.py
+          python3 test/test_hobo_v5/test_preservation.py
   build:
     needs: recovery-tests
     runs-on: ubuntu-latest
@@ -46,13 +63,40 @@ jobs:
           ota_path="$(find release -maxdepth 1 -name "firmware-$TARGET-*-ota.zip" -print -quit)"
           test -n "$uf2_path"
           test -n "$ota_path"
-          cp "$uf2_path" "export/RAK-Water-HOBO-v5-$SENSOR.uf2"
-          cp "$ota_path" "export/RAK-Water-HOBO-v5-$SENSOR-OTA.zip"
-          python3 bin/verify_rak_v5.py "export/RAK-Water-HOBO-v5-$SENSOR.uf2" "$GITHUB_SHA"
-          sha256sum export/* > "export/SHA256-$SENSOR.txt"
+          cp "$uf2_path" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2"
+          cp "$ota_path" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+          python3 bin/verify_rak_v5.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "$GITHUB_SHA"
+          python3 bin/verify_rak_audit_package.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+          (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa
+          path: scout
+      - name: Build matched autonomous Scout
+        env:
+          SENSOR: ${{ matrix.sensor }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install platformio==6.2.0 lz4
+          python3 tools/build_drone_embedded_firmware.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h
+          pio run --project-dir scout -e rak4631_drone_flasher
+          scout_uf2="$(find scout/.pio/build/rak4631_drone_flasher -maxdepth 1 -name 'firmware-*.uf2' -print -quit)"
+          test -n "$scout_uf2"
+          output="export/Drone-RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2"
+          cp "$scout_uf2" "$output"
+          python3 tools/verify_drone_audit.py "$output" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h "$GITHUB_SHA"
+          {
+            echo "Target source commit: $GITHUB_SHA"
+            echo "Target environment: $TARGET"
+            echo 'Scout implementation commit: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa'
+            echo 'Exact embedded application and DAT verified; both LZ4 decoders verified'
+            sha256sum "$output" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+          } > "$output.txt"
+          (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: RAK-Water-HOBO-v5-${{ matrix.sensor }}
+          name: RAK-HOBO-v5-Audit-Repair-${{ matrix.sensor }}
           path: export/*
           if-no-files-found: error
           retention-days: 30
@@ -64,28 +108,27 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: RAK-Water-HOBO-v5-*
+          pattern: RAK-HOBO-v5-Audit-Repair-*
           merge-multiple: true
           path: export
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: field-self-recovery
+          ref: RAK-Water-Distance-HOBO-v5
           path: publish
-      - name: Publish v5 downloads
+      - name: Publish verified V5 release and front-page links
         run: |
           set -euo pipefail
           cd publish
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p downloads/RAK-HOBO-v5-Audit-Repair
+          cp ../export/* downloads/RAK-HOBO-v5-Audit-Repair/
+          cd downloads/RAK-HOBO-v5-Audit-Repair
+          sha256sum *.uf2 *.zip > SHA256SUMS.txt
+          printf 'Source commit: %s\nWorkflow: https://github.com/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > BUILD.txt
+          cd ../..
+          python3 tools/publish_rak_v5_readme.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          latest_source_sha="$(git ls-remote origin refs/heads/RAK-Water-Distance-HOBO-v5 | awk '{print $1}')"
-          if [ "$latest_source_sha" != "$GITHUB_SHA" ]; then exit 0; fi
-          mkdir -p downloads/RAK-Water-HOBO-v5
-          cp ../export/* downloads/RAK-Water-HOBO-v5/
-          git add downloads/RAK-Water-HOBO-v5
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'Publish RAK SEN0313 and MB7388 HOBO v5 downloads'
-          for attempt in 1 2 3 4 5; do
-            if git push origin HEAD:field-self-recovery; then exit 0; fi
-            git pull --rebase origin field-self-recovery
-          done
-          exit 1
+          git add downloads/RAK-HOBO-v5-Audit-Repair README.md docs/diagnostic-8/VALIDATION.md
+          git commit -m 'Publish verified Diagnostic 8 RAK4631 app-only firmware'
+          git push origin HEAD:RAK-Water-Distance-HOBO-v5

@@ -282,3 +282,8 @@ Field deployment workflow is intentionally simple:
 3. Send `LOGGER` and verify model, MAC, and logging interval.
 4. Send `LOCK` only when physically installing that radio with that logger.
 5. Reboot once and use `LOGGER` to verify the saved target before leaving the site.
+
+
+## Diagnostic 8 repair
+
+See the [source audit](../../../../docs/diagnostic-8/README.md), [validation](../../../../docs/diagnostic-8/VALIDATION.md), and [update/rollback instructions](../../../../docs/diagnostic-8/FLASHING.md). The repair restores bounded V3 GATT setup on the deferred callback task, retains passive response diagnostics, and retries ordinary BLE faults without tripping the hardware watchdog. Physical station root causes remain unverified.
