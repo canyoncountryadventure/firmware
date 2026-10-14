@@ -1079,13 +1079,13 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "HOBO DIAG")) {
         char reply[235] = {};
         snprintf(reply, sizeof(reply),
-                 "HOBO BLE DIAG IO1=OFF\\n"
-                 "scan=%u conn=%u setup=%u\\n"
-                 "try=%lu localfail=%lu\\n"
-                 "GAP connect=%lu timeout=%lu disc=%lu\\n"
-                 "lastEvent=0x%04X age=%lus\\n"
-                 "timeoutSrc=%u discReason=0x%02X\\n"
-                 "addrType=%u advConnect=%u RSSI=%d\\n"
+                 "HOBO BLE DIAG IO1=OFF\n"
+                 "scan=%u conn=%u setup=%u\n"
+                 "try=%lu localfail=%lu\n"
+                 "GAP connect=%lu timeout=%lu disc=%lu\n"
+                 "lastEvent=0x%04X age=%lus\n"
+                 "timeoutSrc=%u discReason=0x%02X\n"
+                 "addrType=%u advConnect=%u RSSI=%d\n"
                  "lastError=%.46s",
                  Bluefruit.Scanner.isRunning() ? 1U : 0U, connected ? 1U : 0U, setupInProgress ? 1U : 0U,
                  static_cast<unsigned long>(connectionAttempts.load()),
