@@ -14,6 +14,7 @@
 #include "pb_encode.h"
 
 #include "mesh/Throttle.h"
+#include <atomic>
 #include <ble_gap.h>
 #include <bluefruit.h>
 #include <cctype>
@@ -56,9 +57,6 @@ enum class ReadPurpose : uint8_t { PROBE = 0, AUTOMATIC, ON_DEMAND };
 
 enum class UniversalState : uint8_t {
     IDLE = 0,
-    DISCOVER_SERVICE,
-    DISCOVER_CHARACTERISTIC,
-    ENABLE_NOTIFY,
     SEND_INIT,
     WAIT_INIT,
     SEND_META0,
@@ -73,25 +71,22 @@ enum class UniversalState : uint8_t {
 };
 
 bool initialized = false;
-bool connecting = false;
-bool connected = false;
-uint16_t connectionHandle = BLE_CONN_HANDLE_INVALID;
+std::atomic<bool> connecting{false};
+std::atomic<bool> connected{false};
+std::atomic<bool> setupInProgress{false};
+concurrency::Lock bleLifecycleLock;
+std::atomic<uint16_t> connectionHandle{BLE_CONN_HANDLE_INVALID};
 uint32_t connectAttemptStartedMs = 0;
 uint8_t bleRecoveryCycles = 0;
 uint8_t consecutiveReadTimeouts = 0;
-uint8_t discoveryAttempts = 0;
-uint32_t linkStartedMs = 0;
 uint32_t bootstrapStartedMs = 0;
-uint32_t lastScanKickMs = 0;
 uint32_t scanRetryDueMs = 0;
-uint32_t firstBleFailureMs = 0;
-uint32_t disconnectDueMs = 0;
-bool recoveryPending = false;
-bool watchdogRecoveryPending = false;
-volatile bool scanRestartRequested = false;
-volatile uint16_t discoveryGattStatus = 0xFFFF;
-volatile uint16_t discoveryServiceCount = 0;
-volatile bool discoveryResponseSeen = false;
+std::atomic<bool> recoveryPending{false};
+std::atomic<bool> scanRestartRequested{false};
+std::atomic<bool> connectTimedOut{false};
+std::atomic<uint16_t> discoveryGattStatus{0xFFFF};
+std::atomic<uint16_t> discoveryServiceCount{0};
+std::atomic<bool> discoveryResponseSeen{false};
 LoggerType lastVerifiedType = LoggerType::UNKNOWN;
 uint8_t lastVerifiedAddr[6] = {};
 char lastBleFailure[48] = "none";
@@ -172,11 +167,8 @@ static constexpr uint32_t TRANSIENT_RETRY_MS = 5000;
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
 static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
 static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
-static constexpr uint32_t SCAN_KICK_MS = 30000UL;
 static constexpr uint32_t SCAN_RETRY_MS = 5000UL;
-static constexpr uint32_t LINK_SETUP_TIMEOUT_MS = 45000UL;
 static constexpr uint32_t BOOTSTRAP_TIMEOUT_MS = 30000UL;
-static constexpr uint32_t RECOVERY_MIN_FAILURE_MS = 120000UL;
 static constexpr char IDENTITY_FILE_PATH[] = "/prefs/hobo_identity.bin";
 static constexpr char LOCK_FILE_PATH[] = "/prefs/hobo_lock.bin";
 
@@ -673,21 +665,31 @@ void resumeScanner()
 
 bool restartScanner(uint32_t now)
 {
-    Bluefruit.Scanner.stop();
-    if (Bluefruit.Scanner.start(0)) {
-        lastScanKickMs = now;
-        scanRetryDueMs = 0;
+    concurrency::LockGuard guard(bleLifecycleLock);
+    if (connecting || connected || recoveryPending || Bluefruit.Central.connected())
+        return false;
+    if (scanRestartRequested && Bluefruit.Scanner.resume()) {
         scanRestartRequested = false;
-        LOG_INFO("HOBO v5: BLE scan started");
+        scanRetryDueMs = 0;
         return true;
     }
+    if (scanRestartRequested)
+        Bluefruit.Scanner.stop();
+    if (Bluefruit.Scanner.start(0)) {
+        scanRetryDueMs = 0;
+        scanRestartRequested = false;
+        return true;
+    }
+    snprintf(lastBleFailure, sizeof(lastBleFailure), "scanner start failed");
     scanRetryDueMs = now + SCAN_RETRY_MS;
-    triggerBleRecovery("scanner start failed");
     return false;
 }
 
 void bleEventCallback(ble_evt_t *event)
 {
+    if (event && event->header.evt_id == BLE_GAP_EVT_TIMEOUT && event->evt.gap_evt.params.timeout.src == BLE_GAP_TIMEOUT_SRC_CONN)
+        connectTimedOut = true;
+
     if (event == nullptr || event->evt.common_evt.conn_handle != connectionHandle)
         return;
     if (event->header.evt_id == BLE_GATTC_EVT_PRIM_SRVC_DISC_RSP) {
@@ -702,7 +704,8 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
     if (report == nullptr)
         return;
 
-    if (connecting || connected || recoveryPending || watchdogRecoveryPending)
+    concurrency::LockGuard guard(bleLifecycleLock);
+    if (connecting || connected || recoveryPending)
         return;
 
     if (!report->type.connectable) {
@@ -735,8 +738,9 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
     LOG_INFO("HOBO universal: candidate %02X:%02X:%02X:%02X:%02X:%02X RSSI=%d%s", loggerMac[0], loggerMac[1], loggerMac[2],
              loggerMac[3], loggerMac[4], loggerMac[5], loggerBleRssi, loggerLockEnabled ? " LOCKED-TARGET" : "");
 
-    connecting = true;
+    connectTimedOut = false;
     connectAttemptStartedMs = millis();
+    connecting = true;
     Bluefruit.Scanner.stop();
 
     if (!Bluefruit.Central.connect(report)) {
@@ -744,20 +748,94 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
         connectAttemptStartedMs = 0;
         LOG_WARN("HOBO universal: BLE connection request failed");
         scanRetryDueMs = millis() + SCAN_RETRY_MS;
-        triggerBleRecovery("connection request failed");
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "connection request failed");
     }
 }
 
 void connectCallback(uint16_t connHandle)
 {
-    if (watchdogRecoveryPending) {
+    setupInProgress = true;
+    struct SetupGuard {
+        ~SetupGuard() { setupInProgress = false; }
+    } setupGuard;
+    if (!connecting || recoveryPending || !Bluefruit.Central.connected(connHandle) ||
+        (loggerLockEnabled && memcmp(candidateAddrRaw, lockedAddrRaw, 6) != 0)) {
         Bluefruit.disconnect(connHandle);
         return;
     }
+    connectionHandle = connHandle;
+    connected = true;
     connecting = false;
     connectAttemptStartedMs = 0;
-    connected = true;
-    connectionHandle = connHandle;
+    connectTimedOut = false;
+    universalState = UniversalState::IDLE;
+
+    delay(SERVICE_SETTLE_MS);
+
+    bool serviceFound = false;
+    discoveryResponseSeen = false;
+    discoveryGattStatus = 0xFFFF;
+    discoveryServiceCount = 0;
+    for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS; ++attempt) {
+        if (!Bluefruit.Central.connected(connHandle))
+            return;
+        if (hoboService.discover(connHandle)) {
+            serviceFound = true;
+            break;
+        }
+        if (attempt < SERVICE_DISCOVERY_ATTEMPTS)
+            delay(SERVICE_RETRY_DELAY_MS);
+    }
+
+    if (!serviceFound) {
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "service: rsp=%u gatt=%04X n=%u", discoveryResponseSeen.load(),
+                 discoveryGattStatus.load(), discoveryServiceCount.load());
+        LOG_WARN("HOBO universal: %s", lastBleFailure);
+        rejectCurrentCandidate(TRANSIENT_RETRY_MS);
+        triggerBleRecovery(lastBleFailure);
+        return;
+    }
+
+    bool characteristicFound = false;
+    for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS; ++attempt) {
+        if (!Bluefruit.Central.connected(connHandle))
+            return;
+        if (hoboCharacteristic.discover()) {
+            characteristicFound = true;
+            break;
+        }
+        if (attempt < SERVICE_DISCOVERY_ATTEMPTS)
+            delay(SERVICE_RETRY_DELAY_MS);
+    }
+
+    if (!characteristicFound) {
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "characteristic discovery");
+        rejectCurrentCandidate(TRANSIENT_RETRY_MS);
+        triggerBleRecovery(lastBleFailure);
+        return;
+    }
+
+    bool notifyEnabled = false;
+    for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS; ++attempt) {
+        if (!Bluefruit.Central.connected(connHandle))
+            return;
+        if (hoboCharacteristic.enableNotify()) {
+            notifyEnabled = true;
+            break;
+        }
+        if (attempt < SERVICE_DISCOVERY_ATTEMPTS)
+            delay(SERVICE_RETRY_DELAY_MS);
+    }
+
+    if (!notifyEnabled) {
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "notification enable");
+        rejectCurrentCandidate(TRANSIENT_RETRY_MS);
+        triggerBleRecovery(lastBleFailure);
+        return;
+    }
+
+    if (!Bluefruit.Central.connected(connHandle) || recoveryPending)
+        return;
 
     loggerType = LoggerType::UNKNOWN;
     activeMetaProfile = MetaProfile::NONE;
@@ -779,17 +857,19 @@ void connectCallback(uint16_t connHandle)
     lastAutomaticTxMs = 0;
     automaticTxCount = 0;
 
-    linkStartedMs = millis();
-    bootstrapStartedMs = 0;
-    discoveryAttempts = 0;
-    universalState = UniversalState::DISCOVER_SERVICE;
-    stateDueMs = linkStartedMs + SERVICE_SETTLE_MS;
-    LOG_INFO("HOBO v5: BLE link connected; discovering HOBO service");
+    bootstrapStartedMs = millis();
+    universalState = UniversalState::SEND_INIT;
+    stateDueMs = bootstrapStartedMs + 500;
+    LOG_INFO("HOBO universal: BLE command channel ready");
 }
 
 void disconnectCallback(uint16_t connHandle, uint8_t reason)
 {
-    (void)connHandle;
+    if (connHandle != connectionHandle)
+        return;
+    recoveryPending = false;
+    scanRestartRequested = false;
+    scanRetryDueMs = millis() + TRANSIENT_RETRY_MS;
 
     LOG_WARN("HOBO universal: disconnected reason=0x%02X", reason);
 
@@ -797,7 +877,6 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
     connecting = false;
     connectAttemptStartedMs = 0;
     connectionHandle = BLE_CONN_HANDLE_INVALID;
-    linkStartedMs = 0;
     bootstrapStartedMs = 0;
     loggerType = LoggerType::UNKNOWN;
     activeMetaProfile = MetaProfile::NONE;
@@ -828,39 +907,28 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 
 void triggerBleRecovery(const char *reason)
 {
-    if (watchdogRecoveryPending)
-        return;
-    if (bleRecoveryCycles < 255)
+    concurrency::LockGuard guard(bleLifecycleLock);
+    if (bleRecoveryCycles < UINT8_MAX)
         bleRecoveryCycles++;
-    const uint32_t now = millis();
-    if (firstBleFailureMs == 0)
-        firstBleFailureMs = now ? now : 1;
-    snprintf(lastBleFailure, sizeof(lastBleFailure), "%s", reason ? reason : "unspecified");
-    LOG_ERROR("HOBO v5: recovery %u: %s", bleRecoveryCycles, lastBleFailure);
-    nrf52FieldDiagEvent(2, 3, bleRecoveryCycles);
+    if (reason != lastBleFailure)
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "%s", reason ? reason : "BLE failure");
+    LOG_WARN("HOBO universal: BLE recovery %u: %s", bleRecoveryCycles, lastBleFailure);
     if (connected && connectionHandle != BLE_CONN_HANDLE_INVALID) {
         recoveryPending = true;
-        disconnectDueMs = now + 10000UL;
-        if (!Bluefruit.disconnect(connectionHandle))
-            LOG_ERROR("HOBO v5: BLE disconnect request failed");
+        Bluefruit.disconnect(connectionHandle);
     } else if (connecting) {
         const uint32_t status = sd_ble_gap_connect_cancel();
-        LOG_INFO("HOBO v5: cancel connect status=0x%08lX", static_cast<unsigned long>(status));
+        if (status != NRF_SUCCESS && status != NRF_ERROR_INVALID_STATE) {
+            LOG_ERROR("HOBO universal: connect cancel error %lu", static_cast<unsigned long>(status));
+            return;
+        }
         connecting = false;
         connectAttemptStartedMs = 0;
-        if (status != NRF_SUCCESS && status != NRF_ERROR_INVALID_STATE) {
-            watchdogRecoveryPending = true;
-            nrf52FieldWatchdogTrip();
-        }
+        connectTimedOut = false;
     }
     universalState = UniversalState::IDLE;
     statusTrackingAvailable = false;
-    scanRetryDueMs = now + SCAN_RETRY_MS;
-    if (bleRecoveryCycles >= 5 && !Throttle::isWithinTimespanMs(firstBleFailureMs, RECOVERY_MIN_FAILURE_MS)) {
-        LOG_ERROR("HOBO v5: sustained BLE failures; requesting hardware watchdog reset");
-        watchdogRecoveryPending = true;
-        nrf52FieldWatchdogTrip();
-    }
+    scanRetryDueMs = millis() + SCAN_RETRY_MS;
 }
 
 void initializeClient()
@@ -882,7 +950,7 @@ void initializeClient()
     Bluefruit.Scanner.restartOnDisconnect(false);
     // Passive 10% duty scan; the HOBO state machine is the sole owner of scanner
     // lifecycle.
-    Bluefruit.Scanner.setInterval(160, 80);
+    Bluefruit.Scanner.setInterval(320, 32);
     Bluefruit.Scanner.useActiveScan(false);
 
     initialized = true;
@@ -976,12 +1044,11 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
         uint8_t previousMac[6] = {};
         makeHumanMac(lastVerifiedAddr, previousMac);
         const bool identified = connected && loggerType != LoggerType::UNKNOWN && loggerType != LoggerType::UNSUPPORTED;
-        const char *stateName = watchdogRecoveryPending ? "RESET PENDING"
-                                : recoveryPending       ? "RECOVERING"
-                                : identified            ? "CONNECTED"
-                                : connected             ? "IDENTIFYING"
-                                : connecting            ? "CONNECTING"
-                                                        : "SCANNING";
+        const char *stateName = recoveryPending ? "RECOVERING"
+                                : identified    ? "CONNECTED"
+                                : connected     ? "IDENTIFYING"
+                                : connecting    ? "CONNECTING"
+                                                : "SCANNING";
         const char *modelName = identified ? loggerTypeName(loggerType) : "Not identified";
         if (lastVerifiedType != LoggerType::UNKNOWN && !identified) {
             snprintf(reply, sizeof(reply),
@@ -1042,7 +1109,6 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
             haveRejectedAddr = false;
             if (connected) {
                 recoveryPending = true;
-                disconnectDueMs = millis() + 10000UL;
                 if (!Bluefruit.disconnect(connectionHandle))
                     LOG_ERROR("HOBO v5: target change disconnect failed");
             } else if (connecting) {
@@ -1270,39 +1336,23 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         readRequester = 0;
     }
 
-    if (watchdogRecoveryPending)
+    if (setupInProgress || recoveryPending)
         return 500;
-
-    if (recoveryPending) {
-        if (!connected) {
-            recoveryPending = false;
-        } else {
-            if (reached(now, disconnectDueMs)) {
-                LOG_ERROR("HOBO v5: disconnect stalled; requesting hardware watchdog reset");
-                watchdogRecoveryPending = true;
-                nrf52FieldWatchdogTrip();
-            }
-            return 500;
-        }
-    }
 
     if (!connected) {
         if (connecting) {
-            if (connectAttemptStartedMs != 0 && reached(now, connectAttemptStartedMs + CONNECT_ATTEMPT_TIMEOUT_MS))
+            if (connectTimedOut ||
+                (connectAttemptStartedMs != 0 && reached(now, connectAttemptStartedMs + CONNECT_ATTEMPT_TIMEOUT_MS)))
                 triggerBleRecovery("connect timeout");
             return 500;
         }
         if (scanRetryDueMs != 0 && !reached(now, scanRetryDueMs))
             return 500;
-        if (scanRestartRequested || !Bluefruit.Scanner.isRunning() || !Throttle::isWithinTimespanMs(lastScanKickMs, SCAN_KICK_MS))
+        if (scanRestartRequested || !Bluefruit.Scanner.isRunning())
             restartScanner(now);
         return 500;
     }
 
-    if (linkStartedMs != 0 && bootstrapStartedMs == 0 && !Throttle::isWithinTimespanMs(linkStartedMs, LINK_SETUP_TIMEOUT_MS)) {
-        triggerBleRecovery("GATT setup deadline");
-        return 500;
-    }
     if (bootstrapStartedMs != 0 && !haveStatusBaseline &&
         !Throttle::isWithinTimespanMs(bootstrapStartedMs, BOOTSTRAP_TIMEOUT_MS)) {
         triggerBleRecovery("HOBO initialization deadline");
@@ -1318,63 +1368,6 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
     }
 
     switch (universalState) {
-    case UniversalState::DISCOVER_SERVICE:
-    case UniversalState::DISCOVER_CHARACTERISTIC:
-    case UniversalState::ENABLE_NOTIFY: {
-        if (!reached(now, stateDueMs))
-            break;
-        bool ok = false;
-        const char *step = "service discovery";
-        if (universalState == UniversalState::DISCOVER_SERVICE) {
-            discoveryResponseSeen = false;
-            discoveryGattStatus = 0xFFFF;
-            discoveryServiceCount = 0;
-            ok = hoboService.discover(connectionHandle);
-            if (!ok)
-                LOG_WARN("HOBO v5: service discovery attempt=%u response=%u "
-                         "gatt=0x%04X services=%u link=%u",
-                         discoveryAttempts + 1, discoveryResponseSeen, discoveryGattStatus, discoveryServiceCount,
-                         Bluefruit.Central.connected());
-        } else if (universalState == UniversalState::DISCOVER_CHARACTERISTIC) {
-            step = "characteristic discovery";
-            ok = hoboCharacteristic.discover();
-        } else {
-            step = "notifications";
-            ok = hoboCharacteristic.enableNotify();
-        }
-        if (!connected)
-            break;
-        if (!ok) {
-            discoveryAttempts++;
-            if (discoveryAttempts >= SERVICE_DISCOVERY_ATTEMPTS) {
-                rejectCurrentCandidate(TRANSIENT_RETRY_MS);
-                if (universalState == UniversalState::DISCOVER_SERVICE) {
-                    char detail[48] = {};
-                    snprintf(detail, sizeof(detail), "service: rsp=%u gatt=%04X n=%u", discoveryResponseSeen, discoveryGattStatus,
-                             discoveryServiceCount);
-                    triggerBleRecovery(detail);
-                } else {
-                    triggerBleRecovery(step);
-                }
-            } else {
-                stateDueMs = millis() + SERVICE_RETRY_DELAY_MS;
-            }
-            break;
-        }
-        discoveryAttempts = 0;
-        if (universalState == UniversalState::DISCOVER_SERVICE)
-            universalState = UniversalState::DISCOVER_CHARACTERISTIC;
-        else if (universalState == UniversalState::DISCOVER_CHARACTERISTIC)
-            universalState = UniversalState::ENABLE_NOTIFY;
-        else {
-            universalState = UniversalState::SEND_INIT;
-            bootstrapStartedMs = millis();
-            LOG_INFO("HOBO v5: BLE command channel ready; identifying logger model");
-        }
-        stateDueMs = millis() + COMMAND_DELAY_MS;
-        break;
-    }
-
     case UniversalState::SEND_INIT:
         if (!reached(now, stateDueMs))
             break;
@@ -1627,7 +1620,6 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             consecutiveStatusTimeouts = 0;
             consecutiveReadTimeouts = 0;
             bleRecoveryCycles = 0;
-            firstBleFailureMs = 0;
             snprintf(lastBleFailure, sizeof(lastBleFailure), "none");
             statusTrackingAvailable = true;
 

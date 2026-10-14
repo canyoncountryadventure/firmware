@@ -1,0 +1,136 @@
+{
+  "baseline": "b24de43d86ba1238fb29edd3006ec63174701137",
+  "hobo_path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
+  "distance_path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
+  "checks": [
+    {
+      "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
+      "sha256": "817214425ebc1bc43c1036cbce650cbd29c067af9d565eebcf94ef3c99415f2d",
+      "signature": "bool saveLoggerLock()"
+    },
+    {
+      "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
+      "sha256": "b215043a4b73106bec95264f84d7bb712a3ba9951a1f76a4c6f38a0c1dcd60f6",
+      "signature": "void loadLoggerLock()"
+    },
+    {
+      "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
+      "sha256": "0c557ddabf46fb7b28419a94ecc59a00b5a3d649518cc10cc8a445b3eed2f65b",
+      "signature": "void loadLoggerIdentity()"
+    },
+    {
+      "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
+      "sha256": "3db7d483cfdbc8670bc6d17544cad7efa9a07929061c52b7e69cf98dace5155e",
+      "signature": "void rememberLoggerIdentity()"
+    },
+    {
+      "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
+      "sha256": "e566d148f61ff1fd2799c7459dc13b1be8227933eff78aabb606862ec6ede4ce",
+      "signature": "void finishMX2001Measurement()"
+    },
+    {
+      "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
+      "sha256": "9afd3be99b575ab49dc7f567cd78c25d52962383edb281614df4fad6a22f7659",
+      "signature": "void notifyCallback(BLEClientCharacteristic *characteristic, uint8_t *data, uint16_t len)"
+    },
+    {
+      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
+      "sha256": "b4e0f18ebe192c3901e03a715be7458d792d7520882e5da1d3fcd6272ad69547",
+      "signature": "void DistanceSensorModule::setDefaults()"
+    },
+    {
+      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
+      "sha256": "9d2ac6b677745ac35b7710c0cf772c3eed66b82d1e88f3af63cdcf79cd083216",
+      "signature": "bool DistanceSensorModule::configValid(const PersistentConfig &record) const"
+    },
+    {
+      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
+      "sha256": "169e9709e7a8fff4d71c4b266ac6e39c9fa3c08fcaa682ac56e31066e3064922",
+      "signature": "bool DistanceSensorModule::saveConfig()"
+    },
+    {
+      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
+      "sha256": "9dba5059ba46710a22f365015ef55bfa3ba98da41736510a909c1232be3bed5d",
+      "signature": "bool DistanceSensorModule::migrateLegacyConfig()"
+    },
+    {
+      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
+      "sha256": "0303657bedd951804a7acb65c5c9c06725e8d6b69ed2ac8484b2d0607568346f",
+      "signature": "bool DistanceSensorModule::loadConfig()"
+    },
+    {
+      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.h",
+      "sha256": "55d872c0f7bea285aec8e544129768bae8d360afe0c843328f848c5549f8fe67"
+    },
+    {
+      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp",
+      "sha256": "6e9e691fe563c3c1bc8d1c9f62e7f438cb862e002fd5c65710c49fb84ea76169"
+    },
+    {
+      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.h",
+      "sha256": "192083f162f4dfd74d5b71b70499d1c56abab226f80ea40b9aef1ae8dc845b9d"
+    },
+    {
+      "path": "src/modules/RAKRemoteDfuModule.cpp",
+      "sha256": "3b6f2909a51ccac33a99e1996e6ba26b0de2e5bb935af05d772bd7f76b336d8d"
+    },
+    {
+      "path": "src/modules/RAKRemoteDfuModule.h",
+      "sha256": "832513bfd6cfbd47798708bae402382c09c1f0d60c9d1950c66081f604292d7d"
+    },
+    {
+      "path": "variants/nrf52840/nrf52.ini",
+      "sha256": "de1b8788e8e038b470638fea12e949656c648168375d39737329aee6ae3214c4"
+    },
+    {
+      "path": "variants/nrf52840/rak4631/platformio.ini",
+      "sha256": "793a6e4e503e7c785e2035fd337d3f2d3117a6dc3b86c9266ac252ac7e88384f"
+    },
+    {
+      "path": "platformio.ini",
+      "sha256": "77603e5cf1e6e70468be10268f2e4e9620e5c1536048266c04b338791ef65c4e"
+    },
+    {
+      "path": "userPrefs.jsonc",
+      "sha256": "9021e3f52d54ae4393a1caa322d03fc5efdbaba4fb850b9f600811c33274327b"
+    }
+  ],
+  "uuids": {
+    "HOBO_SERVICE_UUID": [
+      "0xCF",
+      "0xCB",
+      "0xE6",
+      "0xBC",
+      "0xCC",
+      "0x83",
+      "0x49",
+      "0xAC",
+      "0x41",
+      "0x46",
+      "0x4E",
+      "0xED",
+      "0x4F",
+      "0x6E",
+      "0xE1",
+      "0x65"
+    ],
+    "HOBO_CHAR_UUID": [
+      "0xCF",
+      "0xCB",
+      "0xE6",
+      "0xBC",
+      "0xCC",
+      "0x83",
+      "0x49",
+      "0xAC",
+      "0x41",
+      "0x46",
+      "0x4E",
+      "0xED",
+      "0x4F",
+      "0x6F",
+      "0xE1",
+      "0x65"
+    ]
+  }
+}

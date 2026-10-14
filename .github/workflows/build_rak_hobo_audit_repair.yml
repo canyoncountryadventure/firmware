@@ -1,0 +1,111 @@
+name: Build RAK HOBO Diagnostic 8 repair
+on:
+  push:
+    branches: [repair/rak-hobo-v5-audit-20261014]
+    paths:
+      - "src/**"
+      - "test/test_hobo_v5/**"
+      - "variants/**"
+      - "boards/**"
+      - "bin/**"
+      - "platformio.ini"
+      - "version.properties"
+      - "userPrefs.jsonc"
+      - ".github/workflows/build_rak_hobo_audit_repair.yml"
+  workflow_dispatch:
+concurrency:
+  group: rak-hobo-audit-repair
+  cancel-in-progress: true
+env:
+  PLATFORMIO_SETTING_ENABLE_TELEMETRY: "false"
+permissions:
+  contents: read
+jobs:
+  recovery-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: |
+          python3 test/test_hobo_v5/test_hobo_v5.py
+          python3 test/test_hobo_v5/test_preservation.py
+  build:
+    needs: recovery-tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sensor: SEN0313
+            target: rak4631_sen0313_v5
+          - sensor: MB7388
+            target: rak4631_mb7388_v5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: recursive
+      - name: Build RAK4631 ${{ matrix.sensor }}
+        uses: meshtastic/gh-action-firmware@39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
+        with:
+          pio_platform: nrf52840
+          pio_env: ${{ matrix.target }}
+          pio_target: build
+      - name: Name downloads
+        env:
+          SENSOR: ${{ matrix.sensor }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          uf2_path="$(find release -maxdepth 1 -name "firmware-$TARGET-*.uf2" -print -quit)"
+          ota_path="$(find release -maxdepth 1 -name "firmware-$TARGET-*-ota.zip" -print -quit)"
+          test -n "$uf2_path"
+          test -n "$ota_path"
+          cp "$uf2_path" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2"
+          cp "$ota_path" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+          python3 bin/verify_rak_v5.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "$GITHUB_SHA"
+          python3 bin/verify_rak_audit_package.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+          (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: RAK-HOBO-v5-Audit-Repair-${{ matrix.sensor }}
+          path: export/*
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: RAK-HOBO-v5-Audit-Repair-*
+          merge-multiple: true
+          path: export
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: repair/rak-hobo-v5-audit-20261014
+          path: publish
+      - name: Publish verified downloads only to repair branch
+        run: |
+          set -euo pipefail
+          cd publish
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p downloads/RAK-HOBO-v5-Audit-Repair
+          cp ../export/* downloads/RAK-HOBO-v5-Audit-Repair/
+          cd downloads/RAK-HOBO-v5-Audit-Repair
+          sha256sum *.uf2 *.zip > SHA256SUMS.txt
+          printf 'Source commit: %s\nWorkflow: https://github.com/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > BUILD.txt
+          cd ../..
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('README.md')
+          old='Build/download verification is in progress at this source checkpoint; no unbuilt firmware link is advertised.'
+          new='Verified downloads: [SEN0313 UF2](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313.uf2) · [SEN0313 Scout DFU ZIP](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313-OTA.zip) · [MB7388 UF2](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388.uf2) · [MB7388 Scout DFU ZIP](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388-OTA.zip) · [SHA-256 checksums](downloads/RAK-HOBO-v5-Audit-Repair/SHA256SUMS.txt). Build source and workflow are recorded in [BUILD.txt](downloads/RAK-HOBO-v5-Audit-Repair/BUILD.txt).'
+          p.write_text(p.read_text().replace(old,new))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add downloads/RAK-HOBO-v5-Audit-Repair README.md
+          git commit -m 'Publish verified Diagnostic 8 RAK4631 app-only firmware'
+          git push origin HEAD:repair/rak-hobo-v5-audit-20261014

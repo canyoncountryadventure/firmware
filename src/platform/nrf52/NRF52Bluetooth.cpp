@@ -447,21 +447,22 @@ bool NRF52Bluetooth::onUnwantedPairing(uint16_t conn_handle, uint8_t const passk
     return false;
 }
 
-// Disconnect any BLE connections
+// Phone shutdown leaves the independent HOBO central link running.
 void NRF52Bluetooth::disconnect()
 {
-    uint8_t connection_num = Bluefruit.connected();
+    uint8_t connection_num = Bluefruit.Periph.connected();
     if (connection_num) {
-        // Close all connections. We're only expecting one.
-        for (uint8_t i = 0; i < connection_num; i++)
-            Bluefruit.disconnect(i);
+        for (uint16_t i = 0; i < BLE_MAX_CONNECTION; i++) {
+            if (Bluefruit.Periph.connected(i))
+                Bluefruit.disconnect(i);
+        }
 
         // Wait for disconnection
         const uint32_t disconnectStarted = millis();
-        while (Bluefruit.connected()) {
+        while (Bluefruit.Periph.connected()) {
             if ((uint32_t)(millis() - disconnectStarted) > 5000UL) {
                 nrf52FieldDiagEvent(2, 2, 1);
-                LOG_ERROR("BLE disconnect timed out; leaving recovery to the watchdog");
+                LOG_ERROR("Phone BLE disconnect timed out");
                 break;
             }
             yield();

@@ -1,5 +1,16 @@
 # RAK Water Distance + HOBO V5
 
+## Diagnostic 8: RAK HOBO V5 audit repair
+
+Dedicated branch: `repair/rak-hobo-v5-audit-20261014`. This is a software repair candidate; hardware field reliability remains unverified.
+
+[Root-cause audit and seven-branch source references](docs/diagnostic-8/README.md) · [Validation results](docs/diagnostic-8/VALIDATION.md) · [Flashing and rollback](docs/diagnostic-8/FLASHING.md)
+
+Restores V3 callback-based service/characteristic/notification setup after checking compatibility with the pinned Bluefruit event tasks. Removes periodic scanner restarts and ordinary BLE-failure watchdog resets, restores the 10% scan duty, protects central links during phone shutdown, and prevents failed ultrasonic reads from automatically clearing calibration. V5 model history, automatic telemetry protections, both sensor flavors, persistent settings and existing Scout DFU remain. The exact V4 onset and the two reported physical station failures are not yet proven by source inspection. See the audit for confidence levels and required hardware tests.
+
+Build/download verification is in progress at this source checkpoint; no unbuilt firmware link is advertised.
+
+
 Custom Meshtastic firmware for **RAK4631**, combining a UART water-distance sensor with a Bluetooth HOBO logger. Two builds are available: **SEN0313 / A01NYUB** for Pack Creek and **MaxBotix MB7388** for Cottonwood. Site names are deployment examples; neither build is tied to a node ID or site.
 
 HOBO support: **MX2001** water level and temperature, **MX2201** temperature, and **MX2203** temperature.

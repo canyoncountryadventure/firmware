@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5";
+static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5 AUDIT REPAIR";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -277,8 +277,7 @@ int32_t HOBOSelfRecoveryModule::runOnce()
 
     // Scanner and central-link lifecycle intentionally belong to the HOBO
     // telemetry state machine. This supervisor only exposes diagnostics/commands;
-    // exhausted BLE/radio recovery trips the independent field watchdog channel
-    // in the owning subsystem.
+    // ordinary BLE failures retry without resetting the node.
     return SUPERVISOR_INTERVAL_MS;
 }
 
