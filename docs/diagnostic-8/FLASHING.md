@@ -15,7 +15,11 @@ Connect USB to the RAK4631 and enter its existing UF2 bootloader using the suppo
 
 ## Existing drone/Scout DFU
 
-Use the matching **application-only Nordic/Adafruit OTA ZIP**, not the UF2, as the Scout firmware payload. The existing RAK remote DFU module and protocol are unchanged. Stage the ZIP using the Scout's established firmware selection/catalog procedure; do not overwrite unrelated station payloads. Send the existing `DFU` mesh DM to the intended target only when ready to update. The node acknowledges and enters AdaDFU after approximately three seconds. The Scout must target that node's bootloader, complete transfer and verify the post-update mesh callback/version. Exact Scout catalog/UI setup depends on the installed Scout version and was not operated during this audit.
+The existing autonomous Scout embeds one exact target application. Flash the matching **`Drone-RAK-HOBO-v5-Audit-Repair-SEN0313.uf2` or `...-MB7388.uf2` onto the separate drone RAK4631**. Never flash a `Drone-*.uf2` onto the field station. Its manifest records both the exact target commit/OTA checksum and unchanged Scout implementation commit `37306158a64266fd05dfcd3bf01c5b47d0dc35fa`. The compressed image and DAT must match the chosen field target.
+
+Power the matched Scout and send the existing `DFU` mesh DM to the intended field node. The target acknowledges and enters AdaDFU after approximately three seconds; the autonomous Scout discovers the eligible AdaDFU bootloader and transfers its embedded image. Enter DFU on only the intended target during this operation. Wait for completion and verify the post-update mesh callback/version and configuration. The source still uses the proven legacy service `0x1530`; no flasher protocol or recovery logic was changed.
+
+The matching **application-only Nordic/Adafruit OTA ZIP** is also provided. It is accepted by the existing Phase-2 serial Scout uploader `tools/rak_dfu_serial_upload.py` on the pinned drone branch. A ZIP alone does not replace the embedded image inside an already-flashed autonomous Scout. Both the standard ZIP and the matched autonomous Scout UF2 are provided; physical transfer remains unverified.
 
 Bootloader entry and transfer deliberately restart the station. Perform them only as part of the actual field upgrade. No bootloader or SoftDevice update is included.
 

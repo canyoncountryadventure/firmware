@@ -7,11 +7,15 @@
 - Preservation checks: PASS for 20 unchanged baseline protocol/storage/build/DFU sections, both UUIDs and removal of persistent calibration mutation during distance reads. These are source-preservation checks, not physical flash-retention tests.
 - `./mcp-server/run-tests.sh` with PlatformIO on PATH: **162 passed**, unit tier only. Pre-flight detected no supported hardware. Original `userPrefs.jsonc` restored and verified byte-for-byte after fixture execution, before firmware build.
 - `git diff --check`: PASS.
-- Local C++ formatting uses repository `.trunk/configs/.clang-format`; Python uses Black. Trunk was attempted but automatic approval review blocked its outbound Sentry telemetry. No complete Trunk lint result is claimed.
+- Local C++ formatting uses repository `.trunk/configs/.clang-format`; Python uses Black. Trunk and the local commit hook were attempted but automatic approval review blocked their outbound Sentry telemetry. No complete Trunk lint result is claimed. PlatformIO incidental telemetry was also blocked; its official `PLATFORMIO_SETTING_ENABLE_TELEMETRY=false` setting was verified in installed source to prevent queuing/sending before further builds.
 
 ## Build and package validation
 
-Firmware builds and native C++ tests are in progress at this source checkpoint. Do not treat this checkpoint as a completed or hardware-validated firmware release. Final results and verified artifact links will replace this paragraph after completion.
+Both RAK4631 sensor environments compiled successfully at software commit `7b57cd06a2e210f238af6f058c4616cef1e69397` (version `2.7.26.7b57cd0`). Both used 103,924/248,832 bytes of application RAM (41.8%) and 747,052/815,104 bytes of flash (91.7%). UF2 verification passed: nRF52840 family, correct source SHA and model strings, 2,919 blocks, application range `0x26000..0xDC700`, below filesystem `0xF4000`. Both OTA ZIPs passed integrity, application-only contents, matching UF2 payload (apart from documented zero UF2 block padding), device type `0x0052`, S140 requirement `0x00B6` and DAT CRC16 validation. Build log failures caught an initial LockGuard API mismatch; it was corrected and the host mock updated before these successful builds.
+
+`pio test -e native` was attempted with telemetry disabled: all 15 discovered suites errored during build in this host environment, with missing `pkg-config` and `yaml-cpp/yaml.h`. These are **not passing tests** and are not evidence of a firmware regression. The targeted lifecycle tests and 162 Python host tests above ran successfully. No native-suite result is omitted or counted as a pass.
+
+Matched autonomous Scout builds and final CI package publication are in progress. The final download source commit/checksums will be recorded in the download folder. Documentation/tool-only changes may produce a later embedded build SHA than the local software checkpoint above; only files verified together at the same target SHA may be paired.
 
 ## Hardware acceptance still required
 

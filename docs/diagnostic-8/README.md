@@ -115,3 +115,7 @@ App-only UF2 and application-only DFU ZIP verification must exclude bootloader, 
 ## Validation and downloads
 
 See [VALIDATION.md](VALIDATION.md) for actual completed checks, artifact hashes and limitations, and [FLASHING.md](FLASHING.md) for upgrade and rollback instructions. Download links are listed in the branch README once the files have been built and verified.
+
+## Matched Scout payloads
+
+The separate autonomous Scout implementation was read from `Remote-Drone-Flashing-v2` at `37306158a64266fd05dfcd3bf01c5b47d0dc35fa`. It embeds raw-LZ4 compressed target firmware and the exact legacy DFU init packet. A generic OTA ZIP cannot change an already-embedded autonomous image. The repair therefore builds separate SEN0313 and MB7388 Drone UF2s using that unchanged implementation. The original compression builder verifies both the reference and firmware-style 64 KiB history decoders. The new verifier checks the compiled Scout contains the exact compressed array and DAT, that decompression equals the OTA binary, and that the expected target source SHA is present. These tests verify packaging, not airborne transfer or device selection. Existing Phase-2 serial upload also accepts the application-only ZIP.

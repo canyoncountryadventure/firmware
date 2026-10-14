@@ -8,6 +8,8 @@ on:
       - "variants/**"
       - "boards/**"
       - "bin/**"
+      - "tools/build_drone_embedded_firmware.py"
+      - "tools/verify_drone_audit.py"
       - "platformio.ini"
       - "version.properties"
       - "userPrefs.jsonc"
@@ -65,6 +67,32 @@ jobs:
           python3 bin/verify_rak_v5.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "$GITHUB_SHA"
           python3 bin/verify_rak_audit_package.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
           (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa
+          path: scout
+      - name: Build matched autonomous Scout
+        env:
+          SENSOR: ${{ matrix.sensor }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install platformio==6.2.0 lz4
+          python3 tools/build_drone_embedded_firmware.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h
+          pio run --project-dir scout -e rak4631_drone_flasher
+          scout_uf2="$(find scout/.pio/build/rak4631_drone_flasher -maxdepth 1 -name 'firmware-*.uf2' -print -quit)"
+          test -n "$scout_uf2"
+          output="export/Drone-RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2"
+          cp "$scout_uf2" "$output"
+          python3 tools/verify_drone_audit.py "$output" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h "$GITHUB_SHA"
+          {
+            echo "Target source commit: $GITHUB_SHA"
+            echo "Target environment: $TARGET"
+            echo 'Scout implementation commit: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa'
+            echo 'Exact embedded application and DAT verified; both LZ4 decoders verified'
+            sha256sum "$output" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+          } > "$output.txt"
+          (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: RAK-HOBO-v5-Audit-Repair-${{ matrix.sensor }}
@@ -101,7 +129,7 @@ jobs:
           from pathlib import Path
           p=Path('README.md')
           old='Build/download verification is in progress at this source checkpoint; no unbuilt firmware link is advertised.'
-          new='Verified downloads: [SEN0313 UF2](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313.uf2) · [SEN0313 Scout DFU ZIP](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313-OTA.zip) · [MB7388 UF2](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388.uf2) · [MB7388 Scout DFU ZIP](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388-OTA.zip) · [SHA-256 checksums](downloads/RAK-HOBO-v5-Audit-Repair/SHA256SUMS.txt). Build source and workflow are recorded in [BUILD.txt](downloads/RAK-HOBO-v5-Audit-Repair/BUILD.txt).'
+          new='Verified downloads: [SEN0313 UF2](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313.uf2) · [SEN0313 Scout DFU ZIP](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313-OTA.zip) · [MB7388 UF2](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388.uf2) · [MB7388 Scout DFU ZIP](downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388-OTA.zip) · [SHA-256 checksums](downloads/RAK-HOBO-v5-Audit-Repair/SHA256SUMS.txt). Matched autonomous Scouts (flash only onto the separate drone): [SEN0313 Scout UF2](downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-SEN0313.uf2) · [MB7388 Scout UF2](downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-MB7388.uf2). Build source and workflow are recorded in [BUILD.txt](downloads/RAK-HOBO-v5-Audit-Repair/BUILD.txt).'
           p.write_text(p.read_text().replace(old,new))
           PY
           git config user.name 'github-actions[bot]'
