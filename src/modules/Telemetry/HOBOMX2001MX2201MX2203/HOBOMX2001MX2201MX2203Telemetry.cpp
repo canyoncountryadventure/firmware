@@ -84,6 +84,17 @@ uint32_t scanRetryDueMs = 0;
 std::atomic<bool> recoveryPending{false};
 std::atomic<bool> scanRestartRequested{false};
 std::atomic<bool> connectTimedOut{false};
+std::atomic<uint32_t> gapConnectEvents{0};
+std::atomic<uint32_t> gapTimeoutEvents{0};
+std::atomic<uint32_t> gapDisconnectEvents{0};
+std::atomic<uint32_t> lastGapEventMs{0};
+std::atomic<uint16_t> lastGapEventId{0};
+std::atomic<uint8_t> lastGapTimeoutSource{0xFF};
+std::atomic<uint8_t> lastGapDisconnectReason{0xFF};
+std::atomic<uint8_t> lastPeerAddressType{0xFF};
+std::atomic<uint8_t> lastAdvType{0xFF};
+std::atomic<uint32_t> connectionAttempts{0};
+std::atomic<uint32_t> connectionRequestFailures{0};
 std::atomic<uint16_t> discoveryGattStatus{0xFFFF};
 std::atomic<uint16_t> discoveryServiceCount{0};
 std::atomic<bool> discoveryResponseSeen{false};
@@ -687,8 +698,27 @@ bool restartScanner(uint32_t now)
 
 void bleEventCallback(ble_evt_t *event)
 {
-    if (event && event->header.evt_id == BLE_GAP_EVT_TIMEOUT && event->evt.gap_evt.params.timeout.src == BLE_GAP_TIMEOUT_SRC_CONN)
-        connectTimedOut = true;
+    if (event) {
+        const uint16_t eventId = event->header.evt_id;
+        if (eventId == BLE_GAP_EVT_CONNECTED) {
+            gapConnectEvents++;
+            lastGapEventMs = millis();
+            lastGapEventId = eventId;
+        } else if (eventId == BLE_GAP_EVT_DISCONNECTED) {
+            gapDisconnectEvents++;
+            lastGapEventMs = millis();
+            lastGapEventId = eventId;
+            lastGapDisconnectReason = event->evt.gap_evt.params.disconnected.reason;
+        } else if (eventId == BLE_GAP_EVT_TIMEOUT) {
+            lastGapEventMs = millis();
+            lastGapEventId = eventId;
+            lastGapTimeoutSource = event->evt.gap_evt.params.timeout.src;
+            if (event->evt.gap_evt.params.timeout.src == BLE_GAP_TIMEOUT_SRC_CONN) {
+                gapTimeoutEvents++;
+                connectTimedOut = true;
+            }
+        }
+    }
 
     if (event == nullptr || event->evt.common_evt.conn_handle != connectionHandle)
         return;
@@ -732,6 +762,8 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
     memcpy(candidateAddrRaw, report->peer_addr.addr, 6);
     makeHumanMac(report->peer_addr.addr, loggerMac);
     loggerBleRssi = report->rssi;
+    lastPeerAddressType = report->peer_addr.addr_type;
+    lastAdvType = report->type.connectable ? 1 : 0;
     candidateLikelyMX2001 = info.likelyMX2001;
     candidateLikelyMX2203 = info.likelyMX2203;
 
@@ -742,8 +774,10 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
     connectAttemptStartedMs = millis();
     connecting = true;
     Bluefruit.Scanner.stop();
+    connectionAttempts++;
 
     if (!Bluefruit.Central.connect(report)) {
+        connectionRequestFailures++;
         connecting = false;
         connectAttemptStartedMs = 0;
         LOG_WARN("HOBO universal: BLE connection request failed");
@@ -1041,6 +1075,31 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
     const uint32_t ourNode = nodeDB->getNodeNum();
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
+
+    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "HOBO DIAG")) {
+        char reply[235] = {};
+        snprintf(reply, sizeof(reply),
+                 "HOBO BLE DIAG IO1=OFF\\n"
+                 "scan=%u conn=%u setup=%u\\n"
+                 "try=%lu localfail=%lu\\n"
+                 "GAP connect=%lu timeout=%lu disc=%lu\\n"
+                 "lastEvent=0x%04X age=%lus\\n"
+                 "timeoutSrc=%u discReason=0x%02X\\n"
+                 "addrType=%u advConnect=%u RSSI=%d\\n"
+                 "lastError=%.46s",
+                 Bluefruit.Scanner.isRunning() ? 1U : 0U, connected ? 1U : 0U, setupInProgress ? 1U : 0U,
+                 static_cast<unsigned long>(connectionAttempts.load()),
+                 static_cast<unsigned long>(connectionRequestFailures.load()),
+                 static_cast<unsigned long>(gapConnectEvents.load()),
+                 static_cast<unsigned long>(gapTimeoutEvents.load()),
+                 static_cast<unsigned long>(gapDisconnectEvents.load()),
+                 lastGapEventId.load(),
+                 static_cast<unsigned long>(lastGapEventMs.load() ? (millis() - lastGapEventMs.load()) / 1000UL : 0),
+                 lastGapTimeoutSource.load(), lastGapDisconnectReason.load(),
+                 lastPeerAddressType.load(), lastAdvType.load(), loggerBleRssi, lastBleFailure);
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
 
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOGGER")) {
         char reply[220] = {};
