@@ -1,7 +1,7 @@
 name: Build verified RAK Water HOBO V5 and matched Scouts
 on:
   push:
-    branches: [RAK-Water-Distance-HOBO-v5]
+    branches: [diag/v5-pololu-io1-off]
     paths:
       - "src/**"
       - "test/test_hobo_v5/**"
@@ -101,6 +101,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   publish:
+    if: false # Diagnostic branch: never publish to production V5.
     needs: build
     runs-on: ubuntu-latest
     permissions:
