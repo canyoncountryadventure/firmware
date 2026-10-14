@@ -665,7 +665,7 @@ void resumeScanner()
 
 bool restartScanner(uint32_t now)
 {
-    concurrency::LockGuard guard(bleLifecycleLock);
+    concurrency::LockGuard guard(&bleLifecycleLock);
     if (connecting || connected || recoveryPending || Bluefruit.Central.connected())
         return false;
     if (scanRestartRequested && Bluefruit.Scanner.resume()) {
@@ -704,7 +704,7 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
     if (report == nullptr)
         return;
 
-    concurrency::LockGuard guard(bleLifecycleLock);
+    concurrency::LockGuard guard(&bleLifecycleLock);
     if (connecting || connected || recoveryPending)
         return;
 
@@ -907,7 +907,7 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 
 void triggerBleRecovery(const char *reason)
 {
-    concurrency::LockGuard guard(bleLifecycleLock);
+    concurrency::LockGuard guard(&bleLifecycleLock);
     if (bleRecoveryCycles < UINT8_MAX)
         bleRecoveryCycles++;
     if (reason != lastBleFailure)

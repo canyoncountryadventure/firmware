@@ -46,7 +46,7 @@ constexpr unsigned BLE_GAP_EVT_TIMEOUT=1,BLE_GAP_TIMEOUT_SRC_CONN=2,BLE_GATTC_EV
 uint32_t clockMs=100; uint32_t millis(){return clockMs;}
 void delay(uint32_t t){clockMs+=t;} void yield(){clockMs++;}
 namespace concurrency {struct Lock {bool held=false;};struct LockGuard {
- Lock& lock;LockGuard(Lock& l):lock(l){assert(!lock.held);lock.held=true;}
+ Lock& lock;LockGuard(Lock* l):lock(*l){assert(!lock.held);lock.held=true;}
  ~LockGuard(){lock.held=false;}};}
 namespace Throttle {bool isWithinTimespanMs(uint32_t last,uint32_t duration){return uint32_t(clockMs-last)<duration;}}
 struct ble_gap_addr_t {uint8_t addr[6]={};uint8_t addr_type=1;};
