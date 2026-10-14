@@ -42,7 +42,7 @@ prelude = r"""
 constexpr uint16_t BLE_CONN_HANDLE_INVALID=65535;
 constexpr unsigned BLE_MAX_CONNECTION=8;
 constexpr uint32_t NRF_SUCCESS=0,NRF_ERROR_INVALID_STATE=8;
-constexpr unsigned BLE_GAP_EVT_TIMEOUT=1,BLE_GAP_TIMEOUT_SRC_CONN=2,BLE_GATTC_EVT_PRIM_SRVC_DISC_RSP=3;
+constexpr unsigned BLE_GAP_EVT_TIMEOUT=1,BLE_GAP_TIMEOUT_SRC_CONN=2,BLE_GATTC_EVT_PRIM_SRVC_DISC_RSP=3, BLE_GAP_EVT_CONNECTED=4, BLE_GAP_EVT_DISCONNECTED=5;
 uint32_t clockMs=100; uint32_t millis(){return clockMs;}
 void delay(uint32_t t){clockMs+=t;} void yield(){clockMs++;}
 namespace concurrency {struct Lock {bool held=false;};struct LockGuard {
@@ -54,7 +54,7 @@ struct ble_gap_evt_adv_report_t {struct {bool connectable=true;} type;
  ble_gap_addr_t peer_addr;int8_t rssi=-72;struct {uint8_t* p_data=nullptr;uint16_t len=0;}data;};
 struct ble_evt_t {struct {unsigned evt_id=0;}header;struct {
  struct {uint16_t conn_handle=BLE_CONN_HANDLE_INVALID;}common_evt;
- struct {struct {struct {unsigned src=0;}timeout;}params;}gap_evt;
+ struct {struct {struct {unsigned src=0;}timeout;struct {uint8_t reason=0;}disconnected;}params;}gap_evt;
  struct {uint16_t gatt_status=0;struct {struct {uint16_t count=1;}prim_srvc_disc_rsp;}params;}gattc_evt;}evt;};
 struct Scan {bool running=false,startOk=true,resumeOk=true,stopOk=true;unsigned starts=0,stops=0,resumes=0;
  bool start(int){starts++;if(startOk)running=true;return startOk;}
