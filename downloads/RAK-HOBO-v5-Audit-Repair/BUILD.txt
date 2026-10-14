@@ -1,2 +1,3 @@
-Source commit: 9008cc210e0079d341cce65a453d1affcd920cbf
-Workflow: https://github.com/canyoncountryadventure/firmware/actions/runs/38636048833
+Source commit: 305f7b91ae7e850a61ccad197c683ade7168ef07
+Workflow: https://github.com/canyoncountryadventure/firmware/actions/runs/38644395772
+Scout implementation: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa

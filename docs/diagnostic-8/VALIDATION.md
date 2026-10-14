@@ -1,5 +1,14 @@
 # Diagnostic 8 validation
 
+<!-- CURRENT_CI_START -->
+## Current V5 release verification
+
+Source `305f7b91ae7e850a61ccad197c683ade7168ef07`; [successful workflow](https://github.com/canyoncountryadventure/firmware/actions/runs/38644395772). The expanded second-audit fault tests and all 20 preservation checks passed. Both RAK4631 field environments and both autonomous Scout images compiled successfully. UF2 chip/address/source checks, application-only ZIP integrity/DAT CRC/UF2 equivalence, exact embedded Scout application and DAT, and both LZ4 decoders passed. Publication rechecked the field packages and matched Scout manifest hashes before creating the front-page links. Download checksums and source are in `downloads/RAK-HOBO-v5-Audit-Repair`.
+
+No physical RAK/HOBO or airborne transfer was tested. Earlier local and unavailable native-suite results below remain distinct from this completed CI build.
+<!-- CURRENT_CI_END -->
+
+
 ## Completed before build
 
 - Compiled fault injection of actual firmware lifecycle functions: PASS. Covers successful callback setup, bounded failure of service/characteristic/notifications, disconnect during setup, stale handles, cancel success/INVALID_STATE/errors, late connection, scanner start/resume failures, address-type forwarding, non-connectable and locked-target filtering, sparse phone handles, truthful model history and clock rollover. The real main-loop setup gate is exercised during discovery.
@@ -15,7 +24,7 @@ Both RAK4631 sensor environments compiled successfully at software commit `7b57c
 
 `pio test -e native` was attempted with telemetry disabled: all 15 discovered suites errored during build in this host environment, with missing `pkg-config` and `yaml-cpp/yaml.h`. These are **not passing tests** and are not evidence of a firmware regression. The targeted lifecycle tests and 162 Python host tests above ran successfully. No native-suite result is omitted or counted as a pass.
 
-Matched autonomous Scout builds and final CI package publication are in progress. The final download source commit/checksums will be recorded in the download folder. Documentation/tool-only changes may produce a later embedded build SHA than the local software checkpoint above; only files verified together at the same target SHA may be paired.
+Matched autonomous Scout builds and CI package publication completed; see the current V5 release verification above. The final download source commit/checksums will be recorded in the download folder. Documentation/tool-only changes may produce a later embedded build SHA than the local software checkpoint above; only files verified together at the same target SHA may be paired.
 
 ## Hardware acceptance still required
 
