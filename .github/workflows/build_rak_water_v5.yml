@@ -63,10 +63,10 @@ jobs:
           ota_path="$(find release -maxdepth 1 -name "firmware-$TARGET-*-ota.zip" -print -quit)"
           test -n "$uf2_path"
           test -n "$ota_path"
-          cp "$uf2_path" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2"
-          cp "$ota_path" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
-          python3 bin/verify_rak_v5.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "$GITHUB_SHA"
-          python3 bin/verify_rak_audit_package.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+          cp "$uf2_path" "export/RAK-HOBO-v5-IO1-OFF-$SENSOR.uf2"
+          cp "$ota_path" "export/RAK-HOBO-v5-IO1-OFF-$SENSOR-OTA.zip"
+          python3 bin/verify_rak_v5.py "export/RAK-HOBO-v5-IO1-OFF-$SENSOR.uf2" "$GITHUB_SHA"
+          python3 bin/verify_rak_audit_package.py "export/RAK-HOBO-v5-IO1-OFF-$SENSOR.uf2" "export/RAK-HOBO-v5-IO1-OFF-$SENSOR-OTA.zip"
           (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -79,19 +79,19 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install platformio==6.2.0 lz4
-          python3 tools/build_drone_embedded_firmware.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h
+          python3 tools/build_drone_embedded_firmware.py "export/RAK-HOBO-v5-IO1-OFF-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h
           pio run --project-dir scout -e rak4631_drone_flasher
           scout_uf2="$(find scout/.pio/build/rak4631_drone_flasher -maxdepth 1 -name 'firmware-*.uf2' -print -quit)"
           test -n "$scout_uf2"
-          output="export/Drone-RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2"
+          output="export/Drone-RAK-HOBO-v5-IO1-OFF-$SENSOR.uf2"
           cp "$scout_uf2" "$output"
-          python3 tools/verify_drone_audit.py "$output" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h "$GITHUB_SHA"
+          python3 tools/verify_drone_audit.py "$output" "export/RAK-HOBO-v5-IO1-OFF-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h "$GITHUB_SHA"
           {
             echo "Target source commit: $GITHUB_SHA"
             echo "Target environment: $TARGET"
             echo 'Scout implementation commit: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa'
             echo 'Exact embedded application and DAT verified; both LZ4 decoders verified'
-            sha256sum "$output" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+            sha256sum "$output" "export/RAK-HOBO-v5-IO1-OFF-$SENSOR-OTA.zip"
           } > "$output.txt"
           (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -101,7 +101,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   publish:
-    if: false # Diagnostic branch: never publish to production V5.
+    # Publish only to this diagnostic branch, NEVER to production V5.
+    if: github.ref == 'refs/heads/diag/v5-pololu-io1-off'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -109,27 +110,31 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: RAK-HOBO-v5-Audit-Repair-*
+          pattern: RAK-HOBO-DIAG-IO1-OFF-*
           merge-multiple: true
           path: export
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: RAK-Water-Distance-HOBO-v5
+          ref: ${{ github.sha }}
           path: publish
-      - name: Publish verified V5 release and front-page links
+      - name: Publish validated diagnostic downloads only
         run: |
           set -euo pipefail
           cd publish
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          mkdir -p downloads/RAK-HOBO-v5-Audit-Repair
-          cp ../export/* downloads/RAK-HOBO-v5-Audit-Repair/
-          cd downloads/RAK-HOBO-v5-Audit-Repair
-          sha256sum *.uf2 *.zip > SHA256SUMS.txt
-          printf 'Source commit: %s\nWorkflow: https://github.com/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > BUILD.txt
-          cd ../..
-          python3 tools/publish_rak_v5_readme.py
+          destination="downloads/diag-v5-pololu-io1-off"
+          mkdir -p "$destination"
+          cp ../export/* "$destination/"
+          for sensor in SEN0313 MB7388; do
+            test -s "$destination/RAK-HOBO-v5-IO1-OFF-$sensor.uf2"
+            test -s "$destination/RAK-HOBO-v5-IO1-OFF-$sensor-OTA.zip"
+            test -s "$destination/Drone-RAK-HOBO-v5-IO1-OFF-$sensor.uf2"
+            test -s "$destination/Drone-RAK-HOBO-v5-IO1-OFF-$sensor.uf2.txt"
+          done
+          (cd "$destination" && sha256sum *.uf2 *.zip > SHA256SUMS.txt)
+          printf 'Diagnostic target source commit: %s\nGitHub Actions run: https://github.com/%s/actions/runs/%s\nPololu IO1 forced LOW; diagnostic use only.\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$destination/BUILD.txt"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add downloads/RAK-HOBO-v5-Audit-Repair README.md docs/diagnostic-8/VALIDATION.md
-          git commit -m 'Publish verified Diagnostic 8 RAK4631 app-only firmware'
-          git push origin HEAD:RAK-Water-Distance-HOBO-v5
+          git add "$destination"
+          git commit -m 'Publish verified IO1 OFF diagnostic field and drone firmware'
+          git push origin HEAD:diag/v5-pololu-io1-off
