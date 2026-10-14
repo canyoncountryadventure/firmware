@@ -106,12 +106,12 @@ void setDistanceSensorPower(bool enabled)
     // Drive the actual nRF52840 P0.17 line used by WisBlock IO1 directly.
     // This bypasses Arduino pin translation and reasserts output direction every
     // time.
+    // Diagnostic isolation: never energize the Pololu ON line.
+    // Leave wiring intact and preserve saved sensor configuration/calibration.
+    (void)enabled;
     constexpr uint32_t mask = (1UL << SENSOR_POWER_PIN);
+    NRF_P0->OUTCLR = mask;
     NRF_P0->DIRSET = mask;
-    if (enabled)
-        NRF_P0->OUTSET = mask;
-    else
-        NRF_P0->OUTCLR = mask;
 #else
     (void)enabled;
 #endif
