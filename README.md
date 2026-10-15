@@ -5,7 +5,7 @@ RAK4631 firmware for **SEN0313/A01NYUB** or **MaxBotix MB7388** distance sensing
 ## Downloads
 
 <!-- V5_RELEASE_START -->
-Verified firmware: **Meshtastic 2.7.26.3580e56**, source [`3580e56`](https://github.com/canyoncountryadventure/firmware/commit/3580e56c211187735eccdc27cb69c76034404df1), built October 15, 2026. Both field flavors and their exact matched autonomous Scouts passed [build/package verification](https://github.com/canyoncountryadventure/firmware/actions/runs/38672506236). This build keeps the nRF52 awake from HOBO module creation—before its first battery-mode idle sleep—through the bounded handshake, then restores normal sleep immediately after the first verified `STATUS` baseline. Remote `STATS` exposes the active state as `hobo_wake`.
+Verified firmware: **Meshtastic 2.7.26.b8d56fe**, source [`b8d56fe`](https://github.com/canyoncountryadventure/firmware/commit/b8d56fe2d247417bb70a770b17193020c8bba4c1), built October 15, 2026. Both field flavors and their exact matched autonomous Scouts passed [build/package verification](https://github.com/canyoncountryadventure/firmware/actions/runs/38676351604). This build keeps the nRF52 awake from HOBO module creation—before its first battery-mode idle sleep—through the bounded handshake, then restores normal sleep immediately after the first verified `STATUS` baseline. Remote `STATS` exposes the active state as `hobo_wake`.
 
 | Distance sensor | Monitoring station — USB | Field application — BLE DFU | Separate drone radio | Scout pairing |
 | --- | --- | --- | --- | --- |
