@@ -197,13 +197,14 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         const auto *radio = RadioLibInterface::instance;
         snprintf(reply, sizeof(reply),
                  "STATS: radio_recover=%lu/%lu tx=%lu last_tx=%lus cmd_reboots=%lu "
-                 "reset=0x%08lX",
+                 "reset=0x%08lX hobo_wake=%u",
                  radio ? static_cast<unsigned long>(radio->radioRecoverySuccesses) : 0UL,
                  radio ? static_cast<unsigned long>(radio->radioRecoveryAttempts) : 0UL,
                  radio ? static_cast<unsigned long>(radio->txGood) : 0UL,
                  radio && radio->lastTxCompleteMs ? static_cast<unsigned long>((millis() - radio->lastTxCompleteMs) / 1000UL)
                                                   : 0UL,
-                 static_cast<unsigned long>(commandRecoveryCount), static_cast<unsigned long>(resetReasonAtBoot));
+                 static_cast<unsigned long>(commandRecoveryCount), static_cast<unsigned long>(resetReasonAtBoot),
+                 nrf52HoboHandshakeAwake() ? 1U : 0U);
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
