@@ -74,6 +74,11 @@ bool initialized = false;
 std::atomic<bool> connecting{false};
 std::atomic<bool> connected{false};
 std::atomic<bool> setupInProgress{false};
+// Keep the MCU awake only while a logger handshake is actively being built.
+// Atomic state is shared by the module thread and Bluefruit callbacks.
+std::atomic<bool> handshakeWakeActive{false};
+std::atomic<uint32_t> handshakeWakeDeadlineMs{0};
+std::atomic<uint32_t> handshakeWakeCooldownUntilMs{0};
 concurrency::Lock bleLifecycleLock;
 std::atomic<uint16_t> connectionHandle{BLE_CONN_HANDLE_INVALID};
 uint32_t connectAttemptStartedMs = 0;
@@ -169,6 +174,11 @@ static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
 static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
 static constexpr uint32_t SCAN_RETRY_MS = 5000UL;
 static constexpr uint32_t BOOTSTRAP_TIMEOUT_MS = 30000UL;
+// Battery-mode startup needs enough uninterrupted CPU time for scan, GATT
+// discovery, model verification and the first STATUS response. A failed logger
+// must not hold the CPU awake forever.
+static constexpr uint32_t HANDSHAKE_AWAKE_BUDGET_MS = 120000UL;
+static constexpr uint32_t HANDSHAKE_WAKE_COOLDOWN_MS = 300000UL;
 static constexpr char IDENTITY_FILE_PATH[] = "/prefs/hobo_identity.bin";
 static constexpr char LOCK_FILE_PATH[] = "/prefs/hobo_lock.bin";
 
@@ -185,6 +195,59 @@ static constexpr uint32_t MX2203_MAX_RAW = 16383;
 bool reached(uint32_t now, uint32_t target)
 {
     return static_cast<int32_t>(now - target) >= 0;
+}
+
+bool requestHandshakeWake(uint32_t now)
+{
+    if (handshakeWakeActive.load())
+        return true;
+
+    const uint32_t cooldownUntil = handshakeWakeCooldownUntilMs.load();
+    if (cooldownUntil != 0 && !reached(now, cooldownUntil))
+        return false;
+
+    uint32_t deadline = now + HANDSHAKE_AWAKE_BUDGET_MS;
+    if (deadline == 0)
+        deadline = 1;
+
+    handshakeWakeCooldownUntilMs.store(0);
+    handshakeWakeDeadlineMs.store(deadline);
+    handshakeWakeActive.store(true);
+    nrf52SetHoboHandshakeAwake(true);
+    LOG_INFO("HOBO universal: handshake wake active for %lu sec",
+             static_cast<unsigned long>(HANDSHAKE_AWAKE_BUDGET_MS / 1000UL));
+    return true;
+}
+
+void releaseHandshakeWake(bool successful, uint32_t now)
+{
+    const bool wasActive = handshakeWakeActive.exchange(false);
+    handshakeWakeDeadlineMs.store(0);
+    handshakeWakeCooldownUntilMs.store(successful ? 0 : now + HANDSHAKE_WAKE_COOLDOWN_MS);
+    nrf52SetHoboHandshakeAwake(false);
+
+    if (!wasActive)
+        return;
+
+    if (successful) {
+        LOG_INFO("HOBO universal: handshake verified; normal sleep restored");
+    } else {
+        LOG_WARN("HOBO universal: handshake wake budget expired; sleeping for %lu sec before retry",
+                 static_cast<unsigned long>(HANDSHAKE_WAKE_COOLDOWN_MS / 1000UL));
+    }
+}
+
+bool serviceHandshakeWake(uint32_t now)
+{
+    if (!handshakeWakeActive.load())
+        return false;
+
+    const uint32_t deadline = handshakeWakeDeadlineMs.load();
+    if (deadline == 0 || !reached(now, deadline))
+        return false;
+
+    releaseHandshakeWake(false, now);
+    return true;
 }
 
 uint32_t readBE32(const uint8_t *p)
@@ -738,8 +801,16 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
     LOG_INFO("HOBO universal: candidate %02X:%02X:%02X:%02X:%02X:%02X RSSI=%d%s", loggerMac[0], loggerMac[1], loggerMac[2],
              loggerMac[3], loggerMac[4], loggerMac[5], loggerBleRssi, loggerLockEnabled ? " LOCKED-TARGET" : "");
 
+    const uint32_t now = millis();
+    if (!requestHandshakeWake(now)) {
+        // A previous full wake budget failed. Do not begin a handshake that the
+        // main loop is intentionally allowed to sleep through.
+        resumeScanner();
+        return;
+    }
+
     connectTimedOut = false;
-    connectAttemptStartedMs = millis();
+    connectAttemptStartedMs = now;
     connecting = true;
     Bluefruit.Scanner.stop();
 
@@ -868,9 +939,11 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 {
     if (connHandle != connectionHandle)
         return;
+    const uint32_t now = millis();
+    const bool hadVerifiedHandshake = haveStatusBaseline;
     recoveryPending = false;
     scanRestartRequested = false;
-    scanRetryDueMs = millis() + TRANSIENT_RETRY_MS;
+    scanRetryDueMs = now + TRANSIENT_RETRY_MS;
 
     LOG_WARN("HOBO universal: disconnected reason=0x%02X", reason);
 
@@ -904,6 +977,11 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
         readRequestPending = false;
         readFailureReplyPending = (readRequester != 0);
     }
+
+    // A healthy link that later drops gets a fresh bounded reconnect window.
+    // Failed handshakes keep their original deadline or cooldown.
+    if (hadVerifiedHandshake)
+        requestHandshakeWake(now);
 }
 
 void triggerBleRecovery(const char *reason)
@@ -958,7 +1036,9 @@ void initializeClient()
 
     initialized = true;
 
-    restartScanner(millis());
+    const uint32_t now = millis();
+    requestHandshakeWake(now);
+    restartScanner(now);
 }
 
 MetaProfile preferredMetaProfile()
@@ -1333,6 +1413,12 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         return 500;
     }
 
+    if (serviceHandshakeWake(now)) {
+        if (connected || connecting)
+            triggerBleRecovery("handshake awake budget expired");
+        return 500;
+    }
+
     if (readFailureReplyPending && readRequester != 0) {
         sendTextReply(readRequester, readChannel, "HOBO READ failed");
         readFailureReplyPending = false;
@@ -1630,6 +1716,7 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 haveStatusBaseline = true;
                 lastWritePointer = currentWritePointer;
                 intervalPhaseLocked = false;
+                releaseHandshakeWake(true, now);
 
                 LOG_INFO("HOBO universal: status baseline model=%s pointer=0x%08lX "
                          "interval=%u sec; syncing to next true record boundary",
