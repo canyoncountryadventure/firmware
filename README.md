@@ -7,7 +7,7 @@ The selected V5 package preserves the implementation that successfully read the 
 ## Downloads
 
 <!-- V5_RELEASE_START -->
-Verified firmware: **Meshtastic 2.7.26.cb632f6**, source [`cb632f6`](https://github.com/canyoncountryadventure/firmware/commit/cb632f61a45bcfbdf4501e56c9151d832eaf2e61), built October 15, 2026. Both field flavors and their exact matched autonomous Scouts passed [build/package verification](https://github.com/canyoncountryadventure/firmware/actions/runs/38678816739). This build keeps the nRF52 awake from HOBO module creation—before its first battery-mode idle sleep—through the bounded handshake, then restores normal sleep immediately after the first verified `STATUS` baseline. Remote `STATS` exposes the active state as `hobo_wake`.
+Verified firmware: **Meshtastic 2.7.26.3a0a8f2**, source [`3a0a8f2`](https://github.com/canyoncountryadventure/firmware/commit/3a0a8f222943162f3499e6df2a9be3b36616651a), built October 15, 2026. Both field flavors and their exact matched autonomous Scouts passed [build/package verification](https://github.com/canyoncountryadventure/firmware/actions/runs/38779153938). Selected package: nonblocking **8 s** sensor settling, passive **10%** HOBO scan, bounded CPU wake/HFCLK requests released at the first valid STATUS baseline, and preserved saved settings. `VERSION` reports this exact build and target. [Operating choices and MX2001 evidence](docs/diagnostic-8/V5-FINAL-AUDIT.md).
 
 | Distance sensor | Monitoring station — USB | Field application — BLE DFU | Separate drone radio | Scout pairing |
 | --- | --- | --- | --- | --- |

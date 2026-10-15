@@ -3,9 +3,9 @@
 <!-- CURRENT_CI_START -->
 ## Current V5 release verification
 
-Source `cb632f61a45bcfbdf4501e56c9151d832eaf2e61`; [successful workflow](https://github.com/canyoncountryadventure/firmware/actions/runs/38678816739). The pre-idle bounded handshake-wake lifecycle tests, remote wake-state diagnostic checks, BLE fault tests, watchdog-reset command regressions and all 20 preservation checks passed. Both RAK4631 field environments and both autonomous Scout images compiled successfully. UF2 chip/address/source checks, application-only ZIP integrity/DAT CRC/UF2 equivalence, exact embedded Scout application and DAT, and both LZ4 decoders passed. Publication rechecked the field packages and matched Scout manifest hashes before creating the front-page links. Download checksums and source are in `downloads/RAK-HOBO-v5-Audit-Repair`.
+Source `3a0a8f222943162f3499e6df2a9be3b36616651a`; [successful workflow](https://github.com/canyoncountryadventure/firmware/actions/runs/38779153938). The pre-idle bounded handshake-wake lifecycle tests, remote wake-state diagnostic checks, BLE fault tests, watchdog-reset command regressions, source warm-up invariants, compiled production water-job scheduling regressions and all 20 preservation checks passed. Both RAK4631 field environments and both autonomous Scout images compiled successfully. UF2 chip/address/source checks, application-only ZIP integrity/DAT CRC/UF2 equivalence, exact embedded Scout application and DAT, and both LZ4 decoders passed. Publication rechecked the field packages and matched Scout manifest hashes before creating the front-page links. Download checksums and source are in `downloads/RAK-HOBO-v5-Audit-Repair`.
 
-No physical RAK/HOBO or airborne transfer was tested. Earlier local and unavailable native-suite results below remain distinct from this completed CI build.
+This CI run did not test physical RAK/HOBO or airborne transfer. The prior October 15 log confirms an MX2001 STATUS response on baseline `cb632f6`; this finalization retains that baseline's water/BLE/power behavior and changes only the runtime label and VERSION identification. Repeated battery-only and airborne checks remain open. See [final audit](V5-FINAL-AUDIT.md). Earlier local and unavailable native-suite results below remain distinct from this completed CI build.
 <!-- CURRENT_CI_END -->
 
 
