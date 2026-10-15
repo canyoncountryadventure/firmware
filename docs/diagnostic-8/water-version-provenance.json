@@ -1,0 +1,133 @@
+{
+  "RAK-Water-Distance-v1": {
+    "commit": "67bd2ff4d644bf9695a3f147de3453d63c8f0199",
+    "blobs": {
+      "src/modules/Modules.cpp": "79c5a9813d7565616139ebe7a7d0ed95d139cec1",
+      "src/modules/Telemetry/MX2001Diagnostic.h": "cb664350cb5312a1476f8a37c6eaee28b7357989",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp": "9662e44afdc4a24600d48f4f9e12855bd0ed9beb",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp": "40828b3b9c74332b57c85446b3a1a8e371e9ff57",
+      "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp": "ed3a328efceb69a800ce6a445540f66268da0859",
+      "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp": "7ea92543895e6ef7c7fadc0fb0a1cbcf6e5b7d5e",
+      "src/platform/nrf52/main-nrf52.cpp": "5cf3a4465b0261f932f970d332831e8ba447c4d3",
+      "src/platform/nrf52/NRF52Bluetooth.cpp": "5f030527425888003d60423bf16f75411f4b9835",
+      "src/main.cpp": "084dd29146a50f9b8aca7c3f1182e3ca07f75db6",
+      "variants/nrf52840/rak4631/platformio.ini": "47bd283e08b9c83b8556979a79e1bb5d042ca548"
+    }
+  },
+  "RAK-Water-Distance-v2": {
+    "commit": "d290354e7dcf55517c6266b84f54c9085a3e2a44",
+    "blobs": {
+      "src/modules/Modules.cpp": "a232c6c18ab47f409c6e0c658d8392ab96f3ed90",
+      "src/modules/Telemetry/MX2001Diagnostic.h": "491894cb6e5bfb6156c58c0fe36df38eff0af279",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp": "9662e44afdc4a24600d48f4f9e12855bd0ed9beb",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp": "40828b3b9c74332b57c85446b3a1a8e371e9ff57",
+      "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp": "ed3a328efceb69a800ce6a445540f66268da0859",
+      "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp": "7ea92543895e6ef7c7fadc0fb0a1cbcf6e5b7d5e",
+      "src/platform/nrf52/main-nrf52.cpp": "6152da93f08013c0c2e7d19c55637fceb8e4210a",
+      "src/platform/nrf52/NRF52Bluetooth.cpp": "d3de86a69157f920369a4b5747d8d745185b60f5",
+      "src/main.cpp": "4c63925d1c0bb42c841d3aa3034367db8da08af4",
+      "variants/nrf52840/rak4631/platformio.ini": "47bd283e08b9c83b8556979a79e1bb5d042ca548"
+    }
+  },
+  "RAK-Water-Distance-HOBO-v1": {
+    "commit": "6b51502ea29347fc2943db259259bf97a63da6de",
+    "blobs": {
+      "src/modules/Modules.cpp": "0aaebc05fbc83ccc801d370f30ca65fd1d724693",
+      "src/modules/Telemetry/MX2001Diagnostic.h": "cb664350cb5312a1476f8a37c6eaee28b7357989",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp": "9662e44afdc4a24600d48f4f9e12855bd0ed9beb",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp": "40828b3b9c74332b57c85446b3a1a8e371e9ff57",
+      "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp": "ed3a328efceb69a800ce6a445540f66268da0859",
+      "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp": "7ea92543895e6ef7c7fadc0fb0a1cbcf6e5b7d5e",
+      "src/platform/nrf52/main-nrf52.cpp": "5cf3a4465b0261f932f970d332831e8ba447c4d3",
+      "src/platform/nrf52/NRF52Bluetooth.cpp": "5f030527425888003d60423bf16f75411f4b9835",
+      "src/main.cpp": "084dd29146a50f9b8aca7c3f1182e3ca07f75db6",
+      "variants/nrf52840/rak4631/platformio.ini": "47bd283e08b9c83b8556979a79e1bb5d042ca548"
+    }
+  },
+  "RAK-Water-Distance-HOBO-v2": {
+    "commit": "8e73878598e0c8190092208d3b04aa101da17c56",
+    "blobs": {
+      "src/modules/Modules.cpp": "aca836d5141f40210a658ab51fcbba734852a401",
+      "src/modules/Telemetry/MX2001Diagnostic.h": "491894cb6e5bfb6156c58c0fe36df38eff0af279",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp": "6a645fdf5c69b8c7ad222a362962e286842adb13",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp": "40828b3b9c74332b57c85446b3a1a8e371e9ff57",
+      "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp": "83557c003ef58c12a08607374508b09e4ba8a16a",
+      "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp": "79ee3ad3c474bd96bfbb87ab24f1a23b5d417fda",
+      "src/platform/nrf52/main-nrf52.cpp": "6152da93f08013c0c2e7d19c55637fceb8e4210a",
+      "src/platform/nrf52/NRF52Bluetooth.cpp": "5f030527425888003d60423bf16f75411f4b9835",
+      "src/main.cpp": "4c63925d1c0bb42c841d3aa3034367db8da08af4",
+      "variants/nrf52840/rak4631/platformio.ini": "47bd283e08b9c83b8556979a79e1bb5d042ca548"
+    }
+  },
+  "RAK-Water-Distance-HOBO-v3": {
+    "commit": "c8be4427c22cfd44ba1327f330c559e22db0e7fb",
+    "blobs": {
+      "src/modules/Modules.cpp": "aca836d5141f40210a658ab51fcbba734852a401",
+      "src/modules/Telemetry/MX2001Diagnostic.h": "491894cb6e5bfb6156c58c0fe36df38eff0af279",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp": "502258470c5a731b0b35773150a8f2cd1b6371e3",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp": "40828b3b9c74332b57c85446b3a1a8e371e9ff57",
+      "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp": "8914e7a5c8c43d41b82c777fb314ac2395eb13e5",
+      "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp": "48c11c94222477b3bc21d231e90cd179b6b34b6e",
+      "src/platform/nrf52/main-nrf52.cpp": "6152da93f08013c0c2e7d19c55637fceb8e4210a",
+      "src/platform/nrf52/NRF52Bluetooth.cpp": "5f030527425888003d60423bf16f75411f4b9835",
+      "src/main.cpp": "4c63925d1c0bb42c841d3aa3034367db8da08af4",
+      "variants/nrf52840/rak4631/platformio.ini": "47bd283e08b9c83b8556979a79e1bb5d042ca548"
+    }
+  },
+  "RAK-Water-Distance-HOBO-v4": {
+    "commit": "42af584eaff4f72fdbb99c64ac8ed1339375e78c",
+    "blobs": {
+      "src/modules/Modules.cpp": "aca836d5141f40210a658ab51fcbba734852a401",
+      "src/modules/Telemetry/MX2001Diagnostic.h": "491894cb6e5bfb6156c58c0fe36df38eff0af279",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp": "90038d34dfff482e35f8386059bdbdd152a24d23",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp": "ac0f01131fe2aeaa7cb2bf9fe8f0a0712a704213",
+      "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp": "ddb00b3eb6f6436aa77442dc1630149cf6832075",
+      "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp": "094c7d482850ef849e6d60df345bfc0a610e3612",
+      "src/platform/nrf52/main-nrf52.cpp": "8b034d7b46c949004c75e684116ecd46b2ba14f8",
+      "src/platform/nrf52/NRF52Bluetooth.cpp": "8448e46e3196962f89ff3f23f206538160c72ba9",
+      "src/main.cpp": "4c63925d1c0bb42c841d3aa3034367db8da08af4",
+      "variants/nrf52840/rak4631/platformio.ini": "47bd283e08b9c83b8556979a79e1bb5d042ca548"
+    }
+  },
+  "RAK-Water-Distance-HOBO-v5": {
+    "commit": "301ecdbd8dad5d34b3f38d1e2db81e66f03dc95e",
+    "blobs": {
+      "src/modules/Modules.cpp": "aca836d5141f40210a658ab51fcbba734852a401",
+      "src/modules/Telemetry/MX2001Diagnostic.h": "491894cb6e5bfb6156c58c0fe36df38eff0af279",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp": "1056f306155d6d6d4693b99a0b670ae4767ccb0f",
+      "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp": "ac0f01131fe2aeaa7cb2bf9fe8f0a0712a704213",
+      "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp": "6a2d1f07534d8965a0d91e25e2e7648e62fcfb4e",
+      "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp": "54f02c6f4f211e0e4f50284d58eae350101808fb",
+      "src/platform/nrf52/main-nrf52.cpp": "7b9fc13773ec74ef38bcac9159fd23938e2c658e",
+      "src/platform/nrf52/NRF52Bluetooth.cpp": "9f5a6dc285a1326ffeca79cc23c07476febdaaea",
+      "src/main.cpp": "4c63925d1c0bb42c841d3aa3034367db8da08af4",
+      "variants/nrf52840/rak4631/platformio.ini": "6bce2533a0e59b521587792128544d89c063eb7d"
+    }
+  },
+  "RAK-HOBO-Safe-v3": {
+    "commit": "2dcab9729f72217e73fc3fdaa21b9cd921a202ef",
+    "blobs": {
+      "src/modules/Modules.cpp": "f7792363d015d33fa4f08ff3dc8b5a004d989432",
+      "src/modules/Telemetry/MX2001Diagnostic.h": "491894cb6e5bfb6156c58c0fe36df38eff0af279",
+      "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp": "e675e0aad9a0d60c94235fa5f34d05699c0e66bf",
+      "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp": "74f62f4e7609ee99c552870e05bb66782ea6d5b9",
+      "src/platform/nrf52/main-nrf52.cpp": "6152da93f08013c0c2e7d19c55637fceb8e4210a",
+      "src/platform/nrf52/NRF52Bluetooth.cpp": "5f030527425888003d60423bf16f75411f4b9835",
+      "src/main.cpp": "4c63925d1c0bb42c841d3aa3034367db8da08af4",
+      "variants/nrf52840/rak4631/platformio.ini": "2c51d8eb1de9a6a0f26df28fba9989d40db410cf"
+    }
+  },
+  "RAK-HOBO-Safe-v4": {
+    "commit": "d88d3edf50b658d4bcc258dd07d252cdc30b08d2",
+    "blobs": {
+      "src/modules/Modules.cpp": "f7792363d015d33fa4f08ff3dc8b5a004d989432",
+      "src/modules/Telemetry/MX2001Diagnostic.h": "491894cb6e5bfb6156c58c0fe36df38eff0af279",
+      "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp": "40c95fa8d472043aa6a2914ee13703ffede2bd3e",
+      "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp": "0616c053df2dec9d94dcafe845a9c03a13519b18",
+      "src/platform/nrf52/main-nrf52.cpp": "8b034d7b46c949004c75e684116ecd46b2ba14f8",
+      "src/platform/nrf52/NRF52Bluetooth.cpp": "8448e46e3196962f89ff3f23f206538160c72ba9",
+      "src/main.cpp": "4c63925d1c0bb42c841d3aa3034367db8da08af4",
+      "variants/nrf52840/rak4631/platformio.ini": "2c51d8eb1de9a6a0f26df28fba9989d40db410cf"
+    }
+  }
+}

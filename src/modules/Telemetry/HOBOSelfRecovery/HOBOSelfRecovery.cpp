@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5 HFCLK DIAG";
+static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -126,8 +126,10 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     }
 
     if (isCommand(payload, payloadSize, "VERSION")) {
-        snprintf(reply, sizeof(reply), "%s\nHW:%s\nSensors:%s\nHOBO poll:30s | DFU:ON", FIRMWARE_LABEL, platformName(),
-                 "HOBO + WATER DISTANCE");
+        snprintf(reply, sizeof(reply),
+                 "%s\nFW:%s\nHW:%s\nTarget:%s\nHOBO poll:30s | DFU:ON",
+                 FIRMWARE_LABEL, optstr(APP_VERSION), platformName(),
+                 optstr(APP_ENV));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }

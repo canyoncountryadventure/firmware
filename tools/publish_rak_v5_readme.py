@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Publish V5 README links only after validating the downloaded release set."""
+
 from pathlib import Path
 import hashlib
 from datetime import datetime, timezone
@@ -57,7 +58,7 @@ checksums = "".join(
     f"Source commit: {source}\nWorkflow: {run_url}\nScout implementation: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa\n"
 )
 release = f"""<!-- V5_RELEASE_START -->
-Verified firmware: **Meshtastic 2.7.26.{source[:7]}**, source [`{source[:7]}`](https://github.com/canyoncountryadventure/firmware/commit/{source}), built {datetime.now(timezone.utc).strftime('%B %d, %Y')}. Both field flavors and their exact matched autonomous Scouts passed [build/package verification]({run_url}). This build keeps the nRF52 awake from HOBO module creation—before its first battery-mode idle sleep—through the bounded handshake, then restores normal sleep immediately after the first verified `STATUS` baseline. Remote `STATS` exposes the active state as `hobo_wake`.
+Verified firmware: **Meshtastic 2.7.26.{source[:7]}**, source [`{source[:7]}`](https://github.com/canyoncountryadventure/firmware/commit/{source}), built {datetime.now(timezone.utc).strftime('%B %d, %Y')}. Both field flavors and their exact matched autonomous Scouts passed [build/package verification]({run_url}). Selected package: nonblocking **8 s** sensor settling, passive **10%** HOBO scan, bounded CPU wake/HFCLK requests released at the first valid STATUS baseline, and preserved saved settings. `VERSION` reports this exact build and target. [Operating choices and MX2001 evidence](docs/diagnostic-8/V5-FINAL-AUDIT.md).
 
 | Distance sensor | Monitoring station — USB | Field application — BLE DFU | Separate drone radio | Scout pairing |
 | --- | --- | --- | --- | --- |
@@ -80,9 +81,9 @@ text = validation.read_text()
 section = f"""<!-- CURRENT_CI_START -->
 ## Current V5 release verification
 
-Source `{source}`; [successful workflow]({run_url}). The pre-idle bounded handshake-wake lifecycle tests, remote wake-state diagnostic checks, BLE fault tests, watchdog-reset command regressions and all 20 preservation checks passed. Both RAK4631 field environments and both autonomous Scout images compiled successfully. UF2 chip/address/source checks, application-only ZIP integrity/DAT CRC/UF2 equivalence, exact embedded Scout application and DAT, and both LZ4 decoders passed. Publication rechecked the field packages and matched Scout manifest hashes before creating the front-page links. Download checksums and source are in `downloads/RAK-HOBO-v5-Audit-Repair`.
+Source `{source}`; [successful workflow]({run_url}). The pre-idle bounded handshake-wake lifecycle tests, remote wake-state diagnostic checks, BLE fault tests, watchdog-reset command regressions, source warm-up invariants, compiled production water-job scheduling regressions and all 20 preservation checks passed. Both RAK4631 field environments and both autonomous Scout images compiled successfully. UF2 chip/address/source checks, application-only ZIP integrity/DAT CRC/UF2 equivalence, exact embedded Scout application and DAT, and both LZ4 decoders passed. Publication rechecked the field packages and matched Scout manifest hashes before creating the front-page links. Download checksums and source are in `downloads/RAK-HOBO-v5-Audit-Repair`.
 
-No physical RAK/HOBO or airborne transfer was tested. Earlier local and unavailable native-suite results below remain distinct from this completed CI build.
+This CI run did not test physical RAK/HOBO or airborne transfer. The prior October 15 log confirms an MX2001 STATUS response on baseline `cb632f6`; this finalization retains that baseline's water/BLE/power behavior and changes only the runtime label and VERSION identification. Repeated battery-only and airborne checks remain open. See [final audit](V5-FINAL-AUDIT.md). Earlier local and unavailable native-suite results below remain distinct from this completed CI build.
 <!-- CURRENT_CI_END -->
 
 """

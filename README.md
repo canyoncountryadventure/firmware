@@ -1,6 +1,8 @@
 # RAK Water Distance + HOBO V5
 
-RAK4631 firmware for **SEN0313/A01NYUB** or **MaxBotix MB7388** distance sensing, plus HOBO **MX2001**, **MX2201**, and **MX2203** loggers. Sensor builds are not tied to a station ID. Pack Creek/Swell use SEN0313; Cottonwood uses MB7388 when that sensor is installed.
+RAK4631/RAK19007 monitoring firmware for **DFRobot SEN0313/A01NYUB** or **MaxBotix MB7388**, with HOBO **MX2001**, **MX2201** and **MX2203** support.
+
+The selected V5 package preserves the implementation that successfully read the MX2001 on October 15. It keeps the full eight-second sensor settling time while returning control to the HOBO/mesh scheduler, uses V3's passive 10% scan, and releases its temporary CPU wake/clock requests after a valid logger STATUS baseline. [Full version audit and rationale](docs/diagnostic-8/V5-FINAL-AUDIT.md).
 
 ## Downloads
 
@@ -15,96 +17,87 @@ Verified firmware: **Meshtastic 2.7.26.cb632f6**, source [`cb632f6`](https://git
 [SHA-256 checksums](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/SHA256SUMS.txt) · [Build source and provenance](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/BUILD.txt) · [Flashing/rollback](docs/diagnostic-8/FLASHING.md)
 <!-- V5_RELEASE_END -->
 
-**Field UF2 goes on the monitoring station. Drone Scout UF2 goes on the separate RAK4631 carried by the drone.** The OTA ZIP is the field application for Nordic/Adafruit Legacy BLE DFU. An autonomous Scout carries its target image inside it; an old Scout will install its old embedded firmware.
+**Field UF2 → monitoring station. Drone UF2 → separate RAK4631 carried by the drone.** The OTA ZIP is the station application for Nordic/Adafruit Legacy BLE DFU. Each drone image embeds the exact matching station application; an old drone image installs its old embedded firmware.
 
-## October 15 update: nonblocking water-sensor warm-up
+Choose the sensor actually installed. Pack Creek/Swell use SEN0313; Cottonwood uses MB7388 when that sensor is installed. Builds are not tied to a station ID. A valid saved sensor selection overrides the build default.
 
-V5 retains the **full eight-second Pololu 2810 power-on settling period**, but now starts it using a timestamp and returns to the scheduler rather than blocking with `delay(8000)`. The station can continue its HOBO/mesh work during this interval. This applies to scheduled telemetry, `WATER READ`, `WATER STATUS`, `WATER VERIFY`, `WATER CAL STAGE`, `WATER TELEMETRY NOW` and AUTO sensor detection. The Pololu still turns off after sampling; verification/calibration collect their readings within a single power-on window instead of toggling power for every sample. A second measurement request while busy receives an explicit busy response. Existing stored calibration, logger handling, and the eight-second warm-up requirement are unchanged. This avoids a potential scheduling interaction; it does **not** prove the source of the battery-mode HOBO GATT failure. Physical field validation remains necessary.
+## Why the MX2001 was failing
 
-## October 15 update: battery-mode HOBO handshake
+V3 had no switched-sensor warm-up. V4 added Pololu control and increased the blocking warm-up from one second to three, then eight. Early V5 inherited it. That blocked other jobs on Meshtastic's cooperative main controller; yielding inside the delay did not run the HOBO state machine. The BLE interrupt/event task is separate, so this does not mean every BLE interrupt stopped.
 
-The first battery-mode test proved that suppressing Meshtastic's long idle sleep was not sufficient: `hobo_wake=1` remained active while service discovery still returned `rsp=0 gatt=FFFF n=0`. The follow-up build therefore also holds the nRF52840 high-frequency crystal during the same bounded handshake window, matching the important clock-side effect of an active USB data session. `STATS` reports `hobo_hf=1` when the crystal is confirmed running and `hf_rc` for the SoftDevice request/release result. Both the CPU wake and crystal request end after the first valid logger `STATUS` baseline or the existing 120-second failure budget.
+The last functional update before success replaced the blocking wait with scheduled water jobs. The October 15 log at 11:19 contains `STATUS model=MX2001 pointer=0x00001C15 interval=3600`. Earlier wake-only changes still failed. **Scheduler contention is the leading explanation; the available evidence does not prove the trigger of every prior GATT failure.** The log includes older October 14 failures and must not be read as one continuous test of the successful build.
 
-HOBO setup feedback now uses the station RGB LED without blocking the BLE state machine: three red flashes follow each failed connection/setup attempt, while three simultaneous red/green/blue flashes follow the first valid `STATUS` baseline of a successful handshake. The saved ambient-lighting state is restored afterward.
+## Final operating settings
 
-V5 also fixes saved logger identity and explicit MAC-lock replacement on nRF52 LittleFS. Its write mode appends; the old implementation could leave an earlier MX2203 record first in the file even after an MX2001 had verified. The fixed-size record is now replaced, so `Last MAC` and changed locks survive reboot correctly. This reporting/storage bug occurs after logger identification and did not cause the earlier GATT discovery failure.
+| Function | Selected behavior |
+| --- | --- |
+| Sensor power | Pololu ON from IO1/P0.17; full 8 s settling; OFF between jobs |
+| Sensor scheduling | Warm-up returns to scheduler; one sample job owns the rail; busy requests receive a reply |
+| VERIFY / CAL | Five / seven valid readings after one warm-up, rather than repeated power cycles |
+| BLE acquisition | Passive 200 ms period / 20 ms receive window (10%); no periodic restart of healthy scanning |
+| Connection / setup | Existing 30 s connection limit; V3 callback discovery, three bounded attempts per step |
+| Handshake power | CPU wake + HFCLK request from module creation, maximum 120 s; release at first valid STATUS baseline |
+| Failed acquisition | 5 min wake-request cooldown; normal idle sleep permitted while mesh/passive scan continue |
+| Healthy HOBO link | Normal idle sleep permitted; STATUS checks every 30 s; automatic TX only on a new logger record |
+| Water interval | Preserve saved interval; fresh-install default one hour |
+| Recovery | Core/radio watchdog and existing 12-hour maintenance reboot; ordinary HOBO errors retry without forced watchdog resets |
+| Feedback | Three red flashes on failed setup; three simultaneous RGB flashes on verified handshake |
 
-Field testing isolated the difference between the failing and working cases: a computer USB **serial session** kept the RAK awake and the MX2001 handshake completed, while USB power alone behaved like battery power and did not fix it. USB voltage was therefore not the useful variable.
+Single driver reads still have bounded waits: up to 450 ms for DFRobot UART and 3 s for MB7388. The eight-second power warm-up is nonblocking. The 5 min cooldown does not shut down the mesh or scanner.
 
-- V5 now requests continuous CPU wake and the nRF52840 high-frequency crystal from HOBO module creation—before the first battery-mode idle-loop sleep—through scanning, connection, GATT discovery, logger identification, and the first valid `STATUS` baseline.
-- Both requests are released immediately after that verified baseline, so normal nRF52 sleep resumes while the established BLE link and ordinary 30-second status checks continue. `STATS` reports `hobo_wake`, confirmed crystal state as `hobo_hf`, and the SoftDevice clock result as `hf_rc`.
-- A missing or non-responsive logger gets a maximum **120-second awake window**, followed by a **5-minute sleep/cooldown** before another candidate can start a new window. A healthy link that later disconnects receives a fresh bounded reconnect window.
-- BLE connection/discovery timeouts, passive 10% scan duty, logger recording interval, mesh telemetry cadence, calibration, and saved logger identity/lock were not changed.
-- The Safe V3/V4 branches were checked before this change. They use the same platform rule—sleep is disabled only by an active USB serial session—and do not contain a separate HOBO wake lock to copy. V5 preserves their bounded BLE discovery flow and adds this narrowly scoped handshake owner.
-- CI exercises acquisition, deadline expiry, cooldown, success release, and reconnect re-arming. Physical battery-mode RAK/MX2001 validation is still required before calling the field issue solved.
+## Fixes retained in V5
 
-## October 14 update: remote watchdog reset
+- Scanner resume/restart after rejected initiation or cancellation, with lifecycle guards against overlapping scan/connect operations.
+- Phone/USB Bluetooth shutdown disconnects peripheral phone links without dropping the independent HOBO central link.
+- Failed water reads preserve sensor selection and calibration; no automatic MB migration that clears calibration.
+- Current model identification is separate from last verified logger identity. LittleFS replaces identity and MAC-lock records rather than leaving an older record at the start of an appended file.
+- Existing MX2001 stage/temperature, MX2201/MX2203 temperature, logger-pointer synchronization, packet formats, calibration storage, node identity, keys, channels and remote DFU remain.
+- `VERSION` reports the actual firmware build and target environment. The final label is V5, without the superseded HFCLK diagnostic suffix.
 
-- Text DM `REBOOT` or `RECOVER` now requests a **watchdog-origin hardware reset**, rather than the ordinary SoftDevice shutdown and CPU-only reset. The command reply transmits first; the watchdog is starved after three seconds and resets the nRF52840 within its approximately 90-second window.
-- A validated replay marker in retained `.noinit` RAM rejects the same sender/packet-ID reboot command after restart. This specifically addresses reboot packet retransmission across boots.
-- `SOFT REBOOT` retains the prior three-second conventional reset for comparison. Ordinary system and DFU update paths are unchanged.
-- The reset reason is reported by `STATUS` or `STATS`: `0x2` indicates watchdog reset, `0x1` reset pin, and `0x4` software reset. This is an internal hardware reset, **not** a power cycle, and field equivalence to the reset button has not yet been proven.
-- Calibration, saved sensor selection, MX2001 tracking, mesh identity, and wire protocol were not changed. This release requires field testing before a reliability claim.
+The full V1–V5 history, including rejected 50% scanning, bench toggles and watchdog escalation, is in the [final audit](docs/diagnostic-8/V5-FINAL-AUDIT.md). Older branches are unchanged.
 
-## What changed on October 14
+## Install on the field station
 
-- Restored V3's bounded service, characteristic and notification discovery in the deferred connection callback. The pinned Bluefruit library's separate BLE event task can complete those requests while the callback waits.
-- Restored V3's passive **10% scan duty** and removed periodic restarts of healthy scanning.
-- Corrected a second-audit scanner stall: a failed stop plus rejected connection request, or cancellation after a failed stop, can leave Bluefruit's cached running flag true. Those failure paths now explicitly request resume/restart after the existing five-second backoff. A pending or live connection still blocks scanner restart.
-- Ordinary HOBO BLE failures disconnect/cancel and retry without tripping the hardware watchdog. The existing core/radio watchdog and 12-hour scheduled reboot remain.
-- Phone/USB-serial Bluetooth shutdown disconnects peripheral phone links, preserving the independent HOBO central link. Actual handles are checked rather than assuming contiguous numbering.
-- A failed distance read no longer automatically switches sensor type and clears saved calibration. Explicit sensor-selection/calibration commands remain.
+1. Record `VERSION`, `LOGGER`, `WATER STATUS` and `WATER CAL STATUS` before the update.
+2. For USB: double-reset into the existing RAK UF2 bootloader, then copy the matching **Field UF2**. For BLE DFU: use the matching **OTA ZIP**.
+3. After startup, check those same commands and compare stored calibration, sensor selection and logger lock. VERSION now includes the commit-based build and target flavor.
 
-The second-audit regression reproduced the scanner stall before the correction and passed afterward. **This establishes that failure path, not the physical cause of either station's October 14 error.** Swell's missing service response and Cottonwood's connection timeout are separate failures; V4's onset remains unproven. Full evidence and confidence levels are in the [audit](docs/diagnostic-8/README.md) and [second review](docs/diagnostic-8/SECOND-AUDIT.md).
+Station packages contain application addresses only. A firmware-only upgrade does not request a factory reset, filesystem erase or calibration reset. Existing explicit sensor-change/reset commands can change calibration; they are not upgrade steps.
 
-## What remains intact
+## Install on the drone flasher
 
-MX2001 water level/temperature; MX2201 and MX2203 temperature; automatic logger discovery; persistent manual MAC locks; truthful current model and last verified identity in `LOGGER`; logger interval/write-pointer synchronization; automatic telemetry on new records; SEN0313, MaxBotix and existing sensor power control; water distance, stage and discharge; existing calibration storage; Meshtastic identity/channels/encryption; and the existing remote DFU hook.
+1. Put the matching **Drone UF2** on the **separate drone RAK4631**. Its manifest must match this release's station source commit and OTA checksum.
+2. Power the prepared Scout and send `DFU` as a mesh DM to the intended field station. Enter DFU on only the intended target during that operation.
+3. Let the Scout transfer its embedded application, then verify the station's post-update callback, `VERSION` and saved calibration.
 
-No factory reset, filesystem erase, calibration reset or timeout increase was introduced. The text-DM watchdog reset is explicitly requested; ordinary BLE retry does not automatically request it. A stored valid sensor configuration wins over the build's default.
+The Scout uses the existing Legacy DFU implementation pinned at `37306158a64266fd05dfcd3bf01c5b47d0dc35fa`. For the separate Phase-2 serial Scout bridge, use the matching OTA ZIP with `tools/rak_dfu_serial_upload.py` from that implementation. [Detailed flashing and rollback](docs/diagnostic-8/FLASHING.md).
 
-## Update the field station
+## Direct-message commands
 
-For USB, enter the existing RAK4631 UF2 bootloader and copy the matching **field UF2**. These images contain application addresses only. After startup, compare `VERSION`, `LOGGER`, `WATER STATUS` and `WATER CAL STATUS` with the pre-update values.
-
-For autonomous drone update, first install the matching **Drone Scout UF2 on the separate drone radio**. Check the manifest's target source commit and OTA checksum against this release. Power the Scout, send `DFU` as a mesh DM to the intended field station, and let the Scout transfer its embedded application. Enter DFU on only the intended target during that operation. Confirm the post-update mesh callback and `VERSION`.
-
-For the existing Phase-2 serial Scout bridge, use the matching OTA ZIP with `tools/rak_dfu_serial_upload.py` from the pinned drone implementation. A ZIP alone does not update an autonomous Scout's embedded image.
-
-See [flashing and rollback instructions](docs/diagnostic-8/FLASHING.md). Preserve the prior app-only field image and its matched Scout for rollback. Do not change sensor selection or reset calibration as part of a firmware-only upgrade. Existing explicit sensor-change/reset commands can change calibration.
-
-## Useful DMs
-
-Send commands directly to the station. Bare `READ` reads HOBO; water commands use the `WATER` prefix.
+Bare `READ` reads HOBO. Prefix water commands with `WATER`.
 
 | Command | Result |
 | --- | --- |
-| `VERSION` | Firmware build/version |
-| `LOGGER` | Model, BLE state, MAC, lock, interval and last error |
+| `VERSION` | V5 label, actual firmware build and target environment |
+| `LOGGER` | Current model, BLE state, MAC, lock, interval and last error |
 | `READ` | Current HOBO reading |
-| `LOCK` | Save the connected, identified logger as the target |
-| `LOCK AA:BB:CC:DD:EE:FF` | Save an explicit target MAC |
-| `UNLOCK` | Resume unrestricted automatic logger selection |
-| `WATER STATUS` | Sensor and water configuration |
-| `WATER READ` | Current distance/stage reading |
-| `WATER CAL STATUS` | Stored calibration, including the stage reference |
-| `WATER SENSOR SEN0313` | Explicit SEN0313 selection |
-| `WATER SENSOR MB7388` | Explicit MaxBotix selection |
-| `WATER TELEMETRY NOW` | Request water telemetry |
-| `HELP`, `WATER HELP` | Complete on-device commands |
-| `BLE`, `DIAG`, `STATS`, `WATCHDOG` | Diagnostics |
-| `REBOOT` or `RECOVER` | Schedule watchdog-origin hardware reset; can take up to approximately 90 seconds after arming |
-| `SOFT REBOOT` | Retain conventional fast CPU-only reset for comparison |
-| `DFU` | Enter the existing bootloader for the prepared update |
+| `LOCK` / `LOCK AA:BB:CC:DD:EE:FF` | Persist connected verified logger / explicit target MAC |
+| `UNLOCK` | Resume unrestricted logger selection |
+| `WATER STATUS` / `WATER READ` | Sensor configuration and refreshed water reading |
+| `WATER CAL STATUS` | Stored calibration and stage reference |
+| `WATER VERIFY` | Five fresh readings and spread after one warm-up |
+| `WATER SENSOR SEN0313` / `WATER SENSOR MB7388` | Explicit sensor selection |
+| `WATER TELEMETRY NOW` | Sample and queue water telemetry |
+| `STATS` / `WATCHDOG` | Reset, wake/clock and watchdog diagnostics |
+| `REBOOT` / `RECOVER` | Explicit watchdog-origin hardware reset; allow approximately 90 s after arming |
+| `SOFT REBOOT` | Conventional software reset after three seconds |
+| `DFU` | Enter existing bootloader for a prepared update |
+| `HELP` / `WATER HELP` | Complete command syntax, including intervals and calibration |
 
-`SCAN` and `RECONNECT` report automatic state-machine ownership; they do not force a manual restart. “Not identified” means the firmware has not verified the current candidate's model. A MAC/RSSI alone is not logger identification; FFFF in a missing-response discovery error is a sentinel, not a decoded GATT error.
+`SCAN` / `RECONNECT` report automatic lifecycle ownership. `Not identified` means the model has not been verified; a candidate MAC or RSSI is insufficient. `gatt=FFFF` with `rsp=0` is a missing-response sentinel. `hobo_wake=0` means the HOBO sleep veto ended; `hobo_hf` reports crystal activity, which can also be required by the BLE stack.
 
-## Validation
+## Verification
 
-[Validation record](docs/diagnostic-8/VALIDATION.md) · [Seven-branch provenance](docs/diagnostic-8/provenance.json) · [Build workflow](.github/workflows/build_rak_water_v5.yml)
+Both sensor builds, application-only DFU packages and exact matched Scout payloads pass the [build workflow](.github/workflows/build_rak_water_v5.yml) before publication. It checks chip/address/source identity, DFU CRC and field-UF2 equivalence, embedded Scout application/DAT equivalence, LZ4 decoding, lifecycle fault injection, protocol/storage preservation, reset replay protection and executable water-job scheduling regressions.
 
-The first audit passed 162 Python host tests, lifecycle fault injection and 20 protocol/storage preservation checks. Both field builds and their matched autonomous Scouts passed GitHub builds and package verification. The broad native suite could not build in the audit host because Linux dependencies were missing; it is not counted as passing.
-
-The second audit adds regression coverage for stale scanner flags after connection rejection and cancellation. New downloads are published only after both field flavors, their application-only DFU packages, and exact matched Scout payloads pass validation.
-
-**Physical hardware testing remains:** logger identity at both sites, all three models, RF reconnection, battery/sensor-power coexistence, long-duration operation, calibration/configuration retention and actual drone transfer. Software tests and valid packages do not establish those results.
+The October 15 MX2001 response is a reported hardware success. Repeated battery-only startup/reconnection, correct stage values, automatic hourly records, long-duration power use, calibration retention through physical update and airborne transfer have not all been verified. Build/package checks do not establish those results. [Validation record](docs/diagnostic-8/VALIDATION.md) · [Version provenance](docs/diagnostic-8/water-version-provenance.json).

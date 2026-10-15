@@ -1,5 +1,7 @@
 # Diagnostic 8 — RAK HOBO V3/V4/V5 source audit
 
+Historical October 14 audit. The [October 15 final audit](V5-FINAL-AUDIT.md) adds V1/V2 and water-only history, the successful MX2001 response and final operating choices. Use the [current front page](../../README.md) for downloads.
+
 Audit date: 2026-10-14. Repair base: `RAK-Water-Distance-HOBO-v5` at `b24de43d86ba` (the complete immutable SHA is in [provenance.json](provenance.json)). Repair branch: `repair/rak-hobo-v5-audit-20261014`.
 
 **Status: software repair candidate; field root causes remain partly unverified.** Source inspection and host fault injection establish defects and rule out several proposed explanations. They cannot establish the physical identity of either MAC, reproduce the two reported failures, or prove unattended RF reliability. This document does not declare a hardware-validated repair.

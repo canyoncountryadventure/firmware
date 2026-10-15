@@ -35,3 +35,11 @@ For Swell Day, record advertising bytes/address type and the actual SoftDevice d
 Soak for at least 48 hours under normal reporting plus repeated logger power loss, out-of-range, phone connection, USB serial API activity, sensor warm-up and sensor failure. Verify central reconnection without BLE-triggered hardware resets, continued mesh response during logger failure, no unexpected calibration writes, and correct model/pointer after recovery. Existing core/radio watchdog and 12-hour scheduled reboot must be distinguished from HOBO faults in logs.
 
 Scout/drone bootloader entry, image transfer, post-update mesh callback and device-specific bootloader compatibility remain unverified physically. A structurally valid DFU package alone does not certify these.
+
+## October 15 final package review
+
+The final operating selection and complete RAK water-distance history are in [V5-FINAL-AUDIT.md](V5-FINAL-AUDIT.md). The water module/header/driver, HOBO protocol/state machine, nRF52 wake/clock code and main-loop reset policy were compared byte-for-byte against successful source `cb632f61` and retained. Only the runtime label and VERSION reply change; VERSION now includes the compiled build and environment.
+
+Local checks passed: bounded-handshake/BLE fault harness, 20 protocol/storage preservation sections, watchdog/replay diagnostics, nonblocking water source invariants, and compiled production water-job execution with fake clock/rail/driver. Leak detection was disabled for the local sanitized BLE harness because LeakSanitizer cannot inspect tasks in this container; CI runs the unchanged sanitizer harness normally. `trunk fmt` was unavailable locally; changed Python files were formatted with Black and the edited C++ lines with clang-format 16.
+
+The new executable water checks cover early scheduler return throughout 8 s settling, busy request exclusion, single-window VERIFY/CAL medians, finite failure attempts, all AUTO outcomes, cancellation and 32-bit millisecond rollover. This is scheduling/power-ownership verification, not an RF simulation.

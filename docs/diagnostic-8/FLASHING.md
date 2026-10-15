@@ -1,13 +1,13 @@
 # Diagnostic 8 upgrade and rollback
 
-The repair is a software-tested candidate. Bench validation precedes deployment to unattended stations. No station was flashed, reset or erased by this audit.
+The final V5 package preserves the October 15 implementation reported to read the MX2001 successfully. See the [current README](../../README.md) for the complete matched release and the [final audit](V5-FINAL-AUDIT.md) for remaining hardware checks. No station was flashed, reset or erased by this audit.
 
 ## Before updating
 
 1. Save the node's current firmware/version and a known-good app-only rollback UF2/DFU ZIP. The immutable V3 source reference is in the audit; a source branch alone is not a ready rollback binary.
 2. Record node identity, channels and encryption configuration privately, `LOGGER`, target lock, `WATER STATUS` and `WATER CAL STATUS`. Preserve existing station configuration. Do not issue factory reset, erase, `WATER RESET`, `WATER CAL RESET`, or a sensor-change command during this upgrade.
 3. Select SEN0313 or MB7388 based on actual wiring. Existing valid saved sensor selection wins over the build's default; changing firmware flavor does not convert wiring or calibration.
-4. Download the matching app-only UF2 or OTA ZIP and `SHA256SUMS.txt` from the repair branch's download folder. Check with `sha256sum -c SHA256SUMS.txt` (download all listed files, or verify the selected line). Never substitute factory/merged/full-flash images.
+4. Download the matching app-only UF2 or OTA ZIP and `SHA256SUMS.txt` from the V5 branch's download folder. Check with `sha256sum -c SHA256SUMS.txt` (download all listed files, or verify the selected line). Never substitute factory/merged/full-flash images.
 
 ## USB UF2
 
