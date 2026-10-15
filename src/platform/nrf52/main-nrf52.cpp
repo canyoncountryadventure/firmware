@@ -1,4 +1,5 @@
 #include "configuration.h"
+#include <atomic>
 #include <Adafruit_TinyUSB.h>
 #include <Adafruit_nRFCrypto.h>
 #include <InternalFileSystem.h>
@@ -62,6 +63,17 @@ void variant_nrf52LoopHook(void) {}
 
 static nrfx_wdt_t nrfx_wdt = NRFX_WDT_INSTANCE(0);
 static nrfx_wdt_channel_id nrfx_wdt_channel_id_nrf52_main;
+static std::atomic<bool> hoboHandshakeAwake{false};
+
+void nrf52SetHoboHandshakeAwake(bool awake)
+{
+    hoboHandshakeAwake.store(awake);
+}
+
+bool nrf52HoboHandshakeAwake()
+{
+    return hoboHandshakeAwake.load();
+}
 #if defined(FIELD_RECOVERY_V2)
 static nrfx_wdt_channel_id nrfx_wdt_channel_id_field;
 static volatile bool fieldWatchdogFeedAllowed = true;
@@ -280,10 +292,9 @@ uint16_t getVDDVoltage()
 
 bool loopCanSleep()
 {
-    // turn off sleep only while connected via USB
-    // return true;
-    return !Serial; // the bool operator on the nrf52 serial class returns true if connected to a PC currently
-    // return !(TinyUSBDevice.mounted() && !TinyUSBDevice.suspended());
+    // USB serial keeps the CPU awake for diagnostics. The HOBO bridge may also
+    // hold a bounded wake request while its BLE handshake is in progress.
+    return !Serial && !nrf52HoboHandshakeAwake();
 }
 
 // handle standard gcc assert failures
