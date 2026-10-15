@@ -1,3 +1,3 @@
-Diagnostic target source commit: ec806c9fdfa1621c9b08b5267a602512e1368fb8
-GitHub Actions run: https://github.com/canyoncountryadventure/firmware/actions/runs/38651980071
+Diagnostic target source commit: c0e3bc31a571666a01b57cbfd538b7a11d160ed1
+GitHub Actions run: https://github.com/canyoncountryadventure/firmware/actions/runs/38657670067
 Pololu IO1 forced LOW; diagnostic use only.
