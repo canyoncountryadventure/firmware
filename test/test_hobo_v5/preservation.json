@@ -1,11 +1,11 @@
 {
-  "baseline": "b24de43d86ba1238fb29edd3006ec63174701137",
+  "baseline": "2e8cf0de0a1c599318732f91355564e97fa995d7",
   "hobo_path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
   "distance_path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
   "checks": [
     {
       "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
-      "sha256": "817214425ebc1bc43c1036cbce650cbd29c067af9d565eebcf94ef3c99415f2d",
+      "sha256": "b941de9982efbe81909de7657cf61fc920f5d6aea637884c751fd56a47ec41bc",
       "signature": "bool saveLoggerLock()"
     },
     {
@@ -20,7 +20,7 @@
     },
     {
       "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
-      "sha256": "3db7d483cfdbc8670bc6d17544cad7efa9a07929061c52b7e69cf98dace5155e",
+      "sha256": "21f71c499cc00408aa7634878b3adb03419c2d0c1633d48c2f8f7cad4d1f2351",
       "signature": "void rememberLoggerIdentity()"
     },
     {
