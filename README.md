@@ -21,8 +21,8 @@ Verified firmware: **Meshtastic 2.7.26.9a3e6fd**, source [`9a3e6fd`](https://git
 
 Field testing isolated the difference between the failing and working cases: a computer USB **serial session** kept the RAK awake and the MX2001 handshake completed, while USB power alone behaved like battery power and did not fix it. USB voltage was therefore not the useful variable.
 
-- V5 now requests continuous CPU wake only while it scans, connects, discovers the HOBO service/characteristic, identifies the logger, and establishes the first valid `STATUS` baseline.
-- The wake request is released immediately after that verified baseline, so normal nRF52 sleep resumes while the established BLE link and ordinary 30-second status checks continue.
+- V5 now requests continuous CPU wake from HOBO module creation—before the first battery-mode idle-loop sleep—through scanning, connection, GATT discovery, logger identification, and the first valid `STATUS` baseline.
+- The wake request is released immediately after that verified baseline, so normal nRF52 sleep resumes while the established BLE link and ordinary 30-second status checks continue. `STATS` reports `hobo_wake=1` while the request is active and `hobo_wake=0` after release.
 - A missing or non-responsive logger gets a maximum **120-second awake window**, followed by a **5-minute sleep/cooldown** before another candidate can start a new window. A healthy link that later disconnects receives a fresh bounded reconnect window.
 - BLE connection/discovery timeouts, passive 10% scan duty, logger recording interval, mesh telemetry cadence, calibration, and saved logger identity/lock were not changed.
 - The Safe V3/V4 branches were checked before this change. They use the same platform rule—sleep is disabled only by an active USB serial session—and do not contain a separate HOBO wake lock to copy. V5 preserves their bounded BLE discovery flow and adds this narrowly scoped handshake owner.
