@@ -17,6 +17,10 @@ Verified firmware: **Meshtastic 2.7.26.b8d56fe**, source [`b8d56fe`](https://git
 
 **Field UF2 goes on the monitoring station. Drone Scout UF2 goes on the separate RAK4631 carried by the drone.** The OTA ZIP is the field application for Nordic/Adafruit Legacy BLE DFU. An autonomous Scout carries its target image inside it; an old Scout will install its old embedded firmware.
 
+## October 15 update: nonblocking water-sensor warm-up
+
+V5 retains the **full eight-second Pololu 2810 power-on settling period**, but now starts it using a timestamp and returns to the scheduler rather than blocking with `delay(8000)`. The station can continue its HOBO/mesh work during this interval. This applies to scheduled telemetry, `WATER READ`, `WATER STATUS`, `WATER VERIFY`, `WATER CAL STAGE`, `WATER TELEMETRY NOW` and AUTO sensor detection. The Pololu still turns off after sampling; verification/calibration collect their readings within a single power-on window instead of toggling power for every sample. A second measurement request while busy receives an explicit busy response. Existing stored calibration, logger handling, and the eight-second warm-up requirement are unchanged. This avoids a potential scheduling interaction; it does **not** prove the source of the battery-mode HOBO GATT failure. Physical field validation remains necessary.
+
 ## October 15 update: battery-mode HOBO handshake
 
 The first battery-mode test proved that suppressing Meshtastic's long idle sleep was not sufficient: `hobo_wake=1` remained active while service discovery still returned `rsp=0 gatt=FFFF n=0`. The follow-up build therefore also holds the nRF52840 high-frequency crystal during the same bounded handshake window, matching the important clock-side effect of an active USB data session. `STATS` reports `hobo_hf=1` when the crystal is confirmed running and `hf_rc` for the SoftDevice request/release result. Both the CPU wake and crystal request end after the first valid logger `STATUS` baseline or the existing 120-second failure budget.

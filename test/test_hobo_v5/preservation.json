@@ -60,7 +60,7 @@
     },
     {
       "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.h",
-      "sha256": "55d872c0f7bea285aec8e544129768bae8d360afe0c843328f848c5549f8fe67"
+      "sha256": "e0918e9c8a17478d05c18311128bd253a6ef3551a5b97aafa8725711c2b0c94e"
     },
     {
       "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp",

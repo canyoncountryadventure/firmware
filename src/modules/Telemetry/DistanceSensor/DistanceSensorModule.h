@@ -6,6 +6,7 @@
 
 #include "DistanceSensorDrivers.h"
 #include "concurrency/OSThread.h"
+#include "concurrency/Lock.h"
 #include "mesh/SinglePortModule.h"
 
 class DistanceSensorModule : public SinglePortModule, private concurrency::OSThread
@@ -45,6 +46,20 @@ class DistanceSensorModule : public SinglePortModule, private concurrency::OSThr
     DistanceSensorType activeType = DistanceSensorType::NONE;
     PersistentConfig cfg = {};
 
+    // Water sampling runs in this module's OSThread, never in the mesh command handler.
+    // The Pololu's eight-second settling period must not block HOBO BLE work.
+    enum class SampleJob : uint8_t { NONE, SCHEDULED, STATUS, READ, RAW, VERIFY, CALIBRATE, TELEMETRY_NOW, AUTO_PROBE };
+    concurrency::Lock sampleLock;
+    SampleJob sampleJob = SampleJob::NONE;
+    uint32_t samplePowerOnMs = 0;
+    uint32_t nextSampleMs = 0;
+    uint32_t sampleRequester = 0;
+    uint8_t sampleChannel = 0;
+    int32_t sampleStageMm = 0;
+    uint8_t sampleCount = 0;
+    uint8_t sampleAttempts = 0;
+    uint32_t sampleValues[9] = {};
+    bool reinitializeSensorPending = false;
     bool moduleInitialized = false;
     int8_t activeConfigSlot = -1;
     DistanceReading latestReading = {};
@@ -68,8 +83,12 @@ class DistanceSensorModule : public SinglePortModule, private concurrency::OSThr
     bool configureSensor(DistanceSensorType requested, bool persistSelection);
     bool autoDetectSensor();
     DistanceReading readDistance();
-    bool takeMedianSamples(uint32_t *samples, size_t capacity, size_t required, size_t maxAttempts,
-                           uint32_t &medianMm, uint32_t &minMm, uint32_t &maxMm);
+    bool scheduleSample(SampleJob job, uint32_t requester = 0, uint8_t channel = 0, int32_t knownStageMm = 0);
+    bool sampleBusy();
+    void cancelSample();
+    void serviceSample(uint32_t now);
+    bool finishCalibration(int32_t knownStageMm, uint32_t requester, uint8_t channel,
+                           uint32_t median, uint32_t minMm, uint32_t maxMm);
     bool sendDistanceTelemetry();
     bool sendTextReply(uint32_t destination, uint8_t channel, const char *text);
 
@@ -78,7 +97,7 @@ class DistanceSensorModule : public SinglePortModule, private concurrency::OSThr
     void replyRead(uint32_t requester, uint8_t channel, bool rawOnly);
     void replySensor(uint32_t requester, uint8_t channel);
     void replyCalibration(uint32_t requester, uint8_t channel);
-    void replyVerify(uint32_t requester, uint8_t channel);
+    void replyVerify(uint32_t requester, uint8_t channel, uint32_t median, uint32_t minMm, uint32_t maxMm);
 
     static bool normalizeCommand(const uint8_t *bytes, size_t size, char *out, size_t outSize);
     static bool parseDistanceMm(const char *text, int32_t &valueMm);

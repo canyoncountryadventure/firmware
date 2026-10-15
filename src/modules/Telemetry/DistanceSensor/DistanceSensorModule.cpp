@@ -3,6 +3,7 @@
 #if defined(DISTANCE_SENSOR_NODE) && defined(ARCH_NRF52)
 
 #include "DistanceSensorModule.h"
+#include "concurrency/LockGuard.h"
 
 #include "FSCommon.h"
 #include "MeshService.h"
@@ -324,7 +325,6 @@ bool DistanceSensorModule::autoDetectSensor()
 {
     activeDriver = nullptr;
     activeType = DistanceSensorType::NONE;
-
     if (sen0590.probe() && sen0590.begin()) {
         activeDriver = &sen0590;
         activeType = DistanceSensorType::SEN0590;
@@ -332,42 +332,15 @@ bool DistanceSensorModule::autoDetectSensor()
         return true;
     }
 
-#if defined(RAK_4631)
-    setDistanceSensorPower(true);
-    delay(SENSOR_POWER_SETTLE_MS);
-#endif
-
+    // UART probe runs after a nonblocking Pololu warm-up. Do not probe a
+    // powered-off MB7388, and do not delay the mesh/HOBO scheduler here.
     mb7388Driver.begin();
-    DistanceReading probe = mb7388Driver.read();
-    if (probe.valid()) {
-        activeDriver = &mb7388Driver;
-        activeType = DistanceSensorType::MB7388;
-        latestReading = probe;
-#if defined(RAK_4631)
-        setDistanceSensorPower(false);
-#endif
-        LOG_INFO("WaterDistance: AUTO detected MB7388");
+    activeDriver = &mb7388Driver;
+    activeType = DistanceSensorType::MB7388;
+    if (scheduleSample(SampleJob::AUTO_PROBE))
         return true;
-    }
-
-    uartDriver.setType(DistanceSensorType::UART_GENERIC);
-    uartDriver.begin();
-    probe = uartDriver.read();
-    if (probe.valid()) {
-        activeDriver = &uartDriver;
-        activeType = DistanceSensorType::UART_GENERIC;
-        latestReading = probe;
-#if defined(RAK_4631)
-        setDistanceSensorPower(false);
-#endif
-        LOG_INFO("WaterDistance: AUTO detected compatible DFRobot UART ultrasonic");
-        return true;
-    }
-
-#if defined(RAK_4631)
-    setDistanceSensorPower(false);
-#endif
-    LOG_WARN("WaterDistance: AUTO found no supported sensor");
+    activeDriver = nullptr;
+    activeType = DistanceSensorType::NONE;
     return false;
 }
 
@@ -431,29 +404,12 @@ DistanceReading DistanceSensorModule::readDistance()
         return missing;
     }
 
-#if defined(RAK_4631)
-    // Power the ultrasonic sensor only for a measurement.  For the MB7388,
-    // keep RX1 drained during warm-up so its ~6 Hz stream cannot overflow the
-    // UART buffer before we ask the driver for a fresh complete frame.
-    setDistanceSensorPower(true);
-    const uint32_t warmupStarted = millis();
-    while ((millis() - warmupStarted) < SENSOR_POWER_SETTLE_MS) {
-        if (activeType == DistanceSensorType::MB7388) {
-            while (Serial1.available() > 0)
-                Serial1.read();
-        }
-        delay(1);
-    }
-#endif
-
+    // The Pololu was turned on by scheduleSample() eight seconds earlier.
+    // A single UART/I2C read remains bounded by the sensor driver timeout.
     latestReading = activeDriver->read();
 
     // Sensor changes require WATER SENSOR; failed reads must preserve
     // calibration.
-
-#if defined(RAK_4631)
-    setDistanceSensorPower(false);
-#endif
 
     if (latestReading.valid()) {
         sensorReadSuccesses++;
@@ -472,35 +428,147 @@ DistanceReading DistanceSensorModule::readDistance()
     if (!latestReading.valid() && consecutiveReadErrors >= 3U && (millis() - lastSensorAttemptMs) >= 1000UL) {
         LOG_WARN("WaterDistance: 3 consecutive sensor errors; reinitializing %s",
                  distanceSensorTypeName(static_cast<DistanceSensorType>(cfg.sensorType)));
-        configureSensor(static_cast<DistanceSensorType>(cfg.sensorType), false);
+        // Reinitialize only AFTER this job releases the sample mutex, to
+        // avoid reentering AUTO detection from an in-flight sensor read.
+        reinitializeSensorPending = true;
         consecutiveReadErrors = 0;
     }
 
     return latestReading;
 }
 
-bool DistanceSensorModule::takeMedianSamples(uint32_t *samples, size_t capacity, size_t required, size_t maxAttempts,
-                                             uint32_t &medianMm, uint32_t &minMm, uint32_t &maxMm)
+bool DistanceSensorModule::scheduleSample(SampleJob job, uint32_t requester, uint8_t channel, int32_t knownStageMm)
 {
-    if (samples == nullptr || required == 0 || required > capacity)
+    concurrency::LockGuard guard(&sampleLock);
+    if (sampleJob != SampleJob::NONE || activeDriver == nullptr)
         return false;
+    sampleJob = job;
+    sampleRequester = requester;
+    sampleChannel = channel;
+    sampleStageMm = knownStageMm;
+    sampleCount = 0;
+    sampleAttempts = 0;
+    samplePowerOnMs = millis();
+#if defined(RAK_4631)
+    nextSampleMs = samplePowerOnMs + SENSOR_POWER_SETTLE_MS;
+#else
+    nextSampleMs = samplePowerOnMs;
+#endif
+    setDistanceSensorPower(true);
+    return true;
+}
 
-    size_t count = 0;
-    for (size_t attempt = 0; attempt < maxAttempts && count < required; ++attempt) {
-        const DistanceReading r = readDistance();
-        if (r.valid())
-            samples[count++] = r.distanceMm;
-        delay(80);
+bool DistanceSensorModule::sampleBusy()
+{
+    concurrency::LockGuard guard(&sampleLock);
+    return sampleJob != SampleJob::NONE;
+}
+
+void DistanceSensorModule::cancelSample()
+{
+    concurrency::LockGuard guard(&sampleLock);
+    sampleJob = SampleJob::NONE;
+    setDistanceSensorPower(false);
+}
+
+void DistanceSensorModule::serviceSample(uint32_t now)
+{
+    concurrency::LockGuard guard(&sampleLock);
+    if (sampleJob == SampleJob::NONE)
+        return;
+
+    // On the MB7388, discard warm-up frames before the first fresh read.
+    // This work is quick; the eight-second deadline does not sleep this thread.
+    if (static_cast<int32_t>(now - nextSampleMs) < 0) {
+        if (activeType == DistanceSensorType::MB7388) {
+            while (Serial1.available() > 0)
+                Serial1.read();
+        }
+        return;
     }
 
-    if (count < required)
-        return false;
+    const SampleJob completed = sampleJob;
+    const uint32_t requester = sampleRequester;
+    const uint8_t channel = sampleChannel;
+    const int32_t knownStage = sampleStageMm;
 
-    std::sort(samples, samples + count);
-    minMm = samples[0];
-    maxMm = samples[count - 1];
-    medianMm = samples[count / 2];
-    return true;
+    if (completed == SampleJob::AUTO_PROBE) {
+        DistanceReading probe = mb7388Driver.read();
+        if (probe.valid()) {
+            activeDriver = &mb7388Driver;
+            activeType = DistanceSensorType::MB7388;
+            latestReading = probe;
+            LOG_INFO("WaterDistance: AUTO detected MB7388");
+        } else {
+            uartDriver.setType(DistanceSensorType::UART_GENERIC);
+            uartDriver.begin();
+            probe = uartDriver.read();
+            if (probe.valid()) {
+                activeDriver = &uartDriver;
+                activeType = DistanceSensorType::UART_GENERIC;
+                latestReading = probe;
+                LOG_INFO("WaterDistance: AUTO detected DFRobot UART ultrasonic");
+            } else {
+                activeDriver = nullptr;
+                activeType = DistanceSensorType::NONE;
+                LOG_WARN("WaterDistance: AUTO found no supported UART sensor");
+            }
+        }
+        setDistanceSensorPower(false);
+        sampleJob = SampleJob::NONE;
+        return;
+    }
+
+    const DistanceReading reading = readDistance();
+    if (completed == SampleJob::VERIFY || completed == SampleJob::CALIBRATE) {
+        ++sampleAttempts;
+        if (reading.valid() && sampleCount < 9)
+            sampleValues[sampleCount++] = reading.distanceMm;
+        const uint8_t needed = completed == SampleJob::CALIBRATE ? 7 : 5;
+        const uint8_t maximum = completed == SampleJob::CALIBRATE ? 14 : 10;
+        if (sampleCount < needed && sampleAttempts < maximum) {
+            nextSampleMs = millis() + 80;
+            return;
+        }
+        setDistanceSensorPower(false);
+        sampleJob = SampleJob::NONE;
+        if (sampleCount < needed) {
+            sendTextReply(requester, channel, completed == SampleJob::CALIBRATE
+                              ? "CAL failed: fewer than 7 valid fresh readings. Check sensor/wiring."
+                              : "VERIFY failed: fewer than 5 valid fresh readings");
+            return;
+        }
+        std::sort(sampleValues, sampleValues + sampleCount);
+        const uint32_t median = sampleValues[sampleCount / 2];
+        const uint32_t low = sampleValues[0];
+        const uint32_t high = sampleValues[sampleCount - 1];
+        if (completed == SampleJob::CALIBRATE)
+            finishCalibration(knownStage, requester, channel, median, low, high);
+        else
+            replyVerify(requester, channel, median, low, high);
+        return;
+    }
+
+    setDistanceSensorPower(false);
+    sampleJob = SampleJob::NONE;
+    switch (completed) {
+    case SampleJob::SCHEDULED:
+        sendDistanceTelemetry();
+        break;
+    case SampleJob::STATUS:
+        replyStatus(requester, channel, false);
+        break;
+    case SampleJob::READ:
+    case SampleJob::RAW:
+        replyRead(requester, channel, completed == SampleJob::RAW);
+        break;
+    case SampleJob::TELEMETRY_NOW:
+        sendTextReply(requester, channel, sendDistanceTelemetry()
+                          ? "TELEMETRY NOW: packet queued" : "TELEMETRY NOW: allocation failed");
+        break;
+    default:
+        break;
+    }
 }
 
 bool DistanceSensorModule::sendDistanceTelemetry()
@@ -585,15 +653,16 @@ bool DistanceSensorModule::calibrateStage(int32_t knownStageMm, uint32_t request
         return false;
     }
 
-    uint32_t samples[9] = {};
-    uint32_t median = 0;
-    uint32_t minMm = 0;
-    uint32_t maxMm = 0;
-    if (!takeMedianSamples(samples, 9, 7, 14, median, minMm, maxMm)) {
-        sendTextReply(requester, channel, "CAL failed: fewer than 7 valid fresh readings. Check sensor/wiring.");
+    if (!scheduleSample(SampleJob::CALIBRATE, requester, channel, knownStageMm)) {
+        sendTextReply(requester, channel, "WATER BUSY: sensor unavailable or measurement in progress");
         return false;
     }
+    return true;
+}
 
+bool DistanceSensorModule::finishCalibration(int32_t knownStageMm, uint32_t requester, uint8_t channel,
+                                             uint32_t median, uint32_t minMm, uint32_t maxMm)
+{
     const int64_t reference = static_cast<int64_t>(median) + static_cast<int64_t>(knownStageMm);
     if (reference < INT32_MIN || reference > INT32_MAX) {
         sendTextReply(requester, channel, "CAL failed: reference is outside supported range");
@@ -631,8 +700,8 @@ bool DistanceSensorModule::calibrateStage(int32_t knownStageMm, uint32_t request
 
 void DistanceSensorModule::replyStatus(uint32_t requester, uint8_t channel, bool refreshReading)
 {
-    if (refreshReading)
-        readDistance();
+    // A refreshed reading is queued by handleReceived; never stall this reply.
+    (void)refreshReading;
 
     const bool calibrated = (cfg.flags & FLAG_CALIBRATED) != 0;
     const bool locked = (cfg.flags & FLAG_CAL_LOCKED) != 0;
@@ -662,7 +731,7 @@ void DistanceSensorModule::replyStatus(uint32_t requester, uint8_t channel, bool
 
 void DistanceSensorModule::replyRead(uint32_t requester, uint8_t channel, bool rawOnly)
 {
-    const DistanceReading r = readDistance();
+    const DistanceReading r = latestReading;
     if (!r.valid()) {
         char reply[120] = {};
         snprintf(reply, sizeof(reply), "READ failed: %s", distanceReadStatusName(r.status));
@@ -719,16 +788,9 @@ void DistanceSensorModule::replyCalibration(uint32_t requester, uint8_t channel)
     sendTextReply(requester, channel, reply);
 }
 
-void DistanceSensorModule::replyVerify(uint32_t requester, uint8_t channel)
+void DistanceSensorModule::replyVerify(uint32_t requester, uint8_t channel, uint32_t median, uint32_t minMm,
+                                       uint32_t maxMm)
 {
-    uint32_t samples[7] = {};
-    uint32_t median = 0;
-    uint32_t minMm = 0;
-    uint32_t maxMm = 0;
-    if (!takeMedianSamples(samples, 7, 5, 10, median, minMm, maxMm)) {
-        sendTextReply(requester, channel, "VERIFY failed: fewer than 5 valid fresh readings");
-        return;
-    }
 
     latestReading.status = DistanceReadStatus::OK;
     latestReading.distanceMm = median;
@@ -898,7 +960,8 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
     }
 
     if (strcmp(command, "STATUS") == 0 || strcmp(command, "CHECK") == 0 || strcmp(command, "INSTALL") == 0) {
-        replyStatus(mp.from, mp.channel, true);
+        if (!scheduleSample(SampleJob::STATUS, mp.from, mp.channel))
+            sendTextReply(mp.from, mp.channel, "WATER BUSY: sensor unavailable or measurement in progress");
         return ProcessMessage::CONTINUE;
     }
 
@@ -908,6 +971,10 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
     }
 
     if (strncmp(command, "SENSOR ", 7) == 0) {
+        if (sampleBusy()) {
+            sendTextReply(mp.from, mp.channel, "WATER BUSY: finish current sensor read before changing sensor");
+            return ProcessMessage::CONTINUE;
+        }
         DistanceSensorType requested = DistanceSensorType::NONE;
         const char *arg = command + 7;
         if (strcmp(arg, "AUTO") == 0)
@@ -945,21 +1012,25 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
         const bool online = configureSensor(requested, true);
         char reply[150] = {};
         snprintf(reply, sizeof(reply), "SENSOR saved:%s\nActive:%s", distanceSensorTypeName(requested),
-                 online ? distanceSensorTypeName(activeType) : "NOT DETECTED (will retry)");
+                 online ? (requested == DistanceSensorType::AUTO && sampleBusy() ? "PROBING (8 sec warmup)" : distanceSensorTypeName(activeType))
+                        : "NOT DETECTED (will retry)");
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
     if (strcmp(command, "READ") == 0) {
-        replyRead(mp.from, mp.channel, false);
+        if (!scheduleSample(SampleJob::READ, mp.from, mp.channel))
+            sendTextReply(mp.from, mp.channel, "WATER BUSY: sensor unavailable or measurement in progress");
         return ProcessMessage::CONTINUE;
     }
     if (strcmp(command, "RAW") == 0) {
-        replyRead(mp.from, mp.channel, true);
+        if (!scheduleSample(SampleJob::RAW, mp.from, mp.channel))
+            sendTextReply(mp.from, mp.channel, "WATER BUSY: sensor unavailable or measurement in progress");
         return ProcessMessage::CONTINUE;
     }
     if (strcmp(command, "VERIFY") == 0) {
-        replyVerify(mp.from, mp.channel);
+        if (!scheduleSample(SampleJob::VERIFY, mp.from, mp.channel))
+            sendTextReply(mp.from, mp.channel, "WATER BUSY: sensor unavailable or measurement in progress");
         return ProcessMessage::CONTINUE;
     }
 
@@ -1057,6 +1128,10 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
     }
 
     if (strcmp(command, "RESET WATER CONFIRM") == 0) {
+        if (sampleBusy()) {
+            sendTextReply(mp.from, mp.channel, "WATER BUSY: retry reset after measurement");
+            return ProcessMessage::CONTINUE;
+        }
         const PersistentConfig previous = cfg;
         const uint32_t previousSequence = cfg.sequence;
         setDefaults();
@@ -1081,9 +1156,8 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
     }
 
     if (strcmp(command, "TELEMETRY NOW") == 0) {
-        readDistance();
-        const bool sent = sendDistanceTelemetry();
-        sendTextReply(mp.from, mp.channel, sent ? "TELEMETRY NOW: packet queued" : "TELEMETRY NOW: allocation failed");
+        if (!scheduleSample(SampleJob::TELEMETRY_NOW, mp.from, mp.channel))
+            sendTextReply(mp.from, mp.channel, "WATER BUSY: sensor unavailable or measurement in progress");
         return ProcessMessage::CONTINUE;
     }
 
@@ -1126,14 +1200,21 @@ int32_t DistanceSensorModule::runOnce()
     if (activeDriver == nullptr && (now - lastSensorAttemptMs) >= SENSOR_RETRY_MS)
         configureSensor(static_cast<DistanceSensorType>(cfg.sensorType), false);
 
-    const uint32_t intervalMs = cfg.reportIntervalSec * 1000UL;
-    if ((now - lastReportMs) >= intervalMs) {
-        lastReportMs = now;
-        readDistance();
-        sendDistanceTelemetry();
+    // Only the power warm-up is asynchronous; the sensor parser retains its
+    // existing bounded UART/I2C timeouts. One scheduled job owns the power rail.
+    serviceSample(now);
+    if (reinitializeSensorPending && !sampleBusy()) {
+        reinitializeSensorPending = false;
+        configureSensor(static_cast<DistanceSensorType>(cfg.sensorType), false);
     }
 
-    return 1000;
+    const uint32_t intervalMs = cfg.reportIntervalSec * 1000UL;
+    if ((now - lastReportMs) >= intervalMs && !sampleBusy()) {
+        if (scheduleSample(SampleJob::SCHEDULED))
+            lastReportMs = now;
+    }
+
+    return sampleBusy() ? 100 : 1000;
 }
 
 #endif
