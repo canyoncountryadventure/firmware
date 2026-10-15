@@ -1098,6 +1098,10 @@ const uint8_t *meta8Command(size_t &length)
 HOBOMX2001MX2201MX2203TelemetryModule::HOBOMX2001MX2201MX2203TelemetryModule()
     : SinglePortModule("HOBOMX2001MX2201MX2203", meshtastic_PortNum_PRIVATE_APP), concurrency::OSThread("HOBOMX2001MX2201MX2203")
 {
+    // Claim wake during module creation, before the first idle-loop sleep. USB
+    // serial was already doing this from boot; waiting until runOnce() left a
+    // 15-second battery-mode gap before the original wake request.
+    requestHandshakeWake(millis());
     isPromiscuous = true;
     setIntervalFromNow(500);
 }
