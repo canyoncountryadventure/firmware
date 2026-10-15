@@ -939,6 +939,14 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
     if (!normalizeCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, command, sizeof(command)))
         return ProcessMessage::CONTINUE;
 
+    // Prevent CAL RESET/LOCK/UNLOCK from racing an in-progress median
+    // calibration. CAL STATUS remains safe to inspect at any time.
+    if (sampleBusy() && strncmp(command, "CAL ", 4) == 0 && strcmp(command, "CAL STATUS") != 0 &&
+        strncmp(command, "CAL STAGE ", 10) != 0) {
+        sendTextReply(mp.from, mp.channel, "WATER BUSY: retry calibration setting after current read");
+        return ProcessMessage::CONTINUE;
+    }
+
     if (strcmp(command, "HELP") == 0) {
         // Split the complete water command reference into LoRa-safe messages so
         // every command is explicit.
@@ -1186,7 +1194,10 @@ int32_t DistanceSensorModule::runOnce()
         lastReportMs = now - intervalMs; // force one health/telemetry sample after boot
         moduleInitialized = true;
 #if defined(RAK_4631)
-        setDistanceSensorPower(false);
+        // AUTO detection may already own the sensor rail; never switch it off
+        // while its asynchronous eight-second warm-up is underway.
+        if (!sampleBusy())
+            setDistanceSensorPower(false);
         LOG_INFO("WaterDistance: Pololu 2810 control ready on IO1/P0.17; sensor "
                  "OFF between reads");
 #endif

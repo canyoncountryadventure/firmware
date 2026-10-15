@@ -32,6 +32,7 @@ jobs:
           python3 test/test_hobo_v5/test_hobo_v5.py
           python3 test/test_hobo_v5/test_preservation.py
           python3 test/test_hobo_v5/test_reset_recovery.py
+          python3 test/test_hobo_v5/test_nonblocking_water.py
   build:
     needs: recovery-tests
     runs-on: ubuntu-latest
