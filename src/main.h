@@ -110,6 +110,9 @@ extern SPISettings spiSettings;
 #if defined(ARCH_NRF52)
 void nrf52FieldWatchdogTrip();
 bool nrf52FieldWatchdogIsArmed();
+// The HOBO bridge owns this bounded wake request; successful handshake clears it.
+void nrf52SetHoboHandshakeAwake(bool awake);
+bool nrf52HoboHandshakeAwake();
 // Returns false for an already-consumed reboot text packet (including after reset).
 bool nrf52MarkRebootPacket(uint32_t sender, uint32_t packetId);
 // Schedules starvation of the field watchdog after the reply transmit window.
