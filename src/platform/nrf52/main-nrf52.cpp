@@ -14,6 +14,7 @@
 #include <assert.h>
 #include <ble_gap.h>
 #include <memory.h>
+#include <nrf_soc.h>
 #include <nrfx_wdt.c>
 #include <nrfx_wdt.h>
 #include <stdio.h>
@@ -64,15 +65,41 @@ void variant_nrf52LoopHook(void) {}
 static nrfx_wdt_t nrfx_wdt = NRFX_WDT_INSTANCE(0);
 static nrfx_wdt_channel_id nrfx_wdt_channel_id_nrf52_main;
 static std::atomic<bool> hoboHandshakeAwake{false};
+static std::atomic<bool> hoboHandshakeHfclkRequested{false};
+static std::atomic<uint32_t> hoboHandshakeHfclkLastResult{NRF_SUCCESS};
 
 void nrf52SetHoboHandshakeAwake(bool awake)
 {
-    hoboHandshakeAwake.store(awake);
+    const bool wasAwake = hoboHandshakeAwake.exchange(awake);
+
+    if (awake && !wasAwake) {
+        const uint32_t result = sd_clock_hfclk_request();
+        hoboHandshakeHfclkLastResult.store(result);
+        hoboHandshakeHfclkRequested.store(result == NRF_SUCCESS);
+        if (result != NRF_SUCCESS)
+            LOG_WARN("HOBO handshake HFCLK request failed: %lu", static_cast<unsigned long>(result));
+    } else if (!awake && wasAwake && hoboHandshakeHfclkRequested.exchange(false)) {
+        const uint32_t result = sd_clock_hfclk_release();
+        hoboHandshakeHfclkLastResult.store(result);
+        if (result != NRF_SUCCESS)
+            LOG_WARN("HOBO handshake HFCLK release failed: %lu", static_cast<unsigned long>(result));
+    }
 }
 
 bool nrf52HoboHandshakeAwake()
 {
     return hoboHandshakeAwake.load();
+}
+
+bool nrf52HoboHandshakeHfclkRunning()
+{
+    uint32_t running = 0;
+    return sd_clock_hfclk_is_running(&running) == NRF_SUCCESS && running != 0;
+}
+
+uint32_t nrf52HoboHandshakeHfclkResult()
+{
+    return hoboHandshakeHfclkLastResult.load();
 }
 #if defined(FIELD_RECOVERY_V2)
 static nrfx_wdt_channel_id nrfx_wdt_channel_id_field;
