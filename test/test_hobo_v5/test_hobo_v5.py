@@ -72,6 +72,8 @@ struct BF {Scan Scanner;bool links[BLE_MAX_CONNECTION]={};bool phones[BLE_MAX_CO
 uint32_t cancelResult=NRF_SUCCESS;unsigned cancels=0;
 uint32_t sd_ble_gap_connect_cancel(){cancels++;return cancelResult;}
 void nrf52FieldDiagEvent(int,int,int){}
+bool platformHoboAwake=false;
+void nrf52SetHoboHandshakeAwake(bool awake){platformHoboAwake=awake;}
 struct Svc {unsigned calls=0,failures=0;bool drop=false;bool discover(uint16_t); }hoboService;
 struct Chr {unsigned discoverCalls=0,notifyCalls=0,discoverFailures=0,notifyFailures=0;
  bool discover();bool enableNotify();}hoboCharacteristic;
@@ -94,6 +96,9 @@ methods = "\n".join(
     block(signature)
     for signature in [
         "bool reached(uint32_t now, uint32_t target)",
+        "bool requestHandshakeWake(uint32_t now)",
+        "void releaseHandshakeWake(bool successful, uint32_t now)",
+        "bool serviceHandshakeWake(uint32_t now)",
         "void makeHumanMac(const uint8_t in[6], uint8_t out[6])",
         "bool containsAsciiIgnoreCase(const uint8_t *data, uint16_t length, const char *needle)",
         "CandidateInfo inspectAdvertisement(const ble_gap_evt_adv_report_t *report)",
@@ -139,13 +144,24 @@ tests = r"""
 void reset(){connecting=false;connected=false;setupInProgress=false;recoveryPending=false;
  connectionHandle=BLE_CONN_HANDLE_INVALID;connectAttemptStartedMs=100;clockMs=100;
  bleRecoveryCycles=0;scanRestartRequested=false;connectTimedOut=false;scanRetryDueMs=0;
- universalState=UniversalState::IDLE;loggerLockEnabled=false;haveRejectedAddr=false;
+ universalState=UniversalState::IDLE;loggerLockEnabled=false;haveRejectedAddr=false;haveStatusBaseline=false;
+ handshakeWakeActive=false;handshakeWakeDeadlineMs=0;handshakeWakeCooldownUntilMs=0;platformHoboAwake=false;
  Bluefruit.Scanner=Scan{};Bluefruit.disconnects.clear();Bluefruit.connectOk=true;
  memset(Bluefruit.links,0,sizeof(Bluefruit.links));memset(Bluefruit.phones,0,sizeof(Bluefruit.phones));
  hoboService=Svc{};hoboCharacteristic=Chr{};cancels=0;cancelResult=NRF_SUCCESS;
  memset(candidateAddrRaw,0,6);memset(lockedAddrRaw,0,6);}
 void beginConnect(){connecting=true;Bluefruit.links[1]=true;connectCallback(1);}
 int main(){
+ reset();assert(requestHandshakeWake(clockMs));assert(handshakeWakeActive&&platformHoboAwake);
+ assert(handshakeWakeDeadlineMs==clockMs+HANDSHAKE_AWAKE_BUDGET_MS);
+ clockMs=handshakeWakeDeadlineMs-1;assert(!serviceHandshakeWake(clockMs));assert(platformHoboAwake);
+ clockMs++;assert(serviceHandshakeWake(clockMs));assert(!handshakeWakeActive&&!platformHoboAwake);
+ assert(handshakeWakeCooldownUntilMs==clockMs+HANDSHAKE_WAKE_COOLDOWN_MS);
+ assert(!requestHandshakeWake(clockMs));clockMs=handshakeWakeCooldownUntilMs;
+ assert(requestHandshakeWake(clockMs));releaseHandshakeWake(true,clockMs);
+ assert(!handshakeWakeActive&&!platformHoboAwake&&handshakeWakeCooldownUntilMs==0);
+ haveStatusBaseline=true;connected=true;connectionHandle=1;Bluefruit.links[1]=true;
+ disconnectCallback(1,0x13);assert(handshakeWakeActive&&platformHoboAwake);
  reset();beginConnect();assert(!setupInProgress);assert(connected);assert(connectionHandle==1);
  assert(universalState==UniversalState::SEND_INIT);assert(hoboService.calls==1);
  assert(hoboCharacteristic.discoverCalls==1&&hoboCharacteristic.notifyCalls==1);
@@ -210,7 +226,7 @@ int main(){
  clockMs=10;rejectedUntilMs=20;haveRejectedAddr=true;assert(isRejectedCandidate(candidateAddrRaw));
  clockMs=20;assert(!isRejectedCandidate(candidateAddrRaw));
  assert(reached(20,0xFFFFFFF0U));assert(!reached(0xFFFFFFF0U,20));
- puts("PASS: callback setup, three discovery failure stages, dropped/stale links, cancel races, scanning, address types, sparse phone handles, models, rollover");
+ puts("PASS: bounded handshake wake, callback setup, discovery failures, dropped/stale links, cancel races, scanning, models, rollover");
 }
 """
 # A reset is not an acceptable outcome of these ordinary BLE faults.
@@ -218,6 +234,10 @@ assert "nrf52FieldWatchdogTrip" not in source
 assert "UniversalState::DISCOVER_SERVICE" not in source
 assert "scanRestartRequested || !Bluefruit.Scanner.isRunning()" in source
 assert "Bluefruit.Scanner.setInterval(320, 32)" in source
+assert "releaseHandshakeWake(true, now);" in source[
+    source.index("case UniversalState::WAIT_STATUS") :
+    source.index("case UniversalState::READY")
+]
 with tempfile.TemporaryDirectory() as directory:
     cpp = Path(directory) / "faults.cpp"
     cpp.write_text(
