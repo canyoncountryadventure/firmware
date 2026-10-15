@@ -76,6 +76,10 @@ The electrical arrangement remains Pololu VIN on the existing 3.3 V supply, GND 
 
 HFCLK `STATS hobo_hf` indicates whether the crystal is running, not exclusive ownership by HOBO. Releasing the HOBO request does not stop a clock that the BLE stack needs. Similarly, `hobo_wake=0` means the HOBO sleep veto has ended; other platform activity may keep the CPU awake.
 
+## Battery protection retained
+
+All seven RAK water branch heads already use the same OCV table ending at **3400 mV**. In Power.cpp, more than ten consecutive readings below that floor trigger the existing low-battery sleep event when battery is present and USB is absent. This is inherited protection, not a new V5 cutoff or a firmware change to charging hardware. RAK solar wake retains the LPCOMP reference of **11/16 of VDD** on the battery-divider input. The separate nRF52 safe-VDD check defaults to **2.7 V** with **0.2 V** hysteresis; that measures MCU supply, not cell voltage. These settings, UART/I2C reservations and existing radio maintenance are retained. No charging-temperature control or new electrical power cycle is introduced.
+
 ## What this finalization changes
 
 The successful water, BLE, clock and power-control implementation is retained. The only runtime edit is identification: remove `HFCLK DIAG` from the V5 label and make `VERSION` include the compiled `APP_VERSION` and `APP_ENV`. Previously a VERSION DM could not distinguish successive V5 builds or field flavors. There is no new scan loop, longer timeout, sensor-power change or reset policy.
@@ -83,3 +87,5 @@ The successful water, BLE, clock and power-control implementation is retained. T
 The finalization replaces conflicting front-page/companion documentation, adds this complete version review, and adds compiled execution tests of the production water-job methods with a fake clock/rail/driver. Those tests check scheduler return before the full 8 s deadline, busy-request exclusion, one power window, deferred replies, medians, finite failed calibration, AUTO paths, cancellation and millisecond rollover. They do not simulate RF success.
 
 Both sensor applications and exact matched autonomous drone images must pass the workflow before publication. The normal station images are application-only and do not include SoftDevice, bootloader or filesystem addresses. Drone images embed the exact new field application and its DFU init packet. Physical calibration retention, repeated battery-only reconnection, hourly automatic records and actual airborne transfer remain distinct hardware checks. No new physical test is claimed by this finalization.
+
+The final README download links are pinned to the verified artifact publication commit, so later branch edits cannot silently substitute a different field/drone pair.
