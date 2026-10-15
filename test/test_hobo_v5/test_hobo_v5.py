@@ -231,6 +231,8 @@ int main(){
 """
 # A reset is not an acceptable outcome of these ordinary BLE faults.
 assert "nrf52FieldWatchdogTrip" not in source
+assert "FSCom.remove(LOCK_FILE_PATH);" in block("bool saveLoggerLock()")
+assert "FSCom.remove(IDENTITY_FILE_PATH);" in block("void rememberLoggerIdentity()")
 assert "UniversalState::DISCOVER_SERVICE" not in source
 assert "scanRestartRequested || !Bluefruit.Scanner.isRunning()" in source
 assert "Bluefruit.Scanner.setInterval(320, 32)" in source
