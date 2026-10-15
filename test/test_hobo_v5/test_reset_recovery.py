@@ -46,6 +46,8 @@ assert handler.index('"SOFT REBOOT"') < handler.index('"RECOVER"')
 assert "sd_softdevice_disable()" in body("Power::reboot", power)
 assert 'DFU' in recovery
 assert "watchdog-origin hardware reset" in readme
+assert "hobo_wake=%u" in handler
+assert "nrf52HoboHandshakeAwake()" in handler
 assert "rebootReplayGuard" not in body("Power::reboot", power)
 print("PASS: watchdog-command reset, retained packet-ID replay guard, "
       "conventional reboot/DFU separation, no sensor or settings changes")
