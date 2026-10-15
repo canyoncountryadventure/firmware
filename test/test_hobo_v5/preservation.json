@@ -5,7 +5,7 @@
   "checks": [
     {
       "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
-      "sha256": "b941de9982efbe81909de7657cf61fc920f5d6aea637884c751fd56a47ec41bc",
+      "sha256": "138e858b560835e97db07635bc9aa235e93b1f2cb08784298a6588d65560df1c",
       "signature": "bool saveLoggerLock()"
     },
     {
@@ -20,7 +20,7 @@
     },
     {
       "path": "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp",
-      "sha256": "21f71c499cc00408aa7634878b3adb03419c2d0c1633d48c2f8f7cad4d1f2351",
+      "sha256": "2c34b3518fba5c2f61b4f0f3100415c1eeda46833212c8c43b5e533cd69d7862",
       "signature": "void rememberLoggerIdentity()"
     },
     {
