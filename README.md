@@ -21,6 +21,8 @@ Verified firmware: **Meshtastic 2.7.26.3580e56**, source [`3580e56`](https://git
 
 The first battery-mode test proved that suppressing Meshtastic's long idle sleep was not sufficient: `hobo_wake=1` remained active while service discovery still returned `rsp=0 gatt=FFFF n=0`. The follow-up build therefore also holds the nRF52840 high-frequency crystal during the same bounded handshake window, matching the important clock-side effect of an active USB data session. `STATS` reports `hobo_hf=1` when the crystal is confirmed running and `hf_rc` for the SoftDevice request/release result. Both the CPU wake and crystal request end after the first valid logger `STATUS` baseline or the existing 120-second failure budget.
 
+HOBO setup feedback now uses the station RGB LED without blocking the BLE state machine: three red flashes follow each failed connection/setup attempt, while three simultaneous red/green/blue flashes follow the first valid `STATUS` baseline of a successful handshake. The saved ambient-lighting state is restored afterward.
+
 V5 also fixes saved logger identity and explicit MAC-lock replacement on nRF52 LittleFS. Its write mode appends; the old implementation could leave an earlier MX2203 record first in the file even after an MX2001 had verified. The fixed-size record is now replaced, so `Last MAC` and changed locks survive reboot correctly. This reporting/storage bug occurs after logger identification and did not cause the earlier GATT discovery failure.
 
 Field testing isolated the difference between the failing and working cases: a computer USB **serial session** kept the RAK awake and the MX2001 handshake completed, while USB power alone behaved like battery power and did not fix it. USB voltage was therefore not the useful variable.
