@@ -65,6 +65,8 @@ static nrfx_wdt_channel_id nrfx_wdt_channel_id_nrf52_main;
 #if defined(FIELD_RECOVERY_V2)
 static nrfx_wdt_channel_id nrfx_wdt_channel_id_field;
 static volatile bool fieldWatchdogFeedAllowed = true;
+// Nonzero when a remote text command requests a watchdog-origin hardware reset.
+static volatile uint32_t remoteWatchdogResetAtMs = 0;
 #endif
 
 namespace
@@ -76,7 +78,54 @@ struct FieldDiag {
 };
 constexpr uint32_t FIELD_DIAG_MAGIC = 0x46334447;
 __attribute__((section(".noinit"))) FieldDiag fieldDiag;
+
+// Retained across CPU and watchdog resets. The validation word rejects corrupt/
+// uninitialized RAM; this is not a substitute for normal mesh authorization.
+struct RebootReplayGuard {
+    uint32_t magic, sender, packetId, validation;
+};
+constexpr uint32_t REBOOT_REPLAY_MAGIC = 0x52424F54UL;
+constexpr uint32_t REBOOT_REPLAY_XOR = 0x79B6C20DUL;
+__attribute__((section(".noinit"))) RebootReplayGuard rebootReplayGuard;
 } // namespace
+
+bool nrf52MarkRebootPacket(uint32_t sender, uint32_t packetId)
+{
+    // Packet IDs are normally nonzero; never accidentally reject an unnumbered command.
+    if (packetId == 0)
+        return true;
+    const uint32_t validation = REBOOT_REPLAY_MAGIC ^ sender ^ packetId ^ REBOOT_REPLAY_XOR;
+    if (rebootReplayGuard.magic == REBOOT_REPLAY_MAGIC &&
+        rebootReplayGuard.validation == validation &&
+        rebootReplayGuard.sender == sender && rebootReplayGuard.packetId == packetId) {
+        LOG_WARN("Ignored retransmitted reboot packet id=0x%08lX from=0x%08lX",
+                 (unsigned long)packetId, (unsigned long)sender);
+        return false;
+    }
+
+    rebootReplayGuard.magic = REBOOT_REPLAY_MAGIC;
+    rebootReplayGuard.sender = sender;
+    rebootReplayGuard.packetId = packetId;
+    rebootReplayGuard.validation = validation;
+    return true;
+}
+
+bool nrf52ScheduleWatchdogReset(uint32_t delayMs)
+{
+#if defined(FIELD_RECOVERY_V2)
+    if (remoteWatchdogResetAtMs != 0)
+        return false;
+    // Leave several seconds for the command reply to reach LoRa before starving
+    // the independent watchdog channel. No flash/calibration/configuration erase.
+    remoteWatchdogResetAtMs = millis() + delayMs;
+    if (remoteWatchdogResetAtMs == 0)
+        remoteWatchdogResetAtMs = 1;
+    return true;
+#else
+    (void)delayMs;
+    return false;
+#endif
+}
 
 void nrf52FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint16_t error)
 {
@@ -414,6 +463,13 @@ void nrf52Loop()
     }
     nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_nrf52_main);
 #if defined(FIELD_RECOVERY_V2)
+    const uint32_t requestedReset = remoteWatchdogResetAtMs;
+    if (requestedReset != 0 && (int32_t)(millis() - requestedReset) >= 0) {
+        remoteWatchdogResetAtMs = 0;
+        nrf52FieldDiagEvent(2, 4, 0); // subsystem=HOBO; operation=remote watchdog reset
+        LOG_WARN("Remote reboot: watchdog-origin hardware reset requested; waiting for WDT expiry");
+        nrf52FieldWatchdogTrip();
+    }
     if (fieldWatchdogFeedAllowed)
         nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_field);
 #endif

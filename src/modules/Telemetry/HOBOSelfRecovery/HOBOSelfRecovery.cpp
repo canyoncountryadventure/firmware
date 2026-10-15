@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5 AUDIT REPAIR";
+static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5 WDT RESET";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -101,7 +101,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         sendTextReply(mp.from, mp.channel,
                       "HELP 2/6 SYSTEM: POWER | BATTERY | STATS | DIAG | CLEAR "
                       "DIAG | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | "
-                      "SCAN | RECONNECT | RECOVER | REBOOT | DFU");
+                      "SCAN | RECONNECT | RECOVER | REBOOT | SOFT REBOOT | DFU");
         sendTextReply(mp.from, mp.channel,
                       "HELP 3/6 WATER CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK "
                       "| WATER INSTALL | WATER READ | WATER RAW | WATER VERIFY");
@@ -232,13 +232,36 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(payload, payloadSize, "RECOVER") || isCommand(payload, payloadSize, "REBOOT")) {
+    // Preserve the original fast software-reset path for an explicit command.
+    // DFU and internal update resets remain handled by their existing routines.
+    if (isCommand(payload, payloadSize, "SOFT REBOOT")) {
+        if (!nrf52MarkRebootPacket(mp.from, mp.id))
+            return ProcessMessage::CONTINUE;
         commandRecoveryCount++;
         if (rebootAtMsec == 0)
-            rebootAtMsec = millis() + 2000UL;
+            rebootAtMsec = millis() + 3000UL;
         sendTextReply(mp.from, mp.channel,
-                      "RECOVERY: flash-safe whole-node reboot scheduled in 2 sec; "
-                      "settings and logger lock preserved.");
+                      "SOFT REBOOT: CPU reset in 3 sec; flash/settings preserved.");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (isCommand(payload, payloadSize, "RECOVER") || isCommand(payload, payloadSize, "REBOOT")) {
+        // Mesh ACK/retries can replay a command just after reboot. RAM in .noinit
+        // retains this fingerprint across a CPU or watchdog reset.
+        if (!nrf52MarkRebootPacket(mp.from, mp.id))
+            return ProcessMessage::CONTINUE;
+        if (!nrf52FieldWatchdogIsArmed()) {
+            sendTextReply(mp.from, mp.channel, "REBOOT: hardware watchdog unavailable; no reset scheduled.");
+            return ProcessMessage::CONTINUE;
+        }
+        if (nrf52ScheduleWatchdogReset(3000UL)) {
+            commandRecoveryCount++;
+            sendTextReply(mp.from, mp.channel,
+                          "REBOOT: watchdog hardware reset armed in 3 sec; "
+                          "WDT may take up to 90 sec. Settings/calibration saved.");
+        } else {
+            sendTextReply(mp.from, mp.channel, "REBOOT: watchdog reset already scheduled.");
+        }
         return ProcessMessage::CONTINUE;
     }
 

@@ -2,6 +2,7 @@
 """Publish V5 README links only after validating the downloaded release set."""
 from pathlib import Path
 import hashlib
+from datetime import datetime, timezone
 import os
 import re
 import subprocess
@@ -56,7 +57,7 @@ checksums = "".join(
     f"Source commit: {source}\nWorkflow: {run_url}\nScout implementation: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa\n"
 )
 release = f"""<!-- V5_RELEASE_START -->
-Verified firmware: **Meshtastic 2.7.26.{source[:7]}**, source [`{source[:7]}`](https://github.com/canyoncountryadventure/firmware/commit/{source}), built October 14, 2026. Both field flavors and their exact matched autonomous Scouts passed [build/package verification]({run_url}).
+Verified firmware: **Meshtastic 2.7.26.{source[:7]}**, source [`{source[:7]}`](https://github.com/canyoncountryadventure/firmware/commit/{source}), built {datetime.now(timezone.utc).strftime('%B %d, %Y')}. Both field flavors and their exact matched autonomous Scouts passed [build/package verification]({run_url}).
 
 | Distance sensor | Monitoring station — USB | Field application — BLE DFU | Separate drone radio | Scout pairing |
 | --- | --- | --- | --- | --- |
@@ -79,7 +80,7 @@ text = validation.read_text()
 section = f"""<!-- CURRENT_CI_START -->
 ## Current V5 release verification
 
-Source `{source}`; [successful workflow]({run_url}). The expanded second-audit fault tests and all 20 preservation checks passed. Both RAK4631 field environments and both autonomous Scout images compiled successfully. UF2 chip/address/source checks, application-only ZIP integrity/DAT CRC/UF2 equivalence, exact embedded Scout application and DAT, and both LZ4 decoders passed. Publication rechecked the field packages and matched Scout manifest hashes before creating the front-page links. Download checksums and source are in `downloads/RAK-HOBO-v5-Audit-Repair`.
+Source `{source}`; [successful workflow]({run_url}). The lifecycle fault tests, watchdog-reset command regressions and all 20 preservation checks passed. Both RAK4631 field environments and both autonomous Scout images compiled successfully. UF2 chip/address/source checks, application-only ZIP integrity/DAT CRC/UF2 equivalence, exact embedded Scout application and DAT, and both LZ4 decoders passed. Publication rechecked the field packages and matched Scout manifest hashes before creating the front-page links. Download checksums and source are in `downloads/RAK-HOBO-v5-Audit-Repair`.
 
 No physical RAK/HOBO or airborne transfer was tested. Earlier local and unavailable native-suite results below remain distinct from this completed CI build.
 <!-- CURRENT_CI_END -->

@@ -5,17 +5,20 @@ RAK4631 firmware for **SEN0313/A01NYUB** or **MaxBotix MB7388** distance sensing
 ## Downloads
 
 <!-- V5_RELEASE_START -->
-Verified firmware: **Meshtastic 2.7.26.305f7b9**, source [`305f7b9`](https://github.com/canyoncountryadventure/firmware/commit/305f7b91ae7e850a61ccad197c683ade7168ef07), built October 14, 2026. Both field flavors and their exact matched autonomous Scouts passed [build/package verification](https://github.com/canyoncountryadventure/firmware/actions/runs/38644395772).
+**New watchdog-reset V5 build is awaiting verification.** Do not use the older V5 binaries for the new reset behavior. Once both sensor targets and matched autonomous drone Scouts pass GitHub Actions, this section will automatically contain their current UF2, OTA ZIP, drone UF2, manifests, checksums, source SHA and build links.
 
-| Distance sensor | Monitoring station — USB | Field application — BLE DFU | Separate drone radio | Scout pairing |
-| --- | --- | --- | --- | --- |
-| SEN0313 | [Field UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-SEN0313.uf2) | [Manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-SEN0313.uf2.txt) |
-| MB7388 | [Field UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-MB7388.uf2) | [Manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-MB7388.uf2.txt) |
-
-[SHA-256 checksums](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/SHA256SUMS.txt) · [Build source and provenance](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/BUILD.txt) · [Flashing/rollback](docs/diagnostic-8/FLASHING.md)
+[Follow the V5 build and publication](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_water_v5.yml)
 <!-- V5_RELEASE_END -->
 
 **Field UF2 goes on the monitoring station. Drone Scout UF2 goes on the separate RAK4631 carried by the drone.** The OTA ZIP is the field application for Nordic/Adafruit Legacy BLE DFU. An autonomous Scout carries its target image inside it; an old Scout will install its old embedded firmware.
+
+## October 14 update: remote watchdog reset
+
+- Text DM `REBOOT` or `RECOVER` now requests a **watchdog-origin hardware reset**, rather than the ordinary SoftDevice shutdown and CPU-only reset. The command reply transmits first; the watchdog is starved after three seconds and resets the nRF52840 within its approximately 90-second window.
+- A validated replay marker in retained `.noinit` RAM rejects the same sender/packet-ID reboot command after restart. This specifically addresses reboot packet retransmission across boots.
+- `SOFT REBOOT` retains the prior three-second conventional reset for comparison. Ordinary system and DFU update paths are unchanged.
+- The reset reason is reported by `STATUS` or `STATS`: `0x2` indicates watchdog reset, `0x1` reset pin, and `0x4` software reset. This is an internal hardware reset, **not** a power cycle, and field equivalence to the reset button has not yet been proven.
+- Calibration, saved sensor selection, MX2001 tracking, mesh identity, and wire protocol were not changed. This release requires field testing before a reliability claim.
 
 ## What changed on October 14
 
@@ -32,7 +35,7 @@ The second-audit regression reproduced the scanner stall before the correction a
 
 MX2001 water level/temperature; MX2201 and MX2203 temperature; automatic logger discovery; persistent manual MAC locks; truthful current model and last verified identity in `LOGGER`; logger interval/write-pointer synchronization; automatic telemetry on new records; SEN0313, MaxBotix and existing sensor power control; water distance, stage and discharge; existing calibration storage; Meshtastic identity/channels/encryption; and the existing remote DFU hook.
 
-No new factory reset, filesystem erase, calibration reset, timeout increase or watchdog-reset mechanism was introduced. A stored valid sensor configuration wins over the build's default.
+No factory reset, filesystem erase, calibration reset or timeout increase was introduced. The text-DM watchdog reset is explicitly requested; ordinary BLE retry does not automatically request it. A stored valid sensor configuration wins over the build's default.
 
 ## Update the field station
 
@@ -64,6 +67,8 @@ Send commands directly to the station. Bare `READ` reads HOBO; water commands us
 | `WATER TELEMETRY NOW` | Request water telemetry |
 | `HELP`, `WATER HELP` | Complete on-device commands |
 | `BLE`, `DIAG`, `STATS`, `WATCHDOG` | Diagnostics |
+| `REBOOT` or `RECOVER` | Schedule watchdog-origin hardware reset; can take up to approximately 90 seconds after arming |
+| `SOFT REBOOT` | Retain conventional fast CPU-only reset for comparison |
 | `DFU` | Enter the existing bootloader for the prepared update |
 
 `SCAN` and `RECONNECT` report automatic state-machine ownership; they do not force a manual restart. “Not identified” means the firmware has not verified the current candidate's model. A MAC/RSSI alone is not logger identification; FFFF in a missing-response discovery error is a sentinel, not a decoded GATT error.

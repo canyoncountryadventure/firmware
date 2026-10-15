@@ -110,6 +110,10 @@ extern SPISettings spiSettings;
 #if defined(ARCH_NRF52)
 void nrf52FieldWatchdogTrip();
 bool nrf52FieldWatchdogIsArmed();
+// Returns false for an already-consumed reboot text packet (including after reset).
+bool nrf52MarkRebootPacket(uint32_t sender, uint32_t packetId);
+// Schedules starvation of the field watchdog after the reply transmit window.
+bool nrf52ScheduleWatchdogReset(uint32_t delayMs);
 void nrf52FlashQuiesce();
 void nrf52FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint16_t error = 0);
 void nrf52FieldDiagPrint();
