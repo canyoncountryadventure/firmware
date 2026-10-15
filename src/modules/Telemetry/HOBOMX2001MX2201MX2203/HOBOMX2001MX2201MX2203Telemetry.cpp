@@ -1077,27 +1077,36 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
         return ProcessMessage::CONTINUE;
 
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "HOBO DIAG")) {
-        char reply[235] = {};
+        // Keep diagnostic DMs small: multi-hop mesh/PKI delivery of a nearly
+        // full text payload is unreliable. Include the actual last BLE error
+        // first so even an unexpectedly truncated diagnostic is actionable.
+        char reply[174] = {};
         snprintf(reply, sizeof(reply),
-                 "HOBO BLE DIAG IO1=OFF\n"
-                 "scan=%u conn=%u setup=%u\n"
-                 "try=%lu localfail=%lu\n"
+                 "HOBO DIAG IO1=OFF\n"
+                 "err:%.35s\n"
                  "GAP connect=%lu timeout=%lu disc=%lu\n"
-                 "lastEvent=0x%04X age=%lus\n"
-                 "timeoutSrc=%u discReason=0x%02X\n"
-                 "addrType=%u advConnect=%u RSSI=%d\n"
-                 "lastError=%.46s",
-                 Bluefruit.Scanner.isRunning() ? 1U : 0U, connected ? 1U : 0U, setupInProgress ? 1U : 0U,
-                 static_cast<unsigned long>(connectionAttempts.load()),
-                 static_cast<unsigned long>(connectionRequestFailures.load()),
+                 "try=%lu fail=%lu\n"
+                 "scan=%u conn=%u setup=%u src=%u dc=%02X\n"
+                 "addr=%u adv=%u rssi=%d",
+                 lastBleFailure,
                  static_cast<unsigned long>(gapConnectEvents.load()),
                  static_cast<unsigned long>(gapTimeoutEvents.load()),
                  static_cast<unsigned long>(gapDisconnectEvents.load()),
-                 lastGapEventId.load(),
-                 static_cast<unsigned long>(lastGapEventMs.load() ? (millis() - lastGapEventMs.load()) / 1000UL : 0),
-                 lastGapTimeoutSource.load(), lastGapDisconnectReason.load(),
-                 lastPeerAddressType.load(), lastAdvType.load(), loggerBleRssi, lastBleFailure);
-        sendTextReply(mp.from, mp.channel, reply);
+                 static_cast<unsigned long>(connectionAttempts.load()),
+                 static_cast<unsigned long>(connectionRequestFailures.load()),
+                 Bluefruit.Scanner.isRunning() ? 1U : 0U,
+                 connected ? 1U : 0U,
+                 setupInProgress ? 1U : 0U,
+                 static_cast<unsigned int>(lastGapTimeoutSource.load()),
+                 static_cast<unsigned int>(lastGapDisconnectReason.load()),
+                 static_cast<unsigned int>(lastPeerAddressType.load()),
+                 static_cast<unsigned int>(lastAdvType.load()),
+                 static_cast<int>(loggerBleRssi));
+        LOG_INFO("HOBO DIAG DM from=0x%08lX bytes=%u",
+                 static_cast<unsigned long>(mp.from), static_cast<unsigned int>(strlen(reply)));
+        const bool queued = sendTextReply(mp.from, mp.channel, reply);
+        if (!queued)
+            LOG_WARN("HOBO DIAG: reply allocation failed");
         return ProcessMessage::CONTINUE;
     }
 
