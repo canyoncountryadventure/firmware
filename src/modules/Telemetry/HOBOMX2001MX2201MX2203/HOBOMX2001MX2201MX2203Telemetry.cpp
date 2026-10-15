@@ -300,6 +300,9 @@ bool saveLoggerLock()
     record[11] = lockChecksum(record, 11);
 
     concurrency::LockGuard g(spiLock);
+    // Adafruit LittleFS FILE_O_WRITE appends. Remove the fixed-size record
+    // first so a changed target replaces the old record instead of following it.
+    FSCom.remove(LOCK_FILE_PATH);
     File file = FSCom.open(LOCK_FILE_PATH, FILE_O_WRITE);
     if (!file) {
         LOG_WARN("HOBO universal: failed to open logger lock file for write");
@@ -384,6 +387,9 @@ void rememberLoggerIdentity()
     memcpy(&record[5], lastVerifiedAddr, 6);
     record[11] = lockChecksum(record, 11);
     concurrency::LockGuard g(spiLock);
+    // FILE_O_WRITE is append mode on nRF52 LittleFS. The loader reads the
+    // first record, so explicitly replace it when a different logger verifies.
+    FSCom.remove(IDENTITY_FILE_PATH);
     File file = FSCom.open(IDENTITY_FILE_PATH, FILE_O_WRITE);
     if (!file) {
         LOG_WARN("HOBO v5: could not save verified logger model");
