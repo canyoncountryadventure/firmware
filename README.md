@@ -17,6 +17,17 @@ Verified firmware: **Meshtastic 2.7.26.35755a4**, source [`35755a4`](https://git
 
 **Field UF2 goes on the monitoring station. Drone Scout UF2 goes on the separate RAK4631 carried by the drone.** The OTA ZIP is the field application for Nordic/Adafruit Legacy BLE DFU. An autonomous Scout carries its target image inside it; an old Scout will install its old embedded firmware.
 
+## October 15 update: battery-mode HOBO handshake
+
+Field testing isolated the difference between the failing and working cases: a computer USB **serial session** kept the RAK awake and the MX2001 handshake completed, while USB power alone behaved like battery power and did not fix it. USB voltage was therefore not the useful variable.
+
+- V5 now requests continuous CPU wake only while it scans, connects, discovers the HOBO service/characteristic, identifies the logger, and establishes the first valid `STATUS` baseline.
+- The wake request is released immediately after that verified baseline, so normal nRF52 sleep resumes while the established BLE link and ordinary 30-second status checks continue.
+- A missing or non-responsive logger gets a maximum **120-second awake window**, followed by a **5-minute sleep/cooldown** before another candidate can start a new window. A healthy link that later disconnects receives a fresh bounded reconnect window.
+- BLE connection/discovery timeouts, passive 10% scan duty, logger recording interval, mesh telemetry cadence, calibration, and saved logger identity/lock were not changed.
+- The Safe V3/V4 branches were checked before this change. They use the same platform rule—sleep is disabled only by an active USB serial session—and do not contain a separate HOBO wake lock to copy. V5 preserves their bounded BLE discovery flow and adds this narrowly scoped handshake owner.
+- CI exercises acquisition, deadline expiry, cooldown, success release, and reconnect re-arming. Physical battery-mode RAK/MX2001 validation is still required before calling the field issue solved.
+
 ## October 14 update: remote watchdog reset
 
 - Text DM `REBOOT` or `RECOVER` now requests a **watchdog-origin hardware reset**, rather than the ordinary SoftDevice shutdown and CPU-only reset. The command reply transmits first; the watchdog is starved after three seconds and resets the nRF52840 within its approximately 90-second window.
