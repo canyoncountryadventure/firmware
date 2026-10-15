@@ -13,7 +13,7 @@ power = (root / "src/Power.cpp").read_text()
 readme = (root / "README.md").read_text()
 
 def body(name, text):
-    match = re.search(r"\\b" + re.escape(name) + r"\\s*\\([^)]*\\)\\s*\\{", text)
+    match = re.search(r"\b" + re.escape(name) + r"\s*\([^)]*\)\s*\{", text)
     assert match, name
     depth, pos = 1, match.end()
     while depth:
