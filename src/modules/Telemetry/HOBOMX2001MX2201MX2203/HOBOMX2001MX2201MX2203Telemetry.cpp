@@ -12,6 +12,10 @@
 #include "SPILock.h"
 #include "main.h"
 #include "pb_encode.h"
+#if defined(HAS_RGB_LED)
+#include "AmbientLightingThread.h"
+extern AmbientLightingThread *ambientLightingThread;
+#endif
 
 #include "mesh/Throttle.h"
 #include <atomic>
@@ -55,6 +59,8 @@ enum class MetaProfile : uint8_t { NONE = 0, MX2001, MX2201 };
 
 enum class ReadPurpose : uint8_t { PROBE = 0, AUTOMATIC, ON_DEMAND };
 
+enum class HoboLedPattern : uint8_t { NONE = 0, FAILURE_RED, SUCCESS_RGB };
+
 enum class UniversalState : uint8_t {
     IDLE = 0,
     SEND_INIT,
@@ -92,6 +98,11 @@ std::atomic<bool> connectTimedOut{false};
 std::atomic<uint16_t> discoveryGattStatus{0xFFFF};
 std::atomic<uint16_t> discoveryServiceCount{0};
 std::atomic<bool> discoveryResponseSeen{false};
+std::atomic<uint8_t> pendingLedPattern{static_cast<uint8_t>(HoboLedPattern::NONE)};
+HoboLedPattern activeLedPattern = HoboLedPattern::NONE;
+uint8_t ledTransitionsRemaining = 0;
+bool hoboLedOn = false;
+uint32_t nextLedTransitionMs = 0;
 LoggerType lastVerifiedType = LoggerType::UNKNOWN;
 uint8_t lastVerifiedAddr[6] = {};
 char lastBleFailure[48] = "none";
@@ -179,6 +190,9 @@ static constexpr uint32_t BOOTSTRAP_TIMEOUT_MS = 30000UL;
 // must not hold the CPU awake forever.
 static constexpr uint32_t HANDSHAKE_AWAKE_BUDGET_MS = 120000UL;
 static constexpr uint32_t HANDSHAKE_WAKE_COOLDOWN_MS = 300000UL;
+static constexpr uint32_t HOBO_LED_STEP_MS = 250UL;
+static constexpr uint8_t HOBO_LED_LEVEL = 160;
+static constexpr float HOBO_LED_CURRENT = 10.0f;
 static constexpr char IDENTITY_FILE_PATH[] = "/prefs/hobo_identity.bin";
 static constexpr char LOCK_FILE_PATH[] = "/prefs/hobo_lock.bin";
 
@@ -192,9 +206,57 @@ static constexpr float MX2203_FULL_RAW = 16384.0f;
 static constexpr float MX2203_CONST_C = 46.85f;
 static constexpr uint32_t MX2203_MAX_RAW = 16383;
 
+void requestHoboLedPattern(HoboLedPattern pattern)
+{
+    pendingLedPattern.store(static_cast<uint8_t>(pattern));
+}
+
 bool reached(uint32_t now, uint32_t target)
 {
     return static_cast<int32_t>(now - target) >= 0;
+}
+
+void serviceHoboLedPattern(uint32_t now)
+{
+    const HoboLedPattern pending = static_cast<HoboLedPattern>(
+        pendingLedPattern.exchange(static_cast<uint8_t>(HoboLedPattern::NONE)));
+    if (pending != HoboLedPattern::NONE) {
+        activeLedPattern = pending;
+        ledTransitionsRemaining = 6;
+        hoboLedOn = false;
+        nextLedTransitionMs = now;
+    }
+
+    if (activeLedPattern == HoboLedPattern::NONE || !reached(now, nextLedTransitionMs))
+        return;
+
+#if defined(HAS_RGB_LED)
+    if (ambientLightingThread != nullptr) {
+        hoboLedOn = !hoboLedOn;
+        if (hoboLedOn) {
+            const uint8_t greenBlue =
+                activeLedPattern == HoboLedPattern::SUCCESS_RGB ? HOBO_LED_LEVEL : 0;
+            ambientLightingThread->setTemporaryLighting(HOBO_LED_CURRENT, HOBO_LED_LEVEL, greenBlue, greenBlue);
+        } else {
+            ambientLightingThread->setTemporaryLighting(0, 0, 0, 0);
+        }
+    }
+#endif
+
+    if (ledTransitionsRemaining > 0)
+        ledTransitionsRemaining--;
+    if (ledTransitionsRemaining == 0) {
+#if defined(HAS_RGB_LED)
+        if (ambientLightingThread != nullptr)
+            ambientLightingThread->restoreConfiguredLighting();
+#endif
+        activeLedPattern = HoboLedPattern::NONE;
+        hoboLedOn = false;
+        nextLedTransitionMs = 0;
+        return;
+    }
+
+    nextLedTransitionMs = now + HOBO_LED_STEP_MS;
 }
 
 bool requestHandshakeWake(uint32_t now)
@@ -827,6 +889,7 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
         scanRestartRequested = true;
         scanRetryDueMs = millis() + SCAN_RETRY_MS;
         snprintf(lastBleFailure, sizeof(lastBleFailure), "connection request failed");
+        requestHoboLedPattern(HoboLedPattern::FAILURE_RED);
     }
 }
 
@@ -992,6 +1055,7 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 
 void triggerBleRecovery(const char *reason)
 {
+    requestHoboLedPattern(HoboLedPattern::FAILURE_RED);
     concurrency::LockGuard guard(&bleLifecycleLock);
     if (bleRecoveryCycles < UINT8_MAX)
         bleRecoveryCycles++;
@@ -1303,6 +1367,7 @@ bool HOBOMX2001MX2201MX2203TelemetryModule::sendTextReply(uint32_t destination, 
 int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 {
     const uint32_t now = millis();
+    serviceHoboLedPattern(now);
 
     auto sendTemperatureTelemetry = [&](float temperatureC) -> bool {
         meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
@@ -1727,6 +1792,7 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 lastWritePointer = currentWritePointer;
                 intervalPhaseLocked = false;
                 releaseHandshakeWake(true, now);
+                requestHoboLedPattern(HoboLedPattern::SUCCESS_RGB);
 
                 LOG_INFO("HOBO universal: status baseline model=%s pointer=0x%08lX "
                          "interval=%u sec; syncing to next true record boundary",
