@@ -19,10 +19,14 @@ Verified firmware: **Meshtastic 2.7.26.3580e56**, source [`3580e56`](https://git
 
 ## October 15 update: battery-mode HOBO handshake
 
+The first battery-mode test proved that suppressing Meshtastic's long idle sleep was not sufficient: `hobo_wake=1` remained active while service discovery still returned `rsp=0 gatt=FFFF n=0`. The follow-up build therefore also holds the nRF52840 high-frequency crystal during the same bounded handshake window, matching the important clock-side effect of an active USB data session. `STATS` reports `hobo_hf=1` when the crystal is confirmed running and `hf_rc` for the SoftDevice request/release result. Both the CPU wake and crystal request end after the first valid logger `STATUS` baseline or the existing 120-second failure budget.
+
+V5 also fixes saved logger identity and explicit MAC-lock replacement on nRF52 LittleFS. Its write mode appends; the old implementation could leave an earlier MX2203 record first in the file even after an MX2001 had verified. The fixed-size record is now replaced, so `Last MAC` and changed locks survive reboot correctly. This reporting/storage bug occurs after logger identification and did not cause the earlier GATT discovery failure.
+
 Field testing isolated the difference between the failing and working cases: a computer USB **serial session** kept the RAK awake and the MX2001 handshake completed, while USB power alone behaved like battery power and did not fix it. USB voltage was therefore not the useful variable.
 
-- V5 now requests continuous CPU wake from HOBO module creation—before the first battery-mode idle-loop sleep—through scanning, connection, GATT discovery, logger identification, and the first valid `STATUS` baseline.
-- The wake request is released immediately after that verified baseline, so normal nRF52 sleep resumes while the established BLE link and ordinary 30-second status checks continue. `STATS` reports `hobo_wake=1` while the request is active and `hobo_wake=0` after release.
+- V5 now requests continuous CPU wake and the nRF52840 high-frequency crystal from HOBO module creation—before the first battery-mode idle-loop sleep—through scanning, connection, GATT discovery, logger identification, and the first valid `STATUS` baseline.
+- Both requests are released immediately after that verified baseline, so normal nRF52 sleep resumes while the established BLE link and ordinary 30-second status checks continue. `STATS` reports `hobo_wake`, confirmed crystal state as `hobo_hf`, and the SoftDevice clock result as `hf_rc`.
 - A missing or non-responsive logger gets a maximum **120-second awake window**, followed by a **5-minute sleep/cooldown** before another candidate can start a new window. A healthy link that later disconnects receives a fresh bounded reconnect window.
 - BLE connection/discovery timeouts, passive 10% scan duty, logger recording interval, mesh telemetry cadence, calibration, and saved logger identity/lock were not changed.
 - The Safe V3/V4 branches were checked before this change. They use the same platform rule—sleep is disabled only by an active USB serial session—and do not contain a separate HOBO wake lock to copy. V5 preserves their bounded BLE discovery flow and adds this narrowly scoped handshake owner.
