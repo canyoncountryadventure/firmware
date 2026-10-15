@@ -1,6 +1,6 @@
-Target source commit: 305f7b91ae7e850a61ccad197c683ade7168ef07
+Target source commit: 35755a47d455e8fb9aa044441d1c40eb9378269c
 Target environment: rak4631_mb7388_v5
 Scout implementation commit: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa
 Exact embedded application and DAT verified; both LZ4 decoders verified
-5e64608db6b28640c0ef7a418433c911d9e05519b7827b476218f1d042b7a11c  export/Drone-RAK-HOBO-v5-Audit-Repair-MB7388.uf2
-7b281869ae9cfe71ecab3f2465073592de7aab2ea0b42642c449ebe22ac06cdb  export/RAK-HOBO-v5-Audit-Repair-MB7388-OTA.zip
+7373cbb1b9a878562866cb750ac1c0188dc8dc7155c4a7fc7b79905c82dc40d8  export/Drone-RAK-HOBO-v5-Audit-Repair-MB7388.uf2
+d685056dac7d186cf5d817681a38f621d33c5f3330c7ec920f3ba038826f03b6  export/RAK-HOBO-v5-Audit-Repair-MB7388-OTA.zip

@@ -5,9 +5,14 @@ RAK4631 firmware for **SEN0313/A01NYUB** or **MaxBotix MB7388** distance sensing
 ## Downloads
 
 <!-- V5_RELEASE_START -->
-**New watchdog-reset V5 build is awaiting verification.** Do not use the older V5 binaries for the new reset behavior. Once both sensor targets and matched autonomous drone Scouts pass GitHub Actions, this section will automatically contain their current UF2, OTA ZIP, drone UF2, manifests, checksums, source SHA and build links.
+Verified firmware: **Meshtastic 2.7.26.35755a4**, source [`35755a4`](https://github.com/canyoncountryadventure/firmware/commit/35755a47d455e8fb9aa044441d1c40eb9378269c), built October 15, 2026. Both field flavors and their exact matched autonomous Scouts passed [build/package verification](https://github.com/canyoncountryadventure/firmware/actions/runs/38663581582).
 
-[Follow the V5 build and publication](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_water_v5.yml)
+| Distance sensor | Monitoring station — USB | Field application — BLE DFU | Separate drone radio | Scout pairing |
+| --- | --- | --- | --- | --- |
+| SEN0313 | [Field UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-SEN0313-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-SEN0313.uf2) | [Manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-SEN0313.uf2.txt) |
+| MB7388 | [Field UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388.uf2) | [OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/RAK-HOBO-v5-Audit-Repair-MB7388-OTA.zip) | [Drone UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-MB7388.uf2) | [Manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/Drone-RAK-HOBO-v5-Audit-Repair-MB7388.uf2.txt) |
+
+[SHA-256 checksums](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/SHA256SUMS.txt) · [Build source and provenance](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v5/downloads/RAK-HOBO-v5-Audit-Repair/BUILD.txt) · [Flashing/rollback](docs/diagnostic-8/FLASHING.md)
 <!-- V5_RELEASE_END -->
 
 **Field UF2 goes on the monitoring station. Drone Scout UF2 goes on the separate RAK4631 carried by the drone.** The OTA ZIP is the field application for Nordic/Adafruit Legacy BLE DFU. An autonomous Scout carries its target image inside it; an old Scout will install its old embedded firmware.

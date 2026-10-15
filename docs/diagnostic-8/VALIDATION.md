@@ -3,7 +3,7 @@
 <!-- CURRENT_CI_START -->
 ## Current V5 release verification
 
-Source `305f7b91ae7e850a61ccad197c683ade7168ef07`; [successful workflow](https://github.com/canyoncountryadventure/firmware/actions/runs/38644395772). The expanded second-audit fault tests and all 20 preservation checks passed. Both RAK4631 field environments and both autonomous Scout images compiled successfully. UF2 chip/address/source checks, application-only ZIP integrity/DAT CRC/UF2 equivalence, exact embedded Scout application and DAT, and both LZ4 decoders passed. Publication rechecked the field packages and matched Scout manifest hashes before creating the front-page links. Download checksums and source are in `downloads/RAK-HOBO-v5-Audit-Repair`.
+Source `35755a47d455e8fb9aa044441d1c40eb9378269c`; [successful workflow](https://github.com/canyoncountryadventure/firmware/actions/runs/38663581582). The lifecycle fault tests, watchdog-reset command regressions and all 20 preservation checks passed. Both RAK4631 field environments and both autonomous Scout images compiled successfully. UF2 chip/address/source checks, application-only ZIP integrity/DAT CRC/UF2 equivalence, exact embedded Scout application and DAT, and both LZ4 decoders passed. Publication rechecked the field packages and matched Scout manifest hashes before creating the front-page links. Download checksums and source are in `downloads/RAK-HOBO-v5-Audit-Repair`.
 
 No physical RAK/HOBO or airborne transfer was tested. Earlier local and unavailable native-suite results below remain distinct from this completed CI build.
 <!-- CURRENT_CI_END -->
