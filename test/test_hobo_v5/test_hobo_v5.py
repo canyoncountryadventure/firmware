@@ -234,6 +234,9 @@ assert "nrf52FieldWatchdogTrip" not in source
 assert "UniversalState::DISCOVER_SERVICE" not in source
 assert "scanRestartRequested || !Bluefruit.Scanner.isRunning()" in source
 assert "Bluefruit.Scanner.setInterval(320, 32)" in source
+assert "requestHandshakeWake(millis());" in block(
+    "HOBOMX2001MX2201MX2203TelemetryModule::HOBOMX2001MX2201MX2203TelemetryModule()"
+)
 assert "releaseHandshakeWake(true, now);" in source[
     source.index("case UniversalState::WAIT_STATUS") :
     source.index("case UniversalState::READY")
