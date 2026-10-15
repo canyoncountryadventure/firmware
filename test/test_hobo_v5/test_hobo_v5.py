@@ -233,6 +233,16 @@ int main(){
 assert "nrf52FieldWatchdogTrip" not in source
 assert "FSCom.remove(LOCK_FILE_PATH);" in block("bool saveLoggerLock()")
 assert "FSCom.remove(IDENTITY_FILE_PATH);" in block("void rememberLoggerIdentity()")
+assert "requestHoboLedPattern(HoboLedPattern::FAILURE_RED);" in block(
+    "void triggerBleRecovery(const char *reason)"
+)
+assert "requestHoboLedPattern(HoboLedPattern::SUCCESS_RGB);" in source[
+    source.index("case UniversalState::WAIT_STATUS") :
+    source.index("case UniversalState::READY")
+]
+assert "serviceHoboLedPattern(now);" in block(
+    "int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()"
+)
 assert "UniversalState::DISCOVER_SERVICE" not in source
 assert "scanRestartRequested || !Bluefruit.Scanner.isRunning()" in source
 assert "Bluefruit.Scanner.setInterval(320, 32)" in source
