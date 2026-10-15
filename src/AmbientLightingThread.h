@@ -44,6 +44,33 @@ class AmbientLightingThread : public concurrency::OSThread
 #endif
 
   public:
+#ifdef HAS_RGB_LED
+    // Short-lived subsystem feedback may borrow the RGB output without enabling
+    // the ambient-lighting thread or changing the saved ambient configuration.
+    void setTemporaryLighting(float current, uint8_t red, uint8_t green, uint8_t blue)
+    {
+#if defined(HAS_NCP5623) || defined(HAS_LP5562)
+        if (_type == ScanI2C::DeviceType::NONE)
+            return;
+#endif
+        setLighting(current, red, green, blue);
+    }
+
+    void restoreConfiguredLighting()
+    {
+#if defined(HAS_NCP5623) || defined(HAS_LP5562)
+        if (_type == ScanI2C::DeviceType::NONE)
+            return;
+#endif
+        if (moduleConfig.ambient_lighting.led_state) {
+            setLighting(moduleConfig.ambient_lighting.current, moduleConfig.ambient_lighting.red,
+                        moduleConfig.ambient_lighting.green, moduleConfig.ambient_lighting.blue);
+        } else {
+            setLighting(0, 0, 0, 0);
+        }
+    }
+#endif
+
     explicit AmbientLightingThread(ScanI2C::DeviceType type) : OSThread("AmbientLighting")
     {
         notifyDeepSleepObserver.observe(&notifyDeepSleep); // Let us know when shutdown() is issued.
