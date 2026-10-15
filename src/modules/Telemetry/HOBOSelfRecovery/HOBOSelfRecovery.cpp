@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5 WDT RESET";
+static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5 HFCLK DIAG";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -197,14 +197,15 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         const auto *radio = RadioLibInterface::instance;
         snprintf(reply, sizeof(reply),
                  "STATS: radio_recover=%lu/%lu tx=%lu last_tx=%lus cmd_reboots=%lu "
-                 "reset=0x%08lX hobo_wake=%u",
+                 "reset=0x%08lX hobo_wake=%u hobo_hf=%u hf_rc=%lu",
                  radio ? static_cast<unsigned long>(radio->radioRecoverySuccesses) : 0UL,
                  radio ? static_cast<unsigned long>(radio->radioRecoveryAttempts) : 0UL,
                  radio ? static_cast<unsigned long>(radio->txGood) : 0UL,
                  radio && radio->lastTxCompleteMs ? static_cast<unsigned long>((millis() - radio->lastTxCompleteMs) / 1000UL)
                                                   : 0UL,
                  static_cast<unsigned long>(commandRecoveryCount), static_cast<unsigned long>(resetReasonAtBoot),
-                 nrf52HoboHandshakeAwake() ? 1U : 0U);
+                 nrf52HoboHandshakeAwake() ? 1U : 0U, nrf52HoboHandshakeHfclkRunning() ? 1U : 0U,
+                 static_cast<unsigned long>(nrf52HoboHandshakeHfclkResult()));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
