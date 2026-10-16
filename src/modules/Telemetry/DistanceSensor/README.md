@@ -1,3 +1,7 @@
+## V5 water sampling update — October 16, 2026
+
+Calibration, live telemetry, READ, RAW, STATUS and VERIFY use the median of ten valid fresh readings after one eight-second nonblocking warm-up. The sensor remains powered throughout the burst and turns off when finished. The middle pair is averaged and rounded to whole millimeters; stage is calculated from that median. Up to twenty attempts are allowed; incomplete bursts fail instead of reporting partial results. READ/RAW display sample count and spread. Existing saved calibration, reporting interval and HOBO/BLE behavior are preserved. AUTO detection remains a single probe.
+
 # Distance Sensor Firmware
 
 This folder contains the first working implementation of the **field-configurable distance-sensor firmware** for the Meshtastic field network.

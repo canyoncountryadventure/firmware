@@ -56,7 +56,7 @@ The electrical arrangement remains Pololu VIN on the existing 3.3 V supply, GND 
 | --- | --- | --- |
 | Sensor settling | 8000 ms, nonblocking | Retain proven MB cold-start settling while allowing HOBO and mesh jobs to run |
 | Sampling scheduler | 100 ms while busy, 1 s idle | Already present in successful build; drains UART during settling |
-| Sensor power | ON for one job; OFF at completion/cancel; VERIFY 5 / CAL 7 valid samples within one window | Avoid repeated cold starts; bounded at 10 / 14 attempts |
+| Sensor power | ON for one job; OFF at completion/cancel; Live / READ / RAW / STATUS / VERIFY / CAL: 10 valid samples within one window | Even median, rounded to whole mm; bounded at 20 attempts |
 | Driver frame limits | DFRobot 450 ms; MB7388 3000 ms | Retain successful parser behavior; these shorter reads still block the cooperative controller |
 | Water interval | Saved value; fresh default 3600 s | No silent rewrite to 1, 5 or 15 min |
 | Acquisition scan | Passive 320/32 BLE units: 200 ms period / 20 ms window = 10% | Five times less receive-window duty than the rejected 50% setting; not a fivefold whole-node battery-life claim |
@@ -89,3 +89,13 @@ The finalization replaces conflicting front-page/companion documentation, adds t
 Both sensor applications and exact matched autonomous drone images must pass the workflow before publication. The normal station images are application-only and do not include SoftDevice, bootloader or filesystem addresses. Drone images embed the exact new field application and its DFU init packet. Physical calibration retention, repeated battery-only reconnection, hourly automatic records and actual airborne transfer remain distinct hardware checks. No new physical test is claimed by this finalization.
 
 The final README download links are pinned to the verified artifact publication commit, so later branch edits cannot silently substitute a different field/drone pair.
+
+## October 16: ten-sample water medians
+
+Normal transmitted water readings previously used one driver result, while calibration used seven and verification used five. All result-producing water jobs now require ten valid fresh driver results after the existing eight-second nonblocking warm-up. The sensor stays on throughout the burst; the scheduler returns between attempts. Each driver's fresh-frame flush and timeout are unchanged. AUTO detection remains a probe, not a reported measurement.
+
+The sorted middle pair is averaged using 64-bit arithmetic and rounded to the nearest whole millimeter (halves upward), matching the unchanged 24-byte gateway packet. Stage is recomputed from that median. Calibration saves the same median through the existing verified persistence path. `WATER READ` and `RAW` include sample count and spread; CAL and VERIFY retain spread reporting.
+
+Up to twenty attempts may collect the ten valid samples. An incomplete burst cannot create a valid stage or overwrite calibration; scheduled telemetry reports invalid flags. This changes neither the HOBO state machine nor the persistent calibration layout, saved settings, reporting interval, keys or logger lock. Existing calibration is retained on application-only update.
+
+Compiled production-method host tests exercise all seven result jobs, even-median rounding with outliers, median-derived live stage, invalid-frame retries, nine-valid-sample failure with a valid final frame, failed calibration, single power ownership, AUTO probing, cancellation and timestamp rollover. Field noise reduction and physical BLE operation still require installed-radio checks.

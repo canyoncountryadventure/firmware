@@ -60,7 +60,8 @@
     },
     {
       "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.h",
-      "sha256": "e0918e9c8a17478d05c18311128bd253a6ef3551a5b97aafa8725711c2b0c94e"
+      "sha256": "68836e0186f8221180e6045fdd5a4fb0a5c6d78cf601a1144f263d9e7a1abf87",
+      "signature": "struct PersistentConfig"
     },
     {
       "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorDrivers.cpp",

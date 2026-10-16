@@ -2,7 +2,7 @@
 
 RAK4631/RAK19007 monitoring firmware for **DFRobot SEN0313/A01NYUB** or **MaxBotix MB7388**, with HOBO **MX2001**, **MX2201** and **MX2203** support.
 
-The selected V5 package preserves the implementation that successfully read the MX2001 on October 15. It keeps the full eight-second sensor settling time while returning control to the HOBO/mesh scheduler, uses V3's passive 10% scan, and releases its temporary CPU wake/clock requests after a valid logger STATUS baseline. [Full version audit and rationale](docs/diagnostic-8/V5-FINAL-AUDIT.md).
+V5 retains the HOBO/BLE implementation that successfully read the MX2001 on October 15. Water calibration and live measurements now use the median of 10 valid fresh readings after one warm-up. It keeps the full eight-second sensor settling time while returning control to the HOBO/mesh scheduler, uses V3's passive 10% scan, and releases its temporary CPU wake/clock requests after a valid logger STATUS baseline. [Full version audit and rationale](docs/diagnostic-8/V5-FINAL-AUDIT.md).
 
 ## Downloads
 
@@ -34,7 +34,7 @@ The last functional update before success replaced the blocking wait with schedu
 | --- | --- |
 | Sensor power | Pololu ON from IO1/P0.17; full 8 s settling; OFF between jobs |
 | Sensor scheduling | Warm-up returns to scheduler; one sample job owns the rail; busy requests receive a reply |
-| VERIFY / CAL | Five / seven valid readings after one warm-up, rather than repeated power cycles |
+| Live / READ / RAW / VERIFY / CAL | Median of 10 valid fresh readings after one warm-up; up to 20 attempts; incomplete bursts fail |
 | BLE acquisition | Passive 200 ms period / 20 ms receive window (10%); no periodic restart of healthy scanning |
 | Connection / setup | Existing 30 s connection limit; V3 callback discovery, three bounded attempts per step |
 | Handshake power | CPU wake + HFCLK request from module creation, maximum 120 s; release at first valid STATUS baseline |
@@ -43,6 +43,8 @@ The last functional update before success replaced the blocking wait with schedu
 | Water interval | Preserve saved interval; fresh-install default one hour |
 | Recovery | Core/radio watchdog and existing 12-hour maintenance reboot; ordinary HOBO errors retry without forced watchdog resets |
 | Feedback | Three red flashes on failed setup; three simultaneous RGB flashes on verified handshake |
+
+Ten-sample medians average the two middle distances and round half millimeters upward to the packet’s whole-millimeter resolution. `WATER READ` and `RAW` report the sample count and spread. A burst uses one power-on window and yields between readings; no long sampling loop blocks the HOBO scheduler. Existing calibration, identity, channels, keys, logger lock, and reporting interval are retained by application-only updates.
 
 Single driver reads still have bounded waits: up to 450 ms for DFRobot UART and 3 s for MB7388. The eight-second power warm-up is nonblocking. The 5 min cooldown does not shut down the mesh or scanner.
 

@@ -520,38 +520,65 @@ void DistanceSensorModule::serviceSample(uint32_t now)
     }
 
     const DistanceReading reading = readDistance();
-    if (completed == SampleJob::VERIFY || completed == SampleJob::CALIBRATE) {
-        ++sampleAttempts;
-        if (reading.valid() && sampleCount < 9)
-            sampleValues[sampleCount++] = reading.distanceMm;
-        const uint8_t needed = completed == SampleJob::CALIBRATE ? 7 : 5;
-        const uint8_t maximum = completed == SampleJob::CALIBRATE ? 14 : 10;
-        if (sampleCount < needed && sampleAttempts < maximum) {
-            nextSampleMs = millis() + 80;
-            return;
-        }
-        setDistanceSensorPower(false);
-        sampleJob = SampleJob::NONE;
-        if (sampleCount < needed) {
-            sendTextReply(requester, channel, completed == SampleJob::CALIBRATE
-                              ? "CAL failed: fewer than 7 valid fresh readings. Check sensor/wiring."
-                              : "VERIFY failed: fewer than 5 valid fresh readings");
-            return;
-        }
-        std::sort(sampleValues, sampleValues + sampleCount);
-        const uint32_t median = sampleValues[sampleCount / 2];
-        const uint32_t low = sampleValues[0];
-        const uint32_t high = sampleValues[sampleCount - 1];
-        if (completed == SampleJob::CALIBRATE)
-            finishCalibration(knownStage, requester, channel, median, low, high);
-        else
-            replyVerify(requester, channel, median, low, high);
+    ++sampleAttempts;
+    if (reading.valid() && sampleCount < SAMPLE_COUNT)
+        sampleValues[sampleCount++] = reading.distanceMm;
+    if (sampleCount < SAMPLE_COUNT && sampleAttempts < MAX_SAMPLE_ATTEMPTS)
+    {
+        nextSampleMs = millis() + 80;
         return;
     }
 
     setDistanceSensorPower(false);
     sampleJob = SampleJob::NONE;
-    switch (completed) {
+    latestSampleCount = sampleCount;
+    latestSampleSpreadMm = 0;
+    if (sampleCount < SAMPLE_COUNT)
+    {
+        if (latestReading.valid())
+            latestReading.status = DistanceReadStatus::TIMEOUT;
+        latestReading.distanceMm = 0;
+        latestStageValid = false;
+        LOG_WARN("WaterDistance: burst failed: %u/10 valid samples in %u attempts", sampleCount, sampleAttempts);
+        if (completed == SampleJob::CALIBRATE || completed == SampleJob::VERIFY)
+        {
+            sendTextReply(requester, channel,
+                          completed == SampleJob::CALIBRATE ? "CAL failed: fewer than 10 valid fresh readings. Check "
+                                                              "sensor/wiring."
+                                                            : "VERIFY failed: fewer than 10 valid fresh readings");
+            return;
+        }
+    }
+    else
+    {
+        std::sort(sampleValues, sampleValues + sampleCount);
+        // The packet stores whole millimeters; round the even median to the
+        // nearest millimeter.
+        const uint32_t median = static_cast<uint32_t>((static_cast<uint64_t>(sampleValues[4]) + sampleValues[5] + 1U) / 2U);
+        const uint32_t low = sampleValues[0];
+        const uint32_t high = sampleValues[SAMPLE_COUNT - 1];
+        latestSampleSpreadMm = high - low;
+        latestReading.status = DistanceReadStatus::OK;
+        latestReading.distanceMm = median;
+        latestReading.measuredAtMs = millis();
+        latestStageValid = (cfg.flags & FLAG_CALIBRATED) != 0;
+        if (latestStageValid)
+            latestStageMm = cfg.stageReferenceMm - static_cast<int32_t>(median);
+        LOG_INFO("WaterDistance: median of 10=%lumm spread=%lumm attempts=%u", static_cast<unsigned long>(median),
+                 static_cast<unsigned long>(latestSampleSpreadMm), sampleAttempts);
+        if (completed == SampleJob::CALIBRATE)
+        {
+            finishCalibration(knownStage, requester, channel, median, low, high);
+            return;
+        }
+        if (completed == SampleJob::VERIFY)
+        {
+            replyVerify(requester, channel, median, low, high);
+            return;
+        }
+    }
+    switch (completed)
+    {
     case SampleJob::SCHEDULED:
         sendDistanceTelemetry();
         break;
@@ -691,7 +718,7 @@ bool DistanceSensorModule::finishCalibration(int32_t knownStageMm, uint32_t requ
     char reply[230] = {};
     snprintf(reply, sizeof(reply),
              "CAL SAVED + LOCKED\nRaw median: %.3f ft (%lumm)\nKnown stage: %.3f "
-             "ft\nReference: %.3f ft\nSample spread: %lumm",
+             "ft\nReference: %.3f ft\nSamples:10\nSample spread: %lumm",
              median / 304.8f, static_cast<unsigned long>(median), knownStageMm / 304.8f, cfg.stageReferenceMm / 304.8f,
              static_cast<unsigned long>(maxMm - minMm));
     sendTextReply(requester, channel, reply);
@@ -750,8 +777,12 @@ void DistanceSensorModule::replyRead(uint32_t requester, uint8_t channel, bool r
         snprintf(reply, sizeof(reply),
                  "WATER READ\nRaw: %.3f ft (%lumm)\nStage: NOT CALIBRATED\nUse "
                  "WATER CAL STAGE 1.42FT",
-                 r.distanceMm / 304.8f, static_cast<unsigned long>(r.distanceMm));
+                 r.distanceMm / 304.8f,
+                 static_cast<unsigned long>(r.distanceMm));
     }
+    const size_t used = strlen(reply);
+    snprintf(reply + used, sizeof(reply) - used, "\nSamples:%u Spread:%lumm", latestSampleCount,
+             static_cast<unsigned long>(latestSampleSpreadMm));
     sendTextReply(requester, channel, reply);
 }
 
