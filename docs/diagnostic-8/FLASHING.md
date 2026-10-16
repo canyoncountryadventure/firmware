@@ -15,7 +15,7 @@ Connect USB to the RAK4631 and enter its existing UF2 bootloader using the suppo
 
 ## Existing drone/Scout DFU
 
-The existing autonomous Scout embeds one exact target application. Flash the matching **`Drone-RAK-HOBO-v5-Audit-Repair-SEN0313.uf2` or `...-MB7388.uf2` onto the separate drone RAK4631**. Never flash a `Drone-*.uf2` onto the field station. Its manifest records both the exact target commit/OTA checksum and unchanged Scout implementation commit `37306158a64266fd05dfcd3bf01c5b47d0dc35fa`. The compressed image and DAT must match the chosen field target.
+The existing autonomous Scout embeds one exact target application. Flash the matching **`drone-rak-hobo-distance-10-16-26-SEN0313.uf2` or `...-MB7388.uf2` onto the separate drone RAK4631**. Never flash a `drone-*.uf2` onto the field station. Its manifest records both the exact target commit/OTA checksum and unchanged Scout implementation commit `37306158a64266fd05dfcd3bf01c5b47d0dc35fa`. The compressed image and DAT must match the chosen field target.
 
 Power the matched Scout and send the existing `DFU` mesh DM to the intended field node. The target acknowledges and enters AdaDFU after approximately three seconds; the autonomous Scout discovers the eligible AdaDFU bootloader and transfers its embedded image. Enter DFU on only the intended target during this operation. Wait for completion and verify the post-update mesh callback/version and configuration. The source still uses the proven legacy service `0x1530`; no flasher protocol or recovery logic was changed.
 

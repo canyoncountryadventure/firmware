@@ -1,3 +1,3 @@
-00e1daf6b29729c4171e217ad4fd6c42c394782c0e68300d0a5051acdf30f8ce  Drone-RAK-HOBO-v5-Audit-Repair-MB7388.uf2
-242b661cdbe4790f9ac7ee45c28f8e1cfe7eea127a95cc5413d4b2b9c720ad36  RAK-HOBO-v5-Audit-Repair-MB7388.uf2
-182dc5a46a00eed35ff820b617fe27d20a923f19b677dc7a9cebec6eca1ebb34  RAK-HOBO-v5-Audit-Repair-MB7388-OTA.zip
+00e1daf6b29729c4171e217ad4fd6c42c394782c0e68300d0a5051acdf30f8ce  drone-rak-hobo-distance-10-16-26-MB7388.uf2
+242b661cdbe4790f9ac7ee45c28f8e1cfe7eea127a95cc5413d4b2b9c720ad36  field-rak-hobo-distance-10-16-26-MB7388.uf2
+182dc5a46a00eed35ff820b617fe27d20a923f19b677dc7a9cebec6eca1ebb34  field-rak-hobo-distance-10-16-26-MB7388-OTA.zip

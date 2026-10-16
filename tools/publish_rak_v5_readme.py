@@ -19,9 +19,11 @@ files = []
 rows = []
 base = f"https://raw.githubusercontent.com/canyoncountryadventure/firmware/{branch}/downloads/RAK-HOBO-v5-Audit-Repair"
 for sensor in ("SEN0313", "MB7388"):
-    field = folder / f"RAK-HOBO-v5-Audit-Repair-{sensor}.uf2"
-    ota = folder / f"RAK-HOBO-v5-Audit-Repair-{sensor}-OTA.zip"
-    scout = folder / f"Drone-RAK-HOBO-v5-Audit-Repair-{sensor}.uf2"
+    build_date = (folder / f"BUILD-DATE-{sensor}.txt").read_text().strip()
+    assert re.fullmatch(r"\d{2}-\d{2}-\d{2}", build_date), build_date
+    field = folder / f"field-rak-hobo-distance-{build_date}-{sensor}.uf2"
+    ota = folder / f"field-rak-hobo-distance-{build_date}-{sensor}-OTA.zip"
+    scout = folder / f"drone-rak-hobo-distance-{build_date}-{sensor}.uf2"
     manifest = folder / (scout.name + ".txt")
     for artifact in (field, ota, scout, manifest):
         assert artifact.is_file() and artifact.stat().st_size > 0, artifact

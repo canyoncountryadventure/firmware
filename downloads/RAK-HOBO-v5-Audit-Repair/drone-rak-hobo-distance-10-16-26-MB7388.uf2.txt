@@ -2,5 +2,5 @@ Target source commit: 83c163807015add224ee1878350c3fec6e0d29bf
 Target environment: rak4631_mb7388_v5
 Scout implementation commit: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa
 Exact embedded application and DAT verified; both LZ4 decoders verified
-00e1daf6b29729c4171e217ad4fd6c42c394782c0e68300d0a5051acdf30f8ce  export/Drone-RAK-HOBO-v5-Audit-Repair-MB7388.uf2
-182dc5a46a00eed35ff820b617fe27d20a923f19b677dc7a9cebec6eca1ebb34  export/RAK-HOBO-v5-Audit-Repair-MB7388-OTA.zip
+00e1daf6b29729c4171e217ad4fd6c42c394782c0e68300d0a5051acdf30f8ce  export/drone-rak-hobo-distance-10-16-26-MB7388.uf2
+182dc5a46a00eed35ff820b617fe27d20a923f19b677dc7a9cebec6eca1ebb34  export/field-rak-hobo-distance-10-16-26-MB7388-OTA.zip

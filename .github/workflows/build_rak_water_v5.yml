@@ -62,14 +62,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p export
+          BUILD_DATE="$(TZ=America/Denver date +%m-%d-%y)"
+          echo "BUILD_DATE=$BUILD_DATE" >> "$GITHUB_ENV"
+          printf '%s\n' "$BUILD_DATE" > "export/BUILD-DATE-$SENSOR.txt"
           uf2_path="$(find release -maxdepth 1 -name "firmware-$TARGET-*.uf2" -print -quit)"
           ota_path="$(find release -maxdepth 1 -name "firmware-$TARGET-*-ota.zip" -print -quit)"
           test -n "$uf2_path"
           test -n "$ota_path"
-          cp "$uf2_path" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2"
-          cp "$ota_path" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
-          python3 bin/verify_rak_v5.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "$GITHUB_SHA"
-          python3 bin/verify_rak_audit_package.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+          cp "$uf2_path" "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR.uf2"
+          cp "$ota_path" "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR-OTA.zip"
+          python3 bin/verify_rak_v5.py "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR.uf2" "$GITHUB_SHA"
+          python3 bin/verify_rak_audit_package.py "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR.uf2" "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR-OTA.zip"
           (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -82,19 +85,19 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install platformio==6.2.0 lz4
-          python3 tools/build_drone_embedded_firmware.py "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h
+          python3 tools/build_drone_embedded_firmware.py "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h
           pio run --project-dir scout -e rak4631_drone_flasher
           scout_uf2="$(find scout/.pio/build/rak4631_drone_flasher -maxdepth 1 -name 'firmware-*.uf2' -print -quit)"
           test -n "$scout_uf2"
-          output="export/Drone-RAK-HOBO-v5-Audit-Repair-$SENSOR.uf2"
+          output="export/drone-rak-hobo-distance-$BUILD_DATE-$SENSOR.uf2"
           cp "$scout_uf2" "$output"
-          python3 tools/verify_drone_audit.py "$output" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h "$GITHUB_SHA"
+          python3 tools/verify_drone_audit.py "$output" "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR-OTA.zip" scout/src/experimental/embedded_dfu_image.h "$GITHUB_SHA"
           {
             echo "Target source commit: $GITHUB_SHA"
             echo "Target environment: $TARGET"
             echo 'Scout implementation commit: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa'
             echo 'Exact embedded application and DAT verified; both LZ4 decoders verified'
-            sha256sum "$output" "export/RAK-HOBO-v5-Audit-Repair-$SENSOR-OTA.zip"
+            sha256sum "$output" "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR-OTA.zip"
           } > "$output.txt"
           (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
