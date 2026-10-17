@@ -6,7 +6,7 @@ This is a new V6 firmware branch. The proven [V5 branch](https://github.com/cany
 <!-- V6_RELEASE_START -->
 ### Verified October 17, 2026 firmware
 
-Build **89a8b24** ([source commit](https://github.com/canyoncountryadventure/firmware/commit/89a8b24e1260b443f8db7051ce6d7ecbfc3931b6)). Both field sensor flavors and both matching Scout flasher images passed [GitHub CI](https://github.com/canyoncountryadventure/firmware/actions/runs/39055526063), including application/OTA/UF2/embedded Scout verification.
+Build **0c29518** ([source commit](https://github.com/canyoncountryadventure/firmware/commit/0c29518b5cfa5e1ea8e8ef474c04499c86ec6266)). Both field sensor flavors and both matching Scout flasher images passed [GitHub CI](https://github.com/canyoncountryadventure/firmware/actions/runs/39058628382), including application/OTA/UF2/embedded Scout verification.
 
 | Sensor | Field station USB | Field station BLE | Separate drone flasher | Matching record |
 | --- | --- | --- | --- | --- |
