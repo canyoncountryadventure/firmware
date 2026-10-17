@@ -48,11 +48,26 @@ assert struct.unpack("<h", v1[6:8])[0] / 10 == -12.3
 relay = (root / "src/modules/Telemetry/WaterRelayTarget.h").read_text()
 reliable = (root / "src/mesh/ReliableRouter.cpp").read_text()
 reliable_h = (root / "src/mesh/ReliableRouter.h").read_text()
+next_hop = (root / "src/mesh/NextHopRouter.cpp").read_text()
 assert "water_relay_v6.bin" in relay and "stored.magic" in relay
 assert "waterRelayOnceNode() = 0;" in relay
 assert "packet->to != NODENUM_BROADCAST" in relay
-assert "waterRelayPrepareTelemetry(packet)" in rak
-assert "waterRelayPrepareTelemetry(packet)" in dist
+# Router-level preference must affect all local outgoing app traffic,
+# not just the individual water and HOBO emitters.
+assert "waterRelayPrepareTelemetry(packet)" not in rak
+assert "waterRelayPrepareTelemetry(packet)" not in dist
+assert "waterRelayPrepareTelemetry(p);" in reliable
+assert reliable.index("waterRelayPrepareTelemetry(p);") < reliable.index("if (p->want_ack)"), (
+    "DM ACK retry must snapshot preference after selection")
+assert "packet->decoded.portnum" in relay
+assert "meshtastic_PortNum_ROUTING_APP" in relay and "meshtastic_PortNum_ADMIN_APP" in relay
+assert "packet->to != NODENUM_BROADCAST" not in relay, "Unicast DMs must be eligible"
+assert "const bool isSensor" in relay and "const uint32_t pending = isSensor" in relay, (
+    "RELAY ONCE must not be consumed by its own outgoing command reply")
+assert "getNextHop(p->to, p->relay_node)" in next_hop
+assert "if (!isFromUs(p) || p->next_hop == NO_NEXT_HOP_PREFERENCE)" in next_hop
+assert "FloodingRouter::send(packetPool.allocCopy(*p.packet));" in next_hop, (
+    "Last unicast ACK retry must bypass preferred next hop and flood normally")
 assert "RELAY PREFER " in rak and "RELAY ONCE " in rak
 assert "RELAY AUTO" in rak and "RELAY SHOW" in rak
 assert "relayFallbacks[4]" in reliable_h
@@ -64,6 +79,10 @@ assert "fallback->id = generatePacketId();" in reliable
 assert "fallback->next_hop = NO_NEXT_HOP_PREFERENCE;" in reliable
 assert "FloodingRouter::send(fallback)" in reliable
 assert "p->next_hop = NO_NEXT_HOP_PREFERENCE;" in reliable  # no RAM => normal broadcast
+assert "meshtastic_PortNum_TRACEROUTE_APP" not in relay, (
+    "Traceroutes must be eligible without a special-case opt-out")
+assert "p->next_hop = NO_NEXT_HOP_PREFERENCE;" in next_hop, "ACK-based fallback must clear preference"
+assert "isFromUs(p) && millis() >= 8000UL" in reliable, "Avoid early FS load"
 wrapper = (root / "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203TelemetryRAK.cpp").read_text()
 assert "#define SEEED_XIAO_NRF52840_KIT 1" in wrapper
 assert '#include "HOBOMX2001MX2201MX2203Telemetry.cpp"' in wrapper
