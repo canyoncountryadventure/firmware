@@ -23,6 +23,7 @@ Build **89a8b24** ([source commit](https://github.com/canyoncountryadventure/fir
 - **MX2001 hundredths:** stage and temperature retain two decimal places over the mesh in versioned MX packet V2. Heltec Gateway V5 supports both this 21-byte format and existing V1 19-byte/tenths packets. Decoder/database display must retain the received precision; no invented digits if HOBO provides a lower-resolution value.
 - **Configurable distance bursts:** 8-second nonblocking Pololu 2810 settling, sensor OFF between jobs, sample count adjustable 3–20 (default 10); up to 2× the requested sample count to obtain fresh valid frames. Samples are median-combined for WATER READ, scheduled transmissions, calibration and verification. Count is stored in V5-compatible CRC-verified A/B config.
 - **Remote hub:** default remains normal mesh broadcast; optional persistent unicast destination for water and HOBO telemetry. HUB SET does **not** select a specific relay or force traffic through Hidden Valley.
+- **Optional preferred relay (V6 update):** `RELAY PREFER !NODEID` persists a desired **first relay** for broadcast water/HOBO telemetry; `RELAY ONCE !NODEID` applies once (RAM-only), `RELAY SHOW` inspects it, and `RELAY AUTO` returns to unrestricted broadcast. The preferred node rebroadcasts under standard Meshtastic flooding. If the source does not overhear that relay within **25 seconds**, the source emits **one new-ID unrestricted broadcast**, avoiding packet-history duplicate suppression. If RAM is insufficient for fallback, transmission uses ordinary flooding immediately. Default AUTO. No updates needed on the ordinary relay or Heltec, assuming standard compatible mesh firmware.
 - **Useful DM diagnostics:** retained watchdog/reset breadcrumbs and live radio/BLE/power statistics arrive in two DM replies, not merely a serial-log statement. Limited battery voltage history is available since the current boot.
 - **Recovery commands:** independently restart the water-sensor driver or HOBO BLE central while preserving calibration/locks; retain CPU soft reboot and hardware-watchdog reset; one-step LAST RESORT emergency reset.
 - **Preservation:** ordinary firmware UF2/OTA and recovery preserve the existing radio identity, channel credentials, logger assignment, water calibration and sensor selection. Only explicit destructive commands clear those.
@@ -58,6 +59,11 @@ Commands are sent as a **direct message to the field node** on its working Mesht
 | `HUB`, `HUB SHOW` | Show current telemetry destination; initial setting is broadcast |
 | `HUB SET !1234ABCD` | Persist node-ID destination for automatic water and HOBO telemetry; no periodic re-entry needed |
 | `HUB AUTO`, `HUB CLEAR` | Persist normal broadcast mode |
+| `RELAY`, `RELAY SHOW` | Show first-hop relay preference and any one-time override (not a HUB destination) |
+| `RELAY PREFER !1234ABCD` | **Persist** Hidden Valley or another designated first relay for outgoing broadcast HOBO/water packets |
+| `RELAY ONCE !1234ABCD` | Prefer the specified relay for **only the next broadcast sensor packet** (RAM-only); then restore previous preference |
+| `RELAY AUTO`, `RELAY CLEAR` | Persist unrestricted Meshtastic broadcast and cancel a pending one-shot relay |
+
 | `BATTERY`, `BATTERY HISTORY` | Live voltage/percentage/charging; hourly sampled voltage minimum/maximum/first/last this boot |
 | `DIAG`, `STATS`, `WATCHDOG` | Two DM diagnostic messages; radio stats; field/core watchdog state |
 | `CLEAR DIAG` | Clear retained failure breadcrumb; boot count kept |
@@ -73,7 +79,20 @@ Commands are sent as a **direct message to the field node** on its working Mesht
 - HOBO central uses the proven automatic STATUS write-pointer polling (30 seconds), not a forced sensor record every 30 seconds. New logger records drive automatic telemetry.
 - BLE startup has bounded CPU-awake/HFCLK protection, then releases it once logger STATUS baseline completes. Ordinary mesh relay works while other sensor jobs are pending.
 - `HUB` remains broadcast on new or unconfigured stations; `HUB SET` survives normal reboot and application-only flashing. HUB is **not** a relay route override.
+- Preferred first-hop routing is **broadcast-only**, defaults OFF, and does not apply if `HUB SET` changed telemetry to unicast. Restore `HUB AUTO` first if you want first-relay selection while retaining full-mesh broadcast. `RELAY PREFER !<HiddenValleyNodeID>` takes precedence over ordinary flooding only for water/HOBO packet originators; the relay itself can be on standard Meshtastic firmware.
+- **Fail-safe:** a maximum of four preferred packets can await confirmation; when the selected relay is not overheard within 25 seconds, the RAK sends an unrestricted copy with a new packet ID. In a congested network, this can cause **two readings with identical measurement sequence** to arrive at the gateway. It is not end-to-end delivery assurance. Both packets preserve the data. The RAK must be awake to execute the fallback; bench-test under your real sleep/power mode.
+- First-hop routing uses Meshtastic's **last-byte node identifier**, so do not choose a relay sharing the same last byte with another nearby mesh node. Confirm using `RELAY SHOW` and the actual Hidden Valley node ID. Fall back to `RELAY AUTO` if troubleshooting.
+
 - Battery voltage history is RAM-only and starts with the current boot. The charger/thermistor hardware, not this firmware, determines cold-charge protection.
+
+## First relay test (Pack Creek → Hidden Valley → Heltec)
+
+1. Use `HUB AUTO` and `RELAY AUTO` as the starting state; verify one ordinary broadcast reaches Heltec.
+2. DM Pack Creek `RELAY ONCE !<HiddenValleyNodeID>`, then `WATER TELEMETRY NOW` (or let one fresh automatic HOBO record transmit).
+3. Check Hidden Valley forwarded that packet and Heltec ingested it. If Hidden Valley is off, check for the delayed normal-broadcast fallback after 25 seconds.
+4. Only after the one-shot test works, DM `RELAY PREFER !<HiddenValleyNodeID>`. Revert with `RELAY AUTO` instantly if performance degrades.
+
+This implementation is covered by automated source and compile gates but **not yet physically tested** on a RAK with a real Hidden Valley relay. Fallback is best-effort, not guaranteed delivery.
 
 ## Release checks and rollback
 
