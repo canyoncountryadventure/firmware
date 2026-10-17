@@ -20,4 +20,6 @@ payload = b''.join(data[i + 32:i + 32 + blocks[i // 512][4]] for i in range(0, l
 assert source_sha in payload, 'Image does not match source commit'
 assert b'RAK WATER DISTANCE + HOBO V6' in payload, 'Missing V6 identification'
 assert b'Last verified:' in payload and b'Not identified' in payload, 'Missing LOGGER model diagnostics'
-assert b'DIAG 1/2' in payload, 'Missing V6 remote diagnostic reply'\nassert b'LAST RESORT' in payload, 'Missing emergency factory recovery'\nprint(f'PASS {path.name}: {len(blocks)} NRF52840 blocks, app {minimum:#x}..{maximum:#x}, sha256={hashlib.sha256(data).hexdigest()}')
+assert b'DIAG 1/2' in payload, 'Missing V6 remote diagnostic reply'
+assert b'LAST RESORT' in payload, 'Missing emergency factory recovery'
+print(f'PASS {path.name}: {len(blocks)} NRF52840 blocks, app {minimum:#x}..{maximum:#x}, sha256={hashlib.sha256(data).hexdigest()}')
