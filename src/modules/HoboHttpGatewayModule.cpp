@@ -239,25 +239,44 @@ bool HoboHttpGatewayModule::queueLocalMX2001(float waterLevelFt, float temperatu
 
 bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
 {
-    if (mp.decoded.payload.size != 19)
-        return false;
     const uint8_t *payload = mp.decoded.payload.bytes;
-    if (payload[0] != 'M' || payload[1] != 'X')
+    const size_t n = mp.decoded.payload.size;
+    // Preserve V1 19-byte tenths from deployed radios. V2 carries hundredths
+    // in 21 bytes, with a signed 32-bit stage to avoid 327.67 ft overflow.
+    if (n != 19 && n != 21)
+        return false;
+    if (payload[0] != 'M' || payload[1] != 'X' ||
+        !((payload[2] == 1 && n == 19) || (payload[2] == 2 && n == 21)))
         return false;
 
     UploadJob job = {};
     job.type = JobType::MX2001;
     fillCommon(job, mp);
     job.sequence = readLE16(&payload[4]);
-    const int16_t stageTenths = readLE16Signed(&payload[6]);
-    const int16_t temperatureTenthsF = readLE16Signed(&payload[8]);
-    job.temperatureRaw = readLE16(&payload[10]);
-    job.waterLevelFt = stageTenths / 10.0f;
-    job.temperatureF = temperatureTenthsF / 10.0f;
+    if (n == 21) {
+        const uint32_t rawStage = static_cast<uint32_t>(payload[6]) |
+                                  (static_cast<uint32_t>(payload[7]) << 8) |
+                                  (static_cast<uint32_t>(payload[8]) << 16) |
+                                  (static_cast<uint32_t>(payload[9]) << 24);
+        const int32_t stageHundredths = static_cast<int32_t>(rawStage);
+        const int16_t temperatureHundredthsF = readLE16Signed(&payload[10]);
+        job.temperatureRaw = readLE16(&payload[12]);
+        job.waterLevelFt = stageHundredths / 100.0f;
+        job.temperatureF = temperatureHundredthsF / 100.0f;
+        job.bleRssi = static_cast<int8_t>(payload[20]);
+        snprintf(job.loggerMac, sizeof(job.loggerMac), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 payload[14], payload[15], payload[16], payload[17], payload[18], payload[19]);
+    } else {
+        const int16_t stageTenths = readLE16Signed(&payload[6]);
+        const int16_t temperatureTenthsF = readLE16Signed(&payload[8]);
+        job.temperatureRaw = readLE16(&payload[10]);
+        job.waterLevelFt = stageTenths / 10.0f;
+        job.temperatureF = temperatureTenthsF / 10.0f;
+        job.bleRssi = static_cast<int8_t>(payload[18]);
+        snprintf(job.loggerMac, sizeof(job.loggerMac), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 payload[12], payload[13], payload[14], payload[15], payload[16], payload[17]);
+    }
     job.temperatureC = (job.temperatureF - 32.0f) * (5.0f / 9.0f);
-    job.bleRssi = static_cast<int8_t>(payload[18]);
-    snprintf(job.loggerMac, sizeof(job.loggerMac), "%02X:%02X:%02X:%02X:%02X:%02X",
-             payload[12], payload[13], payload[14], payload[15], payload[16], payload[17]);
     snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
 
     if (!uploadQueue.enqueue(job, 0)) {
@@ -432,7 +451,7 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
         // an actual packet type is malformed or a queue is temporarily full.
         const uint8_t *p = mp.decoded.payload.bytes;
         const size_t n = mp.decoded.payload.size;
-        if (n == 19 && p[0] == 'M' && p[1] == 'X')
+        if ((n == 19 || n == 21) && p[0] == 'M' && p[1] == 'X')
             enqueueMX2001(mp);
         else if (n == 8 && p[0] == 'S' && p[1] == 'M')
             enqueueSoil(mp);
