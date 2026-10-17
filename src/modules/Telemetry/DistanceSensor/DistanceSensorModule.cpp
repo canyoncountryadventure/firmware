@@ -3,6 +3,7 @@
 #if defined(DISTANCE_SENSOR_NODE) && defined(ARCH_NRF52)
 
 #include "DistanceSensorModule.h"
+#include "../WaterHubTarget.h"
 #include "concurrency/LockGuard.h"
 
 #include "FSCommon.h"
@@ -639,7 +640,8 @@ bool DistanceSensorModule::sendDistanceTelemetry()
     packet->decoded.payload.size = 24;
     packet->decoded.portnum = meshtastic_PortNum_PRIVATE_APP;
     packet->decoded.want_response = false;
-    packet->to = NODENUM_BROADCAST;
+    packet->to = waterHubDestination();
+    packet->want_ack = packet->to != NODENUM_BROADCAST;
     packet->channel = 0;
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
