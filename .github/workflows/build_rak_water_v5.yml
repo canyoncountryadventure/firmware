@@ -1,10 +1,11 @@
-name: Build RAK V6 candidate and matched Scouts (no publish)
+name: Build and Publish RAK Water HOBO V6 (dated field and Scout)
 on:
   push:
     branches: [RAK-Water-Distance-HOBO-v6]
     paths:
       - "src/**"
       - "test/test_hobo_v5/**"
+      - "test/test_hobo_v6/**"
       - "variants/**"
       - "boards/**"
       - "bin/**"
@@ -14,7 +15,7 @@ on:
       - "version.properties"
       - "userPrefs.jsonc"
       - ".github/workflows/build_rak_water_v5.yml"
-      - "tools/publish_rak_v5_readme.py"
+      - "tools/publish_rak_v6_readme.py"
   workflow_dispatch:
 concurrency:
   group: rak-water-hobo-v6
@@ -34,6 +35,7 @@ jobs:
           python3 test/test_hobo_v5/test_reset_recovery.py
           python3 test/test_hobo_v5/test_nonblocking_water.py
           python3 test/test_hobo_v5/test_water_jobs.py
+          python3 test/test_hobo_v6/test_new_features.py
   build:
     needs: recovery-tests
     runs-on: ubuntu-latest
@@ -106,3 +108,36 @@ jobs:
           path: export/*
           if-no-files-found: error
           retention-days: 30
+
+  publish-v6:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download exactly matched field and Scout artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: RAK-HOBO-v6-CANDIDATE-*
+          merge-multiple: true
+          path: export
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: RAK-Water-Distance-HOBO-v6
+          path: publish
+      - name: Verify and publish V6 date-stamped release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p downloads/RAK-HOBO-v6
+          cp ../export/* downloads/RAK-HOBO-v6/
+          python3 tools/publish_rak_v6_readme.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add downloads/RAK-HOBO-v6 README.md
+          git diff --cached --quiet && { echo 'No release changes'; exit 0; }
+          git commit -m 'Publish verified dated RAK V6 field and matching Scout firmware [skip ci]'
+          git push origin HEAD:RAK-Water-Distance-HOBO-v6
