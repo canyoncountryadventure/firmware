@@ -1281,29 +1281,32 @@ int32_t HoboBleSensorModule::runOnce()
         meshtastic_MeshPacket *packet = allocDataPacket();
         if (!packet)
             return false;
-        int32_t stageScaled = static_cast<int32_t>(lroundf(latestStageFeet * 10.0f));
-        int32_t tempScaled = static_cast<int32_t>(lroundf(latestTemperatureF * 10.0f));
-        stageScaled = stageScaled < -32768 ? -32768 : (stageScaled > 32767 ? 32767 : stageScaled);
-        tempScaled = tempScaled < -32768 ? -32768 : (tempScaled > 32767 ? 32767 : tempScaled);
-        const int16_t stageTenths = static_cast<int16_t>(stageScaled);
-        const int16_t tempTenths = static_cast<int16_t>(tempScaled);
+        // V2 wire format: stage int32 and temperature int16, scaled by 100.
+        // The gateway ingests both this and legacy 19-byte V1 packets.
+        const int32_t stageHundredths = static_cast<int32_t>(lroundf(latestStageFeet * 100.0f));
+        int32_t tempHundredths = static_cast<int32_t>(lroundf(latestTemperatureF * 100.0f));
+        tempHundredths = tempHundredths < -32768 ? -32768 : (tempHundredths > 32767 ? 32767 : tempHundredths);
+        const uint32_t stageBits = static_cast<uint32_t>(stageHundredths);
+        const uint16_t tempBits = static_cast<uint16_t>(static_cast<int16_t>(tempHundredths));
         const uint16_t raw16 = static_cast<uint16_t>(latestTemperatureRaw & 0xFFFFU);
         ++measurementSequence;
         uint8_t macBytes[6] = {};
         macToBytes(loggerMac, macBytes);
         uint8_t *payload = packet->decoded.payload.bytes;
-        payload[0] = 'M'; payload[1] = 'X'; payload[2] = 1; payload[3] = 0x03;
+        payload[0] = 'M'; payload[1] = 'X'; payload[2] = 2; payload[3] = 0x03;
         payload[4] = static_cast<uint8_t>(measurementSequence & 0xFF);
         payload[5] = static_cast<uint8_t>((measurementSequence >> 8) & 0xFF);
-        payload[6] = static_cast<uint8_t>(static_cast<uint16_t>(stageTenths) & 0xFF);
-        payload[7] = static_cast<uint8_t>((static_cast<uint16_t>(stageTenths) >> 8) & 0xFF);
-        payload[8] = static_cast<uint8_t>(static_cast<uint16_t>(tempTenths) & 0xFF);
-        payload[9] = static_cast<uint8_t>((static_cast<uint16_t>(tempTenths) >> 8) & 0xFF);
-        payload[10] = static_cast<uint8_t>(raw16 & 0xFF);
-        payload[11] = static_cast<uint8_t>((raw16 >> 8) & 0xFF);
-        memcpy(&payload[12], macBytes, 6);
-        payload[18] = static_cast<uint8_t>(loggerBleRssi);
-        packet->decoded.payload.size = 19;
+        payload[6] = static_cast<uint8_t>(stageBits & 0xFF);
+        payload[7] = static_cast<uint8_t>((stageBits >> 8) & 0xFF);
+        payload[8] = static_cast<uint8_t>((stageBits >> 16) & 0xFF);
+        payload[9] = static_cast<uint8_t>((stageBits >> 24) & 0xFF);
+        payload[10] = static_cast<uint8_t>(tempBits & 0xFF);
+        payload[11] = static_cast<uint8_t>((tempBits >> 8) & 0xFF);
+        payload[12] = static_cast<uint8_t>(raw16 & 0xFF);
+        payload[13] = static_cast<uint8_t>((raw16 >> 8) & 0xFF);
+        memcpy(&payload[14], macBytes, 6);
+        payload[20] = static_cast<uint8_t>(loggerBleRssi);
+        packet->decoded.payload.size = 21;
         packet->decoded.portnum = meshtastic_PortNum_PRIVATE_APP;
         packet->to = NODENUM_BROADCAST;
         packet->channel = 0;
@@ -1313,7 +1316,7 @@ int32_t HoboBleSensorModule::runOnce()
         bool cloudQueued = hoboHttpGatewayModule &&
             hoboHttpGatewayModule->queueLocalMX2001(latestStageFeet, latestTemperatureF, latestTemperatureC,
                                                     raw16, loggerMac, loggerBleRssi, measurementSequence);
-        LOG_INFO("CCA HOBO AUTO MX2001 level=%.2f ft temp=%.1f F mesh=queued cloud=%s",
+        LOG_INFO("CCA HOBO AUTO MX2001 V2 level=%.2f ft temp=%.2f F mesh=queued cloud=%s",
                  latestStageFeet, latestTemperatureF, cloudQueued ? "queued" : "FAILED");
         return cloudQueued;
     };
