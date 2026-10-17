@@ -190,14 +190,22 @@ void nrf52FieldDiagFormat(char *out, size_t capacity)
     if (!out || !capacity)
         return;
 #if defined(FIELD_RECOVERY_V2)
+    const uint32_t bits = fieldDiag.lastResetReason;
+    const char *resetLabel = (bits & (1UL << 1)) ? "WATCHDOG" :
+                             (bits & (1UL << 2)) ? "SOFTWARE" :
+                             (bits & (1UL << 3)) ? "LOCKUP" :
+                             (bits & (1UL << 0)) ? "RESET PIN" : "POWER/OTHER";
+    const char *subsystem = fieldDiag.subsystem == 2 ? "HOBO" :
+                            fieldDiag.subsystem == 4 ? "SYSTEM" :
+                            fieldDiag.subsystem == 0 ? "NONE" : "OTHER";
     snprintf(out, capacity,
-             "Boots:%lu PrevReset:0x%08lX PrevUptime:%lus\\nLastEvent subsystem=%u operation=%u error=%u",
-             static_cast<unsigned long>(fieldDiag.boots),
-             static_cast<unsigned long>(fieldDiag.lastResetReason),
+             "DIAG 1/2 Boots:%lu PrevReset:%s(0x%08lX)\\nEventUp:%lus Last:%s/op%u error:%u",
+             static_cast<unsigned long>(fieldDiag.boots), resetLabel,
+             static_cast<unsigned long>(bits),
              static_cast<unsigned long>(fieldDiag.lastUptimeMs / 1000UL),
-             fieldDiag.subsystem, fieldDiag.operation, fieldDiag.error);
+             subsystem, fieldDiag.operation, fieldDiag.error);
 #else
-    snprintf(out, capacity, "Field diagnostic history is unavailable in this build");
+    snprintf(out, capacity, "DIAG 1/2: retained failure history unavailable in this build");
 #endif
 }
 
