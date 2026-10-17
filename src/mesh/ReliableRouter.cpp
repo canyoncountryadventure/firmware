@@ -235,3 +235,43 @@ bool ReliableRouter::shouldSuccessAckWithWantAck(const meshtastic_MeshPacket *p)
 
     return false;
 }
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+// The router's own thread owns the bounded fallback queue; no timers or
+// extra threads are needed, and idle nodes keep the stock sleep behavior.
+int32_t ReliableRouter::runOnce()
+{
+    const int32_t baseDelay = NextHopRouter::runOnce();
+    const int32_t relayDelay = processRelayFallbacks();
+    return baseDelay < relayDelay ? baseDelay : relayDelay;
+}
+
+int32_t ReliableRouter::processRelayFallbacks()
+{
+    uint32_t now = millis();
+    int32_t nextDue = INT32_MAX;
+    for (auto &entry : relayFallbacks) {
+        if (!entry.original)
+            continue;
+        const uint32_t elapsed = now - entry.sentAtMs;
+        if (elapsed >= RELAY_FALLBACK_MS) {
+            // A fresh packet ID is essential: other nodes already saw the
+            // original targeted broadcast and would discard a repeat with
+            // that ID as a duplicate. The original sensor payload/sequence
+            // remains intact, so receivers can deduplicate at measurement level.
+            meshtastic_MeshPacket *fallback = entry.original;
+            entry.original = nullptr;
+            fallback->id = generatePacketId();
+            fallback->next_hop = NO_NEXT_HOP_PREFERENCE;
+            fallback->want_ack = false;
+            LOG_WARN("Water preferred relay was not overheard; broadcasting fallback packet 0x%08x", fallback->id);
+            // Skip ReliableRouter::send to avoid re-applying the preference.
+            FloodingRouter::send(fallback);
+        } else {
+            const int32_t remaining = static_cast<int32_t>(RELAY_FALLBACK_MS - elapsed);
+            if (remaining < nextDue)
+                nextDue = remaining;
+        }
+    }
+    return nextDue;
+}
+#endif
