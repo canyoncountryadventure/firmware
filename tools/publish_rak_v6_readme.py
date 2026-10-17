@@ -48,7 +48,8 @@ assert dates[0] == dates[1], "Do not mix build dates"
 (folder / "BUILD.txt").write_text(
     f"Source commit: {source}\nCI run: {run_url}\nBuild date (America/Denver): {dates[0]}\n"
     "Hardware: RAK4631/RAK19007\n"
-    "Dated filenames include source commit ID to avoid same-day stale downloads\n"\n    "Field images: application-only; preserves configuration and calibration\n"
+    "Dated filenames include source commit ID to avoid same-day stale downloads\n"
+    "Field images: application-only; preserves configuration and calibration\n"
     "Matching Scout implementation: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa\n"
     "Field and Scout contents verified; this is not a physical/radio test\n")
 release = f"""<!-- V6_RELEASE_START -->
