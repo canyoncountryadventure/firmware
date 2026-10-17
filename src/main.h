@@ -122,5 +122,6 @@ bool nrf52ScheduleWatchdogReset(uint32_t delayMs);
 void nrf52FlashQuiesce();
 void nrf52FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint16_t error = 0);
 void nrf52FieldDiagPrint();
+void nrf52FieldDiagFormat(char *out, size_t capacity);
 void nrf52FieldDiagClear();
 #endif
