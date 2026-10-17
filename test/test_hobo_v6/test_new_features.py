@@ -65,6 +65,11 @@ assert "RELAY PREFER" not in rak and "RELAY ONCE" not in rak
 assert "RELAY AUTO" not in rak and "RELAY SHOW" not in rak
 assert "RELAY PREFER" not in recovery and "HELP 8/8" not in recovery
 assert "HELP 7/7" in recovery
+readme = (root / "README.md").read_text()
+assert "**V5 mesh routing restored:**" in readme
+assert "**Removed deliberately:**" in readme
+assert "## Test the preferred relay" not in readme
+
 
 wrapper = (root / "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203TelemetryRAK.cpp").read_text()
 assert "#define SEEED_XIAO_NRF52840_KIT 1" in wrapper
