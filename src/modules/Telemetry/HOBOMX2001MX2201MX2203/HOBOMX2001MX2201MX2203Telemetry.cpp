@@ -3,6 +3,7 @@
 #if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
 
 #include "HOBOMX2001MX2201MX2203Telemetry.h"
+#include "../WaterHubTarget.h"
 
 #include "../../../mesh/generated/meshtastic/telemetry.pb.h"
 #include "FSCommon.h"
@@ -1196,6 +1197,61 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
 
+    // HUB is an optional persistent unicast destination for automatic
+    // water/HOBO telemetry. Nothing is changed unless the user sets it.
+    char hubCommand[48] = {};
+    const size_t hubLength = mp.decoded.payload.size < sizeof(hubCommand)-1
+                             ? mp.decoded.payload.size : sizeof(hubCommand)-1;
+    memcpy(hubCommand, mp.decoded.payload.bytes, hubLength);
+    char *hubText = hubCommand;
+    while (isspace(static_cast<unsigned char>(*hubText)))
+        ++hubText;
+    if (*hubText == '/')
+        ++hubText;
+    for (char *p = hubText; *p; ++p)
+        *p = static_cast<char>(toupper(static_cast<unsigned char>(*p)));
+    if (strcmp(hubText, "HUB") == 0 || strcmp(hubText, "HUB SHOW") == 0) {
+        char reply[95] = {};
+        const uint32_t hub = waterHubDestination();
+        if (hub == NODENUM_BROADCAST)
+            snprintf(reply, sizeof(reply), "HUB AUTO: normal mesh broadcast; no destination saved");
+        else
+            snprintf(reply, sizeof(reply), "HUB SET !%08lX; persistent unicast (no designated relay)",
+                     static_cast<unsigned long>(hub));
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+    if (strcmp(hubText, "HUB AUTO") == 0 || strcmp(hubText, "HUB CLEAR") == 0) {
+        sendTextReply(mp.from, mp.channel, setWaterHubDestination(NODENUM_BROADCAST)
+                          ? "HUB AUTO saved: normal broadcast restored" : "HUB AUTO save failed");
+        return ProcessMessage::CONTINUE;
+    }
+    if (strncmp(hubText, "HUB SET ", 8) == 0) {
+        const char *arg = hubText + 8;
+        bool hex = (*arg == '!');
+        if (hex)
+            ++arg;
+        else if (arg[0] == '0' && arg[1] == 'X') {
+            arg += 2;
+            hex = true;
+        }
+        char *end = nullptr;
+        const unsigned long node = strtoul(arg, &end, hex ? 16 : 10);
+        if (!arg[0] || !end || *end != '\0' || node == 0 || node >= 0xFFFFFFFFUL) {
+            sendTextReply(mp.from, mp.channel, "HUB SET format: HUB SET !1234ABCD or decimal node ID");
+            return ProcessMessage::CONTINUE;
+        }
+        if (!setWaterHubDestination(static_cast<uint32_t>(node))) {
+            sendTextReply(mp.from, mp.channel, "HUB SET failed: persistent flash verification");
+            return ProcessMessage::CONTINUE;
+        }
+        char reply[105] = {};
+        snprintf(reply, sizeof(reply), "HUB SET !%08lX saved; automatic telemetry targets hub after reboot",
+                 node);
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOGGER")) {
         char reply[220] = {};
         uint8_t previousMac[6] = {};
@@ -1398,7 +1454,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         packet->decoded.payload.size = encoded;
         packet->decoded.portnum = meshtastic_PortNum_TELEMETRY_APP;
         packet->decoded.want_response = false;
-        packet->to = NODENUM_BROADCAST;
+        packet->to = waterHubDestination();
+        packet->want_ack = packet->to != NODENUM_BROADCAST;
         packet->channel = 0;
         packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
 
@@ -1452,7 +1509,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         packet->decoded.payload.size = 21;
         packet->decoded.portnum = meshtastic_PortNum_PRIVATE_APP;
         packet->decoded.want_response = false;
-        packet->to = NODENUM_BROADCAST;
+        packet->to = waterHubDestination();
+        packet->want_ack = packet->to != NODENUM_BROADCAST;
         packet->channel = 0;
         packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
 
