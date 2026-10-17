@@ -169,7 +169,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
             sendTextReply(mp.from, mp.channel, "BATTERY HISTORY: no voltage samples yet");
         } else {
             snprintf(reply, sizeof(reply),
-                     "BATTERY HISTORY (this boot) n=%lu\\nfirst:%lumV last:%lumV min:%lumV max:%lumV charge_edges:%lu",
+                     "BATTERY HISTORY (this boot) n=%lu\nfirst:%lumV last:%lumV min:%lumV max:%lumV charge_edges:%lu",
                      static_cast<unsigned long>(batterySampleCount),
                      static_cast<unsigned long>(batteryFirstMv),
                      static_cast<unsigned long>(batteryLastMv),
@@ -208,7 +208,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         sendTextReply(mp.from, mp.channel, reply);
         const auto *radio = RadioLibInterface::instance;
         snprintf(reply, sizeof(reply),
-                 "DIAG 2/2 %s: Up:%lus\\nRadio recovery:%lu/%lu TX:%lu\\nBattery:%umV %u%% BLE:%u WDT:%s",
+                 "DIAG 2/2 %s: Up:%lus\nRadio recovery:%lu/%lu TX:%lu\nBattery:%umV %u%% BLE:%u WDT:%s",
                  platformName(), static_cast<unsigned long>(millis() / 1000UL),
                  radio ? static_cast<unsigned long>(radio->radioRecoverySuccesses) : 0UL,
                  radio ? static_cast<unsigned long>(radio->radioRecoveryAttempts) : 0UL,
