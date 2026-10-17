@@ -164,6 +164,8 @@ bool DistanceSensorModule::configValid(const PersistentConfig &record) const
         return false;
     if (record.reportIntervalSec < 5UL || record.reportIntervalSec > 86400UL)
         return false;
+    if (record.reserved0 != 0 && (record.reserved0 < 3 || record.reserved0 > 20))
+        return false;
     return record.crc32 == configCrc32(record);
 }
 
@@ -193,7 +195,7 @@ bool DistanceSensorModule::saveConfig()
     PersistentConfig candidate = cfg;
     candidate.magic = CONFIG_MAGIC;
     candidate.version = CONFIG_VERSION;
-    candidate.reserved0 = 0;
+    // Preserve V6 sample count (0 in previous saved records means default 10).
     candidate.sequence = cfg.sequence + 1U;
     candidate.crc32 = 0;
     candidate.crc32 = configCrc32(candidate);
@@ -521,9 +523,10 @@ void DistanceSensorModule::serviceSample(uint32_t now)
 
     const DistanceReading reading = readDistance();
     ++sampleAttempts;
-    if (reading.valid() && sampleCount < SAMPLE_COUNT)
+    const uint8_t requiredSamples = targetSamples();
+    if (reading.valid() && sampleCount < requiredSamples)
         sampleValues[sampleCount++] = reading.distanceMm;
-    if (sampleCount < SAMPLE_COUNT && sampleAttempts < MAX_SAMPLE_ATTEMPTS)
+    if (sampleCount < requiredSamples && sampleAttempts < requiredSamples * 2U)
     {
         nextSampleMs = millis() + 80;
         return;
@@ -533,19 +536,19 @@ void DistanceSensorModule::serviceSample(uint32_t now)
     sampleJob = SampleJob::NONE;
     latestSampleCount = sampleCount;
     latestSampleSpreadMm = 0;
-    if (sampleCount < SAMPLE_COUNT)
+    if (sampleCount < requiredSamples)
     {
         if (latestReading.valid())
             latestReading.status = DistanceReadStatus::TIMEOUT;
         latestReading.distanceMm = 0;
         latestStageValid = false;
-        LOG_WARN("WaterDistance: burst failed: %u/10 valid samples in %u attempts", sampleCount, sampleAttempts);
+        LOG_WARN("WaterDistance: burst failed: %u/%u valid samples in %u attempts", sampleCount, requiredSamples, sampleAttempts);
         if (completed == SampleJob::CALIBRATE || completed == SampleJob::VERIFY)
         {
             sendTextReply(requester, channel,
-                          completed == SampleJob::CALIBRATE ? "CAL failed: fewer than 10 valid fresh readings. Check "
+                          completed == SampleJob::CALIBRATE ? "CAL failed: insufficient valid fresh readings. Check "
                                                               "sensor/wiring."
-                                                            : "VERIFY failed: fewer than 10 valid fresh readings");
+                                                            : "VERIFY failed: insufficient valid fresh readings");
             return;
         }
     }
@@ -554,9 +557,11 @@ void DistanceSensorModule::serviceSample(uint32_t now)
         std::sort(sampleValues, sampleValues + sampleCount);
         // The packet stores whole millimeters; round the even median to the
         // nearest millimeter.
-        const uint32_t median = static_cast<uint32_t>((static_cast<uint64_t>(sampleValues[4]) + sampleValues[5] + 1U) / 2U);
+        const uint8_t center = requiredSamples / 2U;
+        const uint32_t median = (requiredSamples & 1U) ? sampleValues[center]
+            : static_cast<uint32_t>((static_cast<uint64_t>(sampleValues[center - 1]) + sampleValues[center] + 1U) / 2U);
         const uint32_t low = sampleValues[0];
-        const uint32_t high = sampleValues[SAMPLE_COUNT - 1];
+        const uint32_t high = sampleValues[requiredSamples - 1];
         latestSampleSpreadMm = high - low;
         latestReading.status = DistanceReadStatus::OK;
         latestReading.distanceMm = median;
@@ -564,7 +569,7 @@ void DistanceSensorModule::serviceSample(uint32_t now)
         latestStageValid = (cfg.flags & FLAG_CALIBRATED) != 0;
         if (latestStageValid)
             latestStageMm = cfg.stageReferenceMm - static_cast<int32_t>(median);
-        LOG_INFO("WaterDistance: median of 10=%lumm spread=%lumm attempts=%u", static_cast<unsigned long>(median),
+        LOG_INFO("WaterDistance: median of %u=%lumm spread=%lumm attempts=%u", requiredSamples, static_cast<unsigned long>(median),
                  static_cast<unsigned long>(latestSampleSpreadMm), sampleAttempts);
         if (completed == SampleJob::CALIBRATE)
         {
@@ -879,7 +884,7 @@ bool DistanceSensorModule::normalizeCommand(const uint8_t *bytes, size_t size, c
         memmove(out, out + 6, strlen(out + 6) + 1);
     } else if (strcmp(out, "WATER") == 0) {
         strcpy(out, "HELP");
-    } else {
+    } else if (strncmp(out, "SAMPLES", 7) != 0) {
         return false;
     }
 
@@ -978,6 +983,39 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
         return ProcessMessage::CONTINUE;
     }
 
+    if (strcmp(command, "SAMPLES") == 0 || strncmp(command, "SAMPLES ", 8) == 0) {
+        if (strcmp(command, "SAMPLES") == 0) {
+            char reply[90] = {};
+            snprintf(reply, sizeof(reply), "WATER SAMPLES: %u fresh readings (max %u attempts). Saved across reboot.",
+                     targetSamples(), targetSamples() * 2U);
+            sendTextReply(mp.from, mp.channel, reply);
+            return ProcessMessage::CONTINUE;
+        }
+        if (sampleBusy()) {
+            sendTextReply(mp.from, mp.channel, "SAMPLES busy; retry after current reading");
+            return ProcessMessage::CONTINUE;
+        }
+        const char *arg = command + 8;
+        char *end = nullptr;
+        const long requested = strtol(arg, &end, 10);
+        if (!arg[0] || !end || *end != '\0' || requested < 3 || requested > 20) {
+            sendTextReply(mp.from, mp.channel, "SAMPLES range: 3-20. Example: SAMPLES 10");
+            return ProcessMessage::CONTINUE;
+        }
+        const uint8_t previous = cfg.reserved0;
+        cfg.reserved0 = static_cast<uint8_t>(requested);
+        if (!saveConfig()) {
+            cfg.reserved0 = previous;
+            sendTextReply(mp.from, mp.channel, "SAMPLES failed to save; unchanged");
+        } else {
+            char reply[90] = {};
+            snprintf(reply, sizeof(reply), "SAMPLES SAVED: %ld fresh readings, max %ld attempts; survives reboot",
+                     requested, requested * 2L);
+            sendTextReply(mp.from, mp.channel, reply);
+        }
+        return ProcessMessage::CONTINUE;
+    }
+
     if (strcmp(command, "HELP") == 0) {
         // Split the complete water command reference into LoRa-safe messages so
         // every command is explicit.
@@ -994,7 +1032,7 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
                       "UNLOCK CONFIRM | WATER CAL RESET | WATER CAL RESET CONFIRM");
         sendTextReply(mp.from, mp.channel,
                       "WATER HELP 4/4 CONFIG: WATER INTERVAL 1H | WATER RESET WATER | WATER "
-                      "RESET WATER CONFIRM | WATER TELEMETRY NOW | WATER MODE");
+                      "RESET WATER CONFIRM | WATER TELEMETRY NOW | WATER SAMPLES 10 | WATER MODE");
         return ProcessMessage::CONTINUE;
     }
 
