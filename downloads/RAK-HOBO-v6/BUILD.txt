@@ -1,0 +1,7 @@
+Source commit: 89a8b24e1260b443f8db7051ce6d7ecbfc3931b6
+CI run: https://github.com/canyoncountryadventure/firmware/actions/runs/39055526063
+Build date (America/Denver): 10-17-26
+Hardware: RAK4631/RAK19007
+Field images: application-only; preserves configuration and calibration
+Matching Scout implementation: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa
+Field and Scout contents verified; this is not a physical/radio test

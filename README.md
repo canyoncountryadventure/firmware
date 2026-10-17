@@ -4,8 +4,18 @@
 This is a new V6 firmware branch. The proven [V5 branch](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v5) and its published field firmware remain unchanged. V6 combines the distance sensor (SEN0313 or MB7388), HOBO MX2001/MX2201/MX2203 logger polling, Meshtastic transport and autonomous Scout/distance-radio updates. It does not require a separate firmware for each creek.
 
 <!-- V6_RELEASE_START -->
-### Firmware download release gate
-**New V6 images are not published until both RAK flavors, both Scout builds, host regression tests, SHA-256, OTA equivalence and embedded Scout payload verification finish successfully.** Check [V6 GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_water_v5.yml?query=branch%3ARAK-Water-Distance-HOBO-v6) for the running verification. Do not rename or reflash an old V5 image as V6.
+### Verified October 17, 2026 firmware
+
+Build **89a8b24** ([source commit](https://github.com/canyoncountryadventure/firmware/commit/89a8b24e1260b443f8db7051ce6d7ecbfc3931b6)). Both field sensor flavors and both matching Scout flasher images passed [GitHub CI](https://github.com/canyoncountryadventure/firmware/actions/runs/39055526063), including application/OTA/UF2/embedded Scout verification.
+
+| Sensor | Field station USB | Field station BLE | Separate drone flasher | Matching record |
+| --- | --- | --- | --- | --- |
+| SEN0313 | [Field UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/field-rak-hobo-distance-10-17-26-SEN0313.uf2) | [BLE OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/field-rak-hobo-distance-10-17-26-SEN0313-OTA.zip) | [Drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/drone-rak-hobo-distance-10-17-26-SEN0313.uf2) | [Matched manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/drone-rak-hobo-distance-10-17-26-SEN0313.uf2.txt) |
+| MB7388 | [Field UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/field-rak-hobo-distance-10-17-26-MB7388.uf2) | [BLE OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/field-rak-hobo-distance-10-17-26-MB7388-OTA.zip) | [Drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/drone-rak-hobo-distance-10-17-26-MB7388.uf2) | [Matched manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/drone-rak-hobo-distance-10-17-26-MB7388.uf2.txt) |
+
+[SHA-256 checksums](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/SHA256SUMS.txt) · [Build provenance](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/BUILD.txt)
+
+**Field UF2 is for the deployed station. Drone UF2 is for the separate autonomous Scout/RAK4631.** Use the matched Scout image, not an older drone image. No erase or factory reset for application-only updates. Physical startup, reconnection and drone transfer still require field tests.
 <!-- V6_RELEASE_END -->
 
 ## What changed from V5
