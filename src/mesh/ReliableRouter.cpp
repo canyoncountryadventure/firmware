@@ -9,6 +9,7 @@
 #include "modules/RoutingModule.h"
 #if defined(ARCH_NRF52) && defined(RAK_4631)
 #include <climits>
+#include "modules/Telemetry/WaterRelayTarget.h"
 #endif
 
 // ReliableRouter::ReliableRouter() {}
@@ -19,6 +20,13 @@
  */
 ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
 {
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    // Apply the preference BEFORE ReliableRouter saves its retransmission
+    // copy. That copy must remember the exact first hop for ACK-based retries.
+    // Routed/forwarded packets bypass this method and keep stock forwarding.
+    if (isFromUs(p))
+        waterRelayPrepareTelemetry(p);
+#endif
     if (p->want_ack) {
         DEBUG_HEAP_BEFORE;
         auto copy = packetPool.allocCopy(*p);
@@ -37,8 +45,8 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
     }
 
 #if defined(ARCH_NRF52) && defined(RAK_4631)
-    // Telemetry producers alone can set next_hop on a broadcast packet.
-    // Stock MeshService resets next_hop for phone-originated packets.
+    // The common RAK router selects the first hop for local application
+    // packets. Broadcast fallback applies to all selected broadcasts.
     if (isBroadcast(p->to) && isFromUs(p) && p->next_hop != NO_NEXT_HOP_PREFERENCE) {
         bool tracked = false;
         for (auto &entry : relayFallbacks) {
@@ -55,13 +63,13 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
         if (!tracked) {
             // Safety first: never prefer a relay if there is no RAM to
             // guarantee a later unrestricted fallback.
-            LOG_WARN("Water relay fallback queue full; send ordinary broadcast");
+            LOG_WARN("RAK preferred relay fallback queue full; send ordinary broadcast");
             p->next_hop = NO_NEXT_HOP_PREFERENCE;
         } else {
             // Router may otherwise be idle indefinitely. Wake its scheduler
             // so processRelayFallbacks runs even on a silent mesh.
             setReceivedMessage();
-            LOG_INFO("Water sensor broadcast prefers first hop 0x%02x, fallback in 25s", p->next_hop);
+            LOG_INFO("RAK outgoing broadcast prefers first hop 0x%02x, fallback in 25s", p->next_hop);
         }
     }
 #endif
@@ -77,7 +85,7 @@ bool ReliableRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
         p->from == getNodeNum()) {
         for (auto &entry : relayFallbacks) {
             if (entry.original && p->id == entry.original->id && p->relay_node == entry.expectedRelay) {
-                LOG_INFO("Water preferred relay 0x%02x forwarded packet 0x%08x", entry.expectedRelay, p->id);
+                LOG_INFO("RAK preferred relay 0x%02x forwarded packet 0x%08x", entry.expectedRelay, p->id);
                 packetPool.release(entry.original);
                 entry.original = nullptr;
             }
@@ -266,7 +274,7 @@ int32_t ReliableRouter::processRelayFallbacks()
             fallback->id = generatePacketId();
             fallback->next_hop = NO_NEXT_HOP_PREFERENCE;
             fallback->want_ack = false;
-            LOG_WARN("Water preferred relay was not overheard; broadcasting fallback packet 0x%08x", fallback->id);
+            LOG_WARN("RAK preferred relay not overheard; flooding fallback packet 0x%08x", fallback->id);
             // Skip ReliableRouter::send to avoid re-applying the preference.
             FloodingRouter::send(fallback);
         } else {
