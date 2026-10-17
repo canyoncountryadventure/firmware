@@ -1211,6 +1211,13 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
         ++hubText;
     for (char *p = hubText; *p; ++p)
         *p = static_cast<char>(toupper(static_cast<unsigned char>(*p)));
+    if (strcmp(hubText, "HOBO RESTART") == 0) {
+        // Use the existing central-link recovery state machine. Never reset
+        // LoRa or clear the saved logger lock, channels, or calibration.
+        triggerBleRecovery("operator requested HOBO RESTART");
+        sendTextReply(mp.from, mp.channel, "HOBO RESTART: BLE central reconnect queued; saved logger lock retained");
+        return ProcessMessage::CONTINUE;
+    }
     if (strcmp(hubText, "HUB") == 0 || strcmp(hubText, "HUB SHOW") == 0) {
         char reply[95] = {};
         const uint32_t hub = waterHubDestination();
