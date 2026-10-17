@@ -9,6 +9,8 @@ on:
       - 'arch/**'
       - 'platformio.ini'
       - 'README.md'
+      - 'docs/CCA_HELTEC_SENSOR_GATEWAY.md'
+      - 'test/test_heltec_v5/**'
       - '.github/workflows/build_cca_heltec_gateway.yml'
       - '.github/workflows/build_firmware.yml'
 concurrency:
@@ -16,6 +18,11 @@ concurrency:
   cancel-in-progress: true
 permissions: read-all
 jobs:
+  gateway-compat-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: python3 test/test_heltec_v5/test_wire_compat.py
   build-heltec-v5:
     uses: ./.github/workflows/build_firmware.yml
     secrets: inherit
@@ -25,7 +32,7 @@ jobs:
       platform: esp32s3
 
   publish-v5:
-    needs: build-heltec-v5
+    needs: [build-heltec-v5, gateway-compat-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
