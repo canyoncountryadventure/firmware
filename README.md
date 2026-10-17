@@ -1,4 +1,6 @@
-# RAK Water Distance + HOBO V5
+> **October 17, 2026 development branch. NOT a verified firmware release.** Branched from RAK-Water-Distance-HOBO-v5. Existing binary links below refer to prior releases and must not be represented as V5/V6 downloads. No new UF2, OTA, or Scout image has been built or validated yet. Do not flash this branch until matching dated artifacts, SHA-256 checksums, CI results, and hardware verification are published.
+
+# RAK Water Distance + HOBO V6 (development)
 
 RAK4631/RAK19007 monitoring firmware for **DFRobot SEN0313/A01NYUB** or **MaxBotix MB7388**, with HOBO **MX2001**, **MX2201** and **MX2203** support.
 
