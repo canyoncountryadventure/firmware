@@ -886,7 +886,7 @@ bool DistanceSensorModule::normalizeCommand(const uint8_t *bytes, size_t size, c
         memmove(out, out + 6, strlen(out + 6) + 1);
     } else if (strcmp(out, "WATER") == 0) {
         strcpy(out, "HELP");
-    } else if (strncmp(out, "SAMPLES", 7) != 0) {
+    } else if (strncmp(out, "SAMPLES", 7) != 0 && strcmp(out, "SENSOR RESTART") != 0) {
         return false;
     }
 
@@ -982,6 +982,18 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
     if (sampleBusy() && strncmp(command, "CAL ", 4) == 0 && strcmp(command, "CAL STATUS") != 0 &&
         strncmp(command, "CAL STAGE ", 10) != 0) {
         sendTextReply(mp.from, mp.channel, "WATER BUSY: retry calibration setting after current read");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (strcmp(command, "SENSOR RESTART") == 0) {
+        if (sampleBusy()) {
+            sendTextReply(mp.from, mp.channel, "SENSOR RESTART busy; retry after current reading");
+        } else {
+            reinitializeSensorPending = true;
+            setIntervalFromNow(0);
+            sendTextReply(mp.from, mp.channel,
+                          "SENSOR RESTART queued: driver reinitializes; selection/calibration preserved");
+        }
         return ProcessMessage::CONTINUE;
     }
 
