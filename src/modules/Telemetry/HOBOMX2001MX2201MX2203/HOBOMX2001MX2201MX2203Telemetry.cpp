@@ -1268,20 +1268,20 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
         const uint32_t preferred = waterRelayPreferredNode();
         const uint32_t once = waterRelayPendingOnce();
         if (preferred == 0 && once == 0)
-            snprintf(reply, sizeof(reply), "RELAY AUTO: normal broadcast. No preferred first hop.");
+            snprintf(reply, sizeof(reply), "RELAY AUTO: normal routing. No preferred first hop.");
         else if (once)
             snprintf(reply, sizeof(reply),
-                     "RELAY ONCE !%08lX queued; persistent preference: %s; flood fallback: 25s",
+                     "RELAY ONCE !%08lX for next sensor; saved preference: %s",
                      static_cast<unsigned long>(once), preferred ? "ON" : "AUTO");
         else
-            snprintf(reply, sizeof(reply), "RELAY PREFER !%08lX saved; broadcast first hop; fallback 25s",
+            snprintf(reply, sizeof(reply), "RELAY PREFER !%08lX: TX apps/DM/trace; broadcast fallback 25s",
                      static_cast<unsigned long>(preferred));
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
     if (strcmp(hubText, "RELAY AUTO") == 0 || strcmp(hubText, "RELAY CLEAR") == 0) {
         sendTextReply(mp.from, mp.channel, setWaterRelayPreferredNode(0)
-                          ? "RELAY AUTO saved: unrestricted broadcast; pending ONCE cleared"
+                          ? "RELAY AUTO saved: standard mesh routes; pending ONCE cleared"
                           : "RELAY AUTO save failed; preference unchanged");
         return ProcessMessage::CONTINUE;
     }
@@ -1311,8 +1311,8 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
         }
         char reply[150] = {};
         snprintf(reply, sizeof(reply),
-                 oneShot ? "RELAY ONCE !%08lX queued for next broadcast sensor packet; fallback 25s"
-                         : "RELAY PREFER !%08lX saved; broadcast first hop; fallback 25s",
+                 oneShot ? "RELAY ONCE !%08lX queued for next sensor packet; fallback 25s"
+                         : "RELAY PREFER !%08lX: TX apps/DM/trace; broadcast fallback 25s",
                  candidate);
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
