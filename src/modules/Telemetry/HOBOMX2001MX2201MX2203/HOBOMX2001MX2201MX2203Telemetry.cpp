@@ -4,7 +4,6 @@
 
 #include "HOBOMX2001MX2201MX2203Telemetry.h"
 #include "../WaterHubTarget.h"
-#include "../WaterRelayTarget.h"
 
 #include "../../../mesh/generated/meshtastic/telemetry.pb.h"
 #include "FSCommon.h"
@@ -1529,7 +1528,6 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         packet->want_ack = packet->to != NODENUM_BROADCAST;
         packet->channel = 0;
         packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
-        waterRelayPrepareTelemetry(packet); // broadcast-only preferred first hop with automatic flood fallback
 
         LOG_INFO("HOBO universal TELEMETRY TX model=%s temp=%.2f C / %.2f F "
                  "logger=%02X:%02X:%02X:%02X:%02X:%02X",
@@ -1585,7 +1583,6 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         packet->want_ack = packet->to != NODENUM_BROADCAST;
         packet->channel = 0;
         packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
-        waterRelayPrepareTelemetry(packet); // broadcast-only preferred first hop with automatic flood fallback
 
         LOG_INFO("HOBO universal MX2001 V2 TX sequence=%u level=%.2f ft temp=%.2f F "
                  "logger=%02X:%02X:%02X:%02X:%02X:%02X",
