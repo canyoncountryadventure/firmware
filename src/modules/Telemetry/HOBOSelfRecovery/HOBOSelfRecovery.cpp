@@ -286,15 +286,30 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(payload, payloadSize, "SENSOR RESTART")) {
-        sendTextReply(mp.from, mp.channel,
-                      "SENSOR RESTART: use WATER SENSOR <current> to reinitialize; calibration is retained when unchanged");
-        return ProcessMessage::CONTINUE;
-    }
-
     if (isCommand(payload, payloadSize, "LAST RESORT")) {
+        // This is an intentionally one-step destructive emergency recovery,
+        // not a request/confirmation handshake. The operator may never hear
+        // this reply after the node's channels, bonds and keys are erased.
+        if (!nrf52MarkRebootPacket(mp.from, mp.id))
+            return ProcessMessage::CONTINUE;
         sendTextReply(mp.from, mp.channel,
-                      "LAST RESORT NOT ARMED: one-step factory recovery requires validated US/LongFast/slot20 provisioning");
+                      "LAST RESORT executing: erase settings + bonds; US LongFast slot20; reboot");
+        nrf52FieldDiagEvent(4, 4, 0);
+        if (!nodeDB->factoryReset(true)) {
+            LOG_ERROR("LAST RESORT factory reset failed; no reboot scheduled");
+            return ProcessMessage::CONTINUE;
+        }
+        config.lora.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+        config.lora.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+        config.lora.channel_num = 20;
+        config.lora.hop_limit = 7;
+        if (!nodeDB->saveToDisk()) {
+            LOG_ERROR("LAST RESORT: US/LongFast/slot20 configuration save failed");
+            // Do not reboot to an unset region and strand the remote node.
+            return ProcessMessage::CONTINUE;
+        }
+        commandRecoveryCount++;
+        rebootAtMsec = millis() + 3000UL;
         return ProcessMessage::CONTINUE;
     }
 
