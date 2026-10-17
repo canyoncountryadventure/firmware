@@ -19,10 +19,18 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V5";
+static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V6";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
+uint32_t batteryMinMv = UINT32_MAX;
+uint32_t batteryMaxMv = 0;
+uint32_t batteryFirstMv = 0;
+uint32_t batteryLastMv = 0;
+uint32_t batterySampleCount = 0;
+uint32_t batteryLastSampleMs = 0;
+uint32_t batteryLastChargeTransitions = 0;
+bool lastCharging = false;
 
 bool isCommand(const uint8_t *bytes, size_t size, const char *expected)
 {
@@ -115,7 +123,10 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
                       "HELP 6/6 WATER CONFIG: WATER INTERVAL 1H | WATER CAL UNLOCK "
                       "| WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL "
                       "RESET CONFIRM | WATER RESET WATER | WATER RESET WATER "
-                      "CONFIRM | WATER TELEMETRY NOW | WATER MODE");
+                      "CONFIRM | WATER TELEMETRY NOW | WATER MODE | SAMPLES 10");
+        sendTextReply(mp.from, mp.channel,
+                      "HELP 7/7 V6: HUB | HUB SET !NODEID | HUB AUTO | SAMPLES 3-20 | BATTERY HISTORY | "
+                      "RADIO RESET | HOBO RESTART | SENSOR RESTART | LAST RESORT");
         return ProcessMessage::CONTINUE;
     }
 
@@ -153,6 +164,23 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         return ProcessMessage::CONTINUE;
     }
 
+    if (isCommand(payload, payloadSize, "BATTERY HISTORY")) {
+        if (batterySampleCount == 0) {
+            sendTextReply(mp.from, mp.channel, "BATTERY HISTORY: no voltage samples yet");
+        } else {
+            snprintf(reply, sizeof(reply),
+                     "BATTERY HISTORY (this boot) n=%lu\\nfirst:%lumV last:%lumV min:%lumV max:%lumV charge_edges:%lu",
+                     static_cast<unsigned long>(batterySampleCount),
+                     static_cast<unsigned long>(batteryFirstMv),
+                     static_cast<unsigned long>(batteryLastMv),
+                     static_cast<unsigned long>(batteryMinMv),
+                     static_cast<unsigned long>(batteryMaxMv),
+                     static_cast<unsigned long>(batteryLastChargeTransitions));
+            sendTextReply(mp.from, mp.channel, reply);
+        }
+        return ProcessMessage::CONTINUE;
+    }
+
     if (isCommand(payload, payloadSize, "BLE")) {
         snprintf(reply, sizeof(reply), "BLE: central_links=%u scanner=%s owner=HOBO-state-machine",
                  static_cast<unsigned int>(Bluefruit.Central.connected()),
@@ -176,10 +204,20 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     }
 
     if (isCommand(payload, payloadSize, "DIAG") || isCommand(payload, payloadSize, "CRASHLOG")) {
-        nrf52FieldDiagPrint();
-        sendTextReply(mp.from, mp.channel,
-                      "DIAG printed to local serial log; retained state survives "
-                      "watchdog/software resets.");
+        nrf52FieldDiagFormat(reply, sizeof(reply));
+        sendTextReply(mp.from, mp.channel, reply);
+        const auto *radio = RadioLibInterface::instance;
+        snprintf(reply, sizeof(reply),
+                 "DIAG 2/2 %s: Up:%lus\\nRadio recovery:%lu/%lu TX:%lu\\nBattery:%umV %u%% BLE:%u WDT:%s",
+                 platformName(), static_cast<unsigned long>(millis() / 1000UL),
+                 radio ? static_cast<unsigned long>(radio->radioRecoverySuccesses) : 0UL,
+                 radio ? static_cast<unsigned long>(radio->radioRecoveryAttempts) : 0UL,
+                 radio ? static_cast<unsigned long>(radio->txGood) : 0UL,
+                 powerStatus ? powerStatus->getBatteryVoltageMv() : 0U,
+                 powerStatus ? powerStatus->getBatteryChargePercent() : 0U,
+                 static_cast<unsigned int>(Bluefruit.Central.connected()),
+                 nrf52FieldWatchdogIsArmed() ? "ON" : "OFF");
+        sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
@@ -238,6 +276,28 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     // Preserve the original fast software-reset path for an explicit command.
     // DFU and internal update resets remain handled by their existing routines.
+    if (isCommand(payload, payloadSize, "RADIO RESET")) {
+        if (!nrf52MarkRebootPacket(mp.from, mp.id))
+            return ProcessMessage::CONTINUE;
+        commandRecoveryCount++;
+        if (rebootAtMsec == 0)
+            rebootAtMsec = millis() + 3000UL;
+        sendTextReply(mp.from, mp.channel, "RADIO RESET: reboot scheduled; mesh radio state refreshed, configuration retained");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (isCommand(payload, payloadSize, "SENSOR RESTART")) {
+        sendTextReply(mp.from, mp.channel,
+                      "SENSOR RESTART: use WATER SENSOR <current> to reinitialize; calibration is retained when unchanged");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (isCommand(payload, payloadSize, "LAST RESORT")) {
+        sendTextReply(mp.from, mp.channel,
+                      "LAST RESORT NOT ARMED: one-step factory recovery requires validated US/LongFast/slot20 provisioning");
+        return ProcessMessage::CONTINUE;
+    }
+
     if (isCommand(payload, payloadSize, "SOFT REBOOT")) {
         if (!nrf52MarkRebootPacket(mp.from, mp.id))
             return ProcessMessage::CONTINUE;
@@ -302,9 +362,27 @@ int32_t HOBOSelfRecoveryModule::runOnce()
     if (millis() < BOOT_SETTLE_MS)
         return 5000;
 
-    // Scanner and central-link lifecycle intentionally belong to the HOBO
-    // telemetry state machine. This supervisor only exposes diagnostics/commands;
-    // ordinary BLE failures retry without resetting the node.
+    // Hourly in-RAM trend; no flash wear and no invented battery-temperature
+    // measurements. History starts from boot and resets after power loss.
+    if (powerStatus && (batterySampleCount == 0 || millis() - batteryLastSampleMs >= 3600000UL)) {
+        const uint32_t mv = powerStatus->getBatteryVoltageMv();
+        if (mv > 0) {
+            if (batterySampleCount == 0) {
+                batteryFirstMv = mv;
+                lastCharging = powerStatus->getIsCharging();
+            } else if (lastCharging != powerStatus->getIsCharging()) {
+                batteryLastChargeTransitions++;
+                lastCharging = powerStatus->getIsCharging();
+            }
+            if (mv < batteryMinMv)
+                batteryMinMv = mv;
+            if (mv > batteryMaxMv)
+                batteryMaxMv = mv;
+            batteryLastMv = mv;
+            batterySampleCount++;
+            batteryLastSampleMs = millis();
+        }
+    }
     return SUPERVISOR_INTERVAL_MS;
 }
 
