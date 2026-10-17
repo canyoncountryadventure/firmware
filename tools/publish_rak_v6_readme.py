@@ -19,9 +19,10 @@ for sensor in ("SEN0313", "MB7388"):
     build_date = (folder / f"BUILD-DATE-{sensor}.txt").read_text().strip()
     assert re.fullmatch(r"\d{2}-\d{2}-\d{2}", build_date), build_date
     dates.append(build_date)
-    field = folder / f"field-rak-hobo-distance-{build_date}-{sensor}.uf2"
-    ota = folder / f"field-rak-hobo-distance-{build_date}-{sensor}-OTA.zip"
-    scout = folder / f"drone-rak-hobo-distance-{build_date}-{sensor}.uf2"
+    build_tag = f"{build_date}-{source[:7]}"
+    field = folder / f"field-rak-hobo-distance-{build_tag}-{sensor}.uf2"
+    ota = folder / f"field-rak-hobo-distance-{build_tag}-{sensor}-OTA.zip"
+    scout = folder / f"drone-rak-hobo-distance-{build_tag}-{sensor}.uf2"
     manifest = folder / (scout.name + ".txt")
     for path in (field, ota, scout, manifest):
         assert path.is_file() and path.stat().st_size > 0, path
@@ -47,7 +48,7 @@ assert dates[0] == dates[1], "Do not mix build dates"
 (folder / "BUILD.txt").write_text(
     f"Source commit: {source}\nCI run: {run_url}\nBuild date (America/Denver): {dates[0]}\n"
     "Hardware: RAK4631/RAK19007\n"
-    "Field images: application-only; preserves configuration and calibration\n"
+    "Dated filenames include source commit ID to avoid same-day stale downloads\n"\n    "Field images: application-only; preserves configuration and calibration\n"
     "Matching Scout implementation: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa\n"
     "Field and Scout contents verified; this is not a physical/radio test\n")
 release = f"""<!-- V6_RELEASE_START -->
