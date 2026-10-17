@@ -4,7 +4,6 @@
 
 #include "DistanceSensorModule.h"
 #include "../WaterHubTarget.h"
-#include "../WaterRelayTarget.h"
 #include "concurrency/LockGuard.h"
 
 #include "FSCommon.h"
@@ -645,7 +644,6 @@ bool DistanceSensorModule::sendDistanceTelemetry()
     packet->want_ack = packet->to != NODENUM_BROADCAST;
     packet->channel = 0;
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
-    waterRelayPrepareTelemetry(packet); // preferred first hop, broadcast-only; safe flood fallback
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
 
     LOG_INFO("WaterDistance TX sensor=%s raw=%lumm stage=%ldmm valid=%s seq=%u", distanceSensorTypeName(activeType),
