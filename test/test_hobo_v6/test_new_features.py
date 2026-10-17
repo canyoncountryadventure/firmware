@@ -42,16 +42,14 @@ v1 = struct.pack("<2sBBHhhH6sb", b"MX", 1, 3, seq, -123, 678, raw, mac, rssi)
 assert len(v1) == 19
 assert struct.unpack("<h", v1[6:8])[0] / 10 == -12.3
 
-# Preferred relay: only source-created broadcast sensor packets opt in. A
-# failed relay is retried with a *new* packet ID, so ordinary mesh nodes do not
-# reject it as a duplicate of the original directed-first-hop packet.
+# Preferred relay: central RAK router covers all outgoing application packets;
+# broadcasts use fresh-ID flood fallback while unicast uses ACK-based retries.
 relay = (root / "src/modules/Telemetry/WaterRelayTarget.h").read_text()
 reliable = (root / "src/mesh/ReliableRouter.cpp").read_text()
 reliable_h = (root / "src/mesh/ReliableRouter.h").read_text()
 next_hop = (root / "src/mesh/NextHopRouter.cpp").read_text()
 assert "water_relay_v6.bin" in relay and "stored.magic" in relay
 assert "waterRelayOnceNode() = 0;" in relay
-assert "packet->to != NODENUM_BROADCAST" in relay
 # Router-level preference must affect all local outgoing app traffic,
 # not just the individual water and HOBO emitters.
 assert "waterRelayPrepareTelemetry(packet)" not in rak
@@ -87,6 +85,5 @@ wrapper = (root / "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201
 assert "#define SEEED_XIAO_NRF52840_KIT 1" in wrapper
 assert '#include "HOBOMX2001MX2201MX2203Telemetry.cpp"' in wrapper
 assert '#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)' in rak
-assert "waterRelayPrepareTelemetry(packet)" in rak  # compiled into RAK wrapper
 
 print("PASS: V6 relay DM/fallback gates, recovery and V1/V2 decimal wire compatibility")
