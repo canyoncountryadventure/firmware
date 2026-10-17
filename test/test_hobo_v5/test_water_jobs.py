@@ -93,7 +93,7 @@ struct DistanceSensorModule {
     DistanceSensorType activeType = DistanceSensorType::MB7388;
     DistanceReading latestReading;
     static constexpr uint8_t FLAG_CALIBRATED=1;
-    struct { uint8_t flags=FLAG_CALIBRATED; int32_t stageReferenceMm=2000; } cfg;
+    struct { uint8_t flags=FLAG_CALIBRATED; uint8_t reserved0=0; int32_t stageReferenceMm=2000; } cfg;
     bool latestStageValid=false;
     int32_t latestStageMm=0;
 """
