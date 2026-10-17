@@ -23,7 +23,15 @@ ErrorCode NextHopRouter::send(meshtastic_MeshPacket *p)
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // First set the relayer to us
     wasSeenRecently(p);                                         // FIXME, move this to a sniffSent method
 
-    p->next_hop = getNextHop(p->to, p->relay_node).value_or(NO_NEXT_HOP_PREFERENCE); // set the next hop
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    // ReliableRouter chose a preferred first hop on this LOCAL originated
+    // unicast, before it saved the ACK-retry copy. Keep that hop on each
+    // initial send/retry. Relayed packets still use the normal learned route.
+    // The LAST ACK retry in doRetransmissions bypasses this method via
+    // FloodingRouter::send, which guarantees unrestricted flooding fallback.
+    if (!isFromUs(p) || p->next_hop == NO_NEXT_HOP_PREFERENCE)
+#endif
+        p->next_hop = getNextHop(p->to, p->relay_node).value_or(NO_NEXT_HOP_PREFERENCE);
     LOG_DEBUG("Setting next hop for packet with dest %x to %x", p->to, p->next_hop);
 
     // If it's from us, ReliableRouter already handles retransmissions if want_ack is set. If a next hop is set and hop limit is
