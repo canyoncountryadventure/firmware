@@ -47,7 +47,9 @@ assert "if (rebootAtMsec == 0)" in handler
 assert 'isCommand(payload, payloadSize, "SOFT REBOOT")' in handler
 assert 'isCommand(payload, payloadSize, "RECOVER")' in handler
 assert 'isCommand(payload, payloadSize, "REBOOT")' in handler
-assert handler.count("nrf52MarkRebootPacket(mp.from, mp.id)") == 2
+assert handler.count("nrf52MarkRebootPacket(mp.from, mp.id)") == 4
+assert 'isCommand(payload, payloadSize, "LAST RESORT")' in handler
+assert 'isCommand(payload, payloadSize, "RADIO RESET")' in handler
 assert "nrf52ScheduleWatchdogReset(3000UL)" in handler
 assert handler.index('"SOFT REBOOT"') < handler.index('"RECOVER"')
 assert "sd_softdevice_disable()" in body("Power::reboot", power)
