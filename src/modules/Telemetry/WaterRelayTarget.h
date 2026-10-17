@@ -127,4 +127,14 @@ inline void waterRelayPrepareTelemetry(meshtastic_MeshPacket *packet)
     if (pending)
         waterRelayOnceNode() = 0;
 }
+#else
+// RAK-specific feature: retain source compatibility with the original
+// Seeed HOBO module without altering Seeed routing or persistent settings.
+#include "MeshTypes.h"
+inline uint32_t waterRelayPreferredNode() { return 0; }
+inline uint32_t waterRelayPendingOnce() { return 0; }
+inline bool waterRelayValidNode(uint32_t) { return false; }
+inline bool setWaterRelayPreferredNode(uint32_t) { return false; }
+inline bool setWaterRelayOnceNode(uint32_t) { return false; }
+inline void waterRelayPrepareTelemetry(meshtastic_MeshPacket *) {}
 #endif
