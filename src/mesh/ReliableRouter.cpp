@@ -24,7 +24,9 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
     // Apply the preference BEFORE ReliableRouter saves its retransmission
     // copy. That copy must remember the exact first hop for ACK-based retries.
     // Routed/forwarded packets bypass this method and keep stock forwarding.
-    if (isFromUs(p))
+    // Filesystem preferences are loaded after startup. Avoid a premature
+    // first read while the NRF52 filesystem is still mounting.
+    if (isFromUs(p) && millis() >= 8000UL)
         waterRelayPrepareTelemetry(p);
 #endif
     if (p->want_ack) {
