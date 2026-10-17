@@ -1261,6 +1261,68 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
         return ProcessMessage::CONTINUE;
     }
 
+    // First-hop relay preference differs from HUB: it keeps a broadcast
+    // destination and only asks one relay to forward the first hop. Normal
+    // flooding resumes at that relay, with a timed flood fallback on failure.
+    if (strcmp(hubText, "RELAY") == 0 || strcmp(hubText, "RELAY SHOW") == 0) {
+        char reply[160] = {};
+        const uint32_t preferred = waterRelayPreferredNode();
+        const uint32_t once = waterRelayPendingOnce();
+        if (preferred == 0 && once == 0)
+            snprintf(reply, sizeof(reply), "RELAY AUTO: normal broadcast. No preferred first hop.");
+        else if (once)
+            snprintf(reply, sizeof(reply),
+                     "RELAY ONCE !%08lX queued; persistent preference: %s; flood fallback: 25s",
+                     static_cast<unsigned long>(once), preferred ? "ON" : "AUTO");
+        else
+            snprintf(reply, sizeof(reply), "RELAY PREFER !%08lX saved; broadcast first hop; fallback 25s",
+                     static_cast<unsigned long>(preferred));
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+    if (strcmp(hubText, "RELAY AUTO") == 0 || strcmp(hubText, "RELAY CLEAR") == 0) {
+        sendTextReply(mp.from, mp.channel, setWaterRelayPreferredNode(0)
+                          ? "RELAY AUTO saved: unrestricted broadcast; pending ONCE cleared"
+                          : "RELAY AUTO save failed; preference unchanged");
+        return ProcessMessage::CONTINUE;
+    }
+    if (strncmp(hubText, "RELAY PREFER ", 13) == 0 || strncmp(hubText, "RELAY ONCE ", 11) == 0) {
+        const bool oneShot = strncmp(hubText, "RELAY ONCE ", 11) == 0;
+        const char *arg = hubText + (oneShot ? 11 : 13);
+        bool hex = false;
+        if (*arg == '!') {
+            hex = true;
+            ++arg;
+        } else if (arg[0] == '0' && arg[1] == 'X') {
+            hex = true;
+            arg += 2;
+        }
+        char *end = nullptr;
+        const unsigned long candidate = strtoul(arg, &end, hex ? 16 : 10);
+        if (!arg[0] || !end || *end != '\0' || !waterRelayValidNode(static_cast<uint32_t>(candidate))) {
+            sendTextReply(mp.from, mp.channel,
+                          "RELAY format: RELAY PREFER !1234ABCD or RELAY ONCE !1234ABCD (not self)");
+            return ProcessMessage::CONTINUE;
+        }
+        const bool saved = oneShot ? setWaterRelayOnceNode(static_cast<uint32_t>(candidate))
+                                   : setWaterRelayPreferredNode(static_cast<uint32_t>(candidate));
+        if (!saved) {
+            sendTextReply(mp.from, mp.channel, "RELAY command failed; prior routing retained");
+            return ProcessMessage::CONTINUE;
+        }
+        char reply[150] = {};
+        snprintf(reply, sizeof(reply),
+                 oneShot ? "RELAY ONCE !%08lX queued for next broadcast sensor packet; fallback 25s"
+                         : "RELAY PREFER !%08lX saved; broadcast first hop; fallback 25s",
+                 candidate);
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+    if (strncmp(hubText, "RELAY ", 6) == 0) {
+        sendTextReply(mp.from, mp.channel,
+                      "RELAY: SHOW | AUTO | PREFER !1234ABCD | ONCE !1234ABCD; HUB SET is separate");
+        return ProcessMessage::CONTINUE;
+    }
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOGGER")) {
         char reply[220] = {};
         uint8_t previousMac[6] = {};
