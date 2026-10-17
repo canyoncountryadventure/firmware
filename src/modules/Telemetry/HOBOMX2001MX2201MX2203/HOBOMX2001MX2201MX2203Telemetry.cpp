@@ -1418,52 +1418,47 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             return false;
         }
 
-        int32_t stageScaled = static_cast<int32_t>(lroundf(latestStageFeet * 10.0f));
-        int32_t tempScaled = static_cast<int32_t>(lroundf(latestTemperatureF * 10.0f));
-
-        if (stageScaled < -32768)
-            stageScaled = -32768;
-        if (stageScaled > 32767)
-            stageScaled = 32767;
+        // Wire V2: signed LE int32 stage and signed LE int16 temperature,
+        // both scaled by 100. V1 was 19 bytes with tenths; V2 is 21 bytes.
+        // Layout: MX, version, flags, seq16, stage32, temp16, raw16, MAC[6], RSSI.
+        int32_t stageScaled = static_cast<int32_t>(lroundf(latestStageFeet * 100.0f));
+        int32_t tempScaled = static_cast<int32_t>(lroundf(latestTemperatureF * 100.0f));
         if (tempScaled < -32768)
             tempScaled = -32768;
         if (tempScaled > 32767)
             tempScaled = 32767;
-
-        const int16_t stageTenths = static_cast<int16_t>(stageScaled);
-        const int16_t tempTenths = static_cast<int16_t>(tempScaled);
-        const uint16_t stageBits = static_cast<uint16_t>(stageTenths);
-        const uint16_t tempBits = static_cast<uint16_t>(tempTenths);
+        const uint32_t stageBits = static_cast<uint32_t>(stageScaled);
+        const uint16_t tempBits = static_cast<uint16_t>(static_cast<int16_t>(tempScaled));
         const uint16_t raw16 = static_cast<uint16_t>(latestTemperatureRaw & 0xFFFFU);
 
         measurementSequence++;
         uint8_t *payload = packet->decoded.payload.bytes;
-
         payload[0] = 'M';
         payload[1] = 'X';
-        payload[2] = 1;
+        payload[2] = 2;
         payload[3] = 0x03;
         payload[4] = static_cast<uint8_t>(measurementSequence & 0xFF);
         payload[5] = static_cast<uint8_t>((measurementSequence >> 8) & 0xFF);
         payload[6] = static_cast<uint8_t>(stageBits & 0xFF);
         payload[7] = static_cast<uint8_t>((stageBits >> 8) & 0xFF);
-        payload[8] = static_cast<uint8_t>(tempBits & 0xFF);
-        payload[9] = static_cast<uint8_t>((tempBits >> 8) & 0xFF);
-        payload[10] = static_cast<uint8_t>(raw16 & 0xFF);
-        payload[11] = static_cast<uint8_t>((raw16 >> 8) & 0xFF);
-        memcpy(&payload[12], loggerMac, 6);
-        payload[18] = static_cast<uint8_t>(loggerBleRssi);
-
-        packet->decoded.payload.size = 19;
+        payload[8] = static_cast<uint8_t>((stageBits >> 16) & 0xFF);
+        payload[9] = static_cast<uint8_t>((stageBits >> 24) & 0xFF);
+        payload[10] = static_cast<uint8_t>(tempBits & 0xFF);
+        payload[11] = static_cast<uint8_t>((tempBits >> 8) & 0xFF);
+        payload[12] = static_cast<uint8_t>(raw16 & 0xFF);
+        payload[13] = static_cast<uint8_t>((raw16 >> 8) & 0xFF);
+        memcpy(&payload[14], loggerMac, 6);
+        payload[20] = static_cast<uint8_t>(loggerBleRssi);
+        packet->decoded.payload.size = 21;
         packet->decoded.portnum = meshtastic_PortNum_PRIVATE_APP;
         packet->decoded.want_response = false;
         packet->to = NODENUM_BROADCAST;
         packet->channel = 0;
         packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
 
-        LOG_INFO("HOBO universal MX2001 TX sequence=%u level=%.1f ft temp=%.1f F "
+        LOG_INFO("HOBO universal MX2001 V2 TX sequence=%u level=%.2f ft temp=%.2f F "
                  "logger=%02X:%02X:%02X:%02X:%02X:%02X",
-                 measurementSequence, stageTenths / 10.0f, tempTenths / 10.0f, loggerMac[0], loggerMac[1], loggerMac[2],
+                 measurementSequence, stageScaled / 100.0f, tempScaled / 100.0f, loggerMac[0], loggerMac[1], loggerMac[2],
                  loggerMac[3], loggerMac[4], loggerMac[5]);
 
         service->sendToMesh(packet, RX_SRC_LOCAL, true);
