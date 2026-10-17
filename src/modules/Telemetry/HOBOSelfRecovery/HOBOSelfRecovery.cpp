@@ -104,29 +104,32 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
         // Split the complete command reference into LoRa-safe messages so no
         // command is truncated.
         sendTextReply(mp.from, mp.channel,
-                      "HELP 1/6 HOBO: HELP | READ | LOGGER | LOCK | LOCK <MAC> | "
+                      "HELP 1/8 HOBO: HELP | READ | LOGGER | LOCK | LOCK <MAC> | "
                       "UNLOCK | AUTO | STATUS | HEALTH | BLE");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 2/6 SYSTEM: POWER | BATTERY | STATS | DIAG | CLEAR "
+                      "HELP 2/8 SYSTEM: POWER | BATTERY | STATS | DIAG | CLEAR "
                       "DIAG | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | "
                       "SCAN | RECONNECT | RECOVER | REBOOT | SOFT REBOOT | DFU");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 3/6 WATER CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK "
+                      "HELP 3/8 WATER CORE: WATER | WATER HELP | WATER STATUS | WATER CHECK "
                       "| WATER INSTALL | WATER READ | WATER RAW | WATER VERIFY");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 4/6 WATER SENSOR: WATER SENSOR | WATER SENSOR AUTO | WATER "
+                      "HELP 4/8 WATER SENSOR: WATER SENSOR | WATER SENSOR AUTO | WATER "
                       "SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER SENSOR A02YYUW");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 5/6 WATER SENSOR/CAL: WATER SENSOR SEN0313 | WATER SENSOR "
+                      "HELP 5/8 WATER SENSOR/CAL: WATER SENSOR SEN0313 | WATER SENSOR "
                       "A01NYUB | WATER CAL STATUS | WATER CAL STAGE 1.42FT | WATER CAL LOCK");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 6/6 WATER CONFIG: WATER INTERVAL 1H | WATER CAL UNLOCK "
+                      "HELP 6/8 WATER CONFIG: WATER INTERVAL 1H | WATER CAL UNLOCK "
                       "| WATER CAL UNLOCK CONFIRM | WATER CAL RESET | WATER CAL "
                       "RESET CONFIRM | WATER RESET WATER | WATER RESET WATER "
                       "CONFIRM | WATER TELEMETRY NOW | WATER MODE | SAMPLES 10");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 7/7 V6: HUB | HUB SET !NODEID | HUB AUTO | SAMPLES 3-20 | BATTERY HISTORY | "
+                      "HELP 7/8 V6: HUB | HUB SET !NODEID | HUB AUTO | SAMPLES 3-20 | BATTERY HISTORY | "
                       "RADIO RESET | HOBO RESTART | SENSOR RESTART | LAST RESORT");
+        sendTextReply(mp.from, mp.channel,
+                      "HELP 8/8 RELAY: RELAY SHOW | RELAY PREFER !NODEID | RELAY ONCE !NODEID | "
+                      "RELAY AUTO (broadcast with 25s fallback)");
         return ProcessMessage::CONTINUE;
     }
 
