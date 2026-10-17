@@ -58,6 +58,9 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
             LOG_WARN("Water relay fallback queue full; send ordinary broadcast");
             p->next_hop = NO_NEXT_HOP_PREFERENCE;
         } else {
+            // Router may otherwise be idle indefinitely. Wake its scheduler
+            // so processRelayFallbacks runs even on a silent mesh.
+            setReceivedMessage();
             LOG_INFO("Water sensor broadcast prefers first hop 0x%02x, fallback in 25s", p->next_hop);
         }
     }
