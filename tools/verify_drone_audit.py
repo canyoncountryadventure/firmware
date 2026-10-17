@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the Scout UF2 carries the exact published V5 DFU payload."""
+"""Verify the Scout UF2 carries the exact published V6 DFU payload."""
 import json
 import pathlib
 import re
@@ -54,5 +54,5 @@ assert dat == expected_dat and dat in image, "DFU init packet missing or mismatc
 assert compressed in image, "Compressed payload missing from Scout UF2"
 assert lz4.block.decompress(compressed, uncompressed_size=len(expected)) == expected
 print(
-    f"PASS: nRF52840 Scout, {len(uf2)} bytes, exact V5 application and DFU init packet embedded"
+    f"PASS: nRF52840 Scout, {len(uf2)} bytes, exact V6 application and DFU init packet embedded"
 )
