@@ -58,9 +58,10 @@ class DistanceSensorModule : public SinglePortModule, private concurrency::OSThr
     int32_t sampleStageMm = 0;
     uint8_t sampleCount = 0;
     uint8_t sampleAttempts = 0;
-    static constexpr uint8_t SAMPLE_COUNT = 10;
-    static constexpr uint8_t MAX_SAMPLE_ATTEMPTS = 20;
-    uint32_t sampleValues[SAMPLE_COUNT] = {};
+    static constexpr uint8_t DEFAULT_SAMPLE_COUNT = 10;
+    static constexpr uint8_t MAX_SAMPLE_COUNT = 20;
+    uint32_t sampleValues[MAX_SAMPLE_COUNT] = {};
+    uint8_t targetSamples() const { return cfg.reserved0 == 0 ? DEFAULT_SAMPLE_COUNT : cfg.reserved0; }
     uint8_t latestSampleCount = 0;
     uint32_t latestSampleSpreadMm = 0;
     bool reinitializeSensorPending = false;
