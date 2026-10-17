@@ -20,6 +20,12 @@ class ReliableRouter : public NextHopRouter
      * If the txmit queue is full it might return an error
      */
     virtual ErrorCode send(meshtastic_MeshPacket *p) override;
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    // Bounded pending sensor packets; all other Meshtastic traffic is unchanged.
+    // Each packet is replayed ONCE as a NEW unrestricted broadcast ID if the
+    // preferred first-hop rebroadcast is not overheard within 25 seconds.
+    virtual int32_t runOnce() override;
+#endif
 
   protected:
     /**
@@ -33,6 +39,17 @@ class ReliableRouter : public NextHopRouter
     virtual bool shouldFilterReceived(const meshtastic_MeshPacket *p) override;
 
   private:
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    struct RelayFallback {
+        meshtastic_MeshPacket *original = nullptr;
+        uint8_t expectedRelay = 0;
+        uint32_t sentAtMs = 0;
+    };
+    static constexpr uint32_t RELAY_FALLBACK_MS = 25000UL;
+    RelayFallback relayFallbacks[4] = {};
+    int32_t processRelayFallbacks();
+#endif
+
     /**
      * Should this packet be ACKed with a want_ack for reliable delivery?
      */
