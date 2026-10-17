@@ -73,7 +73,7 @@ jobs:
           test -n "$ota_path"
           cp "$uf2_path" "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR.uf2"
           cp "$ota_path" "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR-OTA.zip"
-          python3 bin/verify_rak_v5.py "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR.uf2" "$GITHUB_SHA"
+          python3 bin/verify_rak_v6.py "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR.uf2" "$GITHUB_SHA"
           python3 bin/verify_rak_audit_package.py "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR.uf2" "export/field-rak-hobo-distance-$BUILD_DATE-$SENSOR-OTA.zip"
           (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
