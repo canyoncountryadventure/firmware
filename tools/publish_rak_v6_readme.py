@@ -17,7 +17,7 @@ base = f"https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-W
 rows, binaries, dates = [], [], []
 for sensor in ("SEN0313", "MB7388"):
     build_date = (folder / f"BUILD-DATE-{sensor}.txt").read_text().strip()
-    assert re.fullmatch(r"\\d{2}-\\d{2}-\\d{2}", build_date), build_date
+    assert re.fullmatch(r"\d{2}-\d{2}-\d{2}", build_date), build_date
     dates.append(build_date)
     field = folder / f"field-rak-hobo-distance-{build_date}-{sensor}.uf2"
     ota = folder / f"field-rak-hobo-distance-{build_date}-{sensor}-OTA.zip"
@@ -42,14 +42,14 @@ for sensor in ("SEN0313", "MB7388"):
 
 assert dates[0] == dates[1], "Do not mix build dates"
 (folder / "SHA256SUMS.txt").write_text("".join(
-    f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\\n"
+    f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
     for p in sorted(binaries)))
 (folder / "BUILD.txt").write_text(
-    f"Source commit: {source}\\nCI run: {run_url}\\nBuild date (America/Denver): {dates[0]}\\n"
-    "Hardware: RAK4631/RAK19007\\n"
-    "Field images: application-only; preserves configuration and calibration\\n"
-    "Matching Scout implementation: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa\\n"
-    "Field and Scout contents verified; this is not a physical/radio test\\n")
+    f"Source commit: {source}\nCI run: {run_url}\nBuild date (America/Denver): {dates[0]}\n"
+    "Hardware: RAK4631/RAK19007\n"
+    "Field images: application-only; preserves configuration and calibration\n"
+    "Matching Scout implementation: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa\n"
+    "Field and Scout contents verified; this is not a physical/radio test\n")
 release = f"""<!-- V6_RELEASE_START -->
 ### Verified October {int(dates[0][3:5])}, 2026 firmware
 
