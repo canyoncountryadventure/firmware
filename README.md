@@ -23,7 +23,7 @@ Build **0c29518** ([source commit](https://github.com/canyoncountryadventure/fir
 - **MX2001 hundredths:** stage and temperature retain two decimal places over the mesh in versioned MX packet V2. Heltec Gateway V5 supports both this 21-byte format and existing V1 19-byte/tenths packets. Decoder/database display must retain the received precision; no invented digits if HOBO provides a lower-resolution value.
 - **Configurable distance bursts:** 8-second nonblocking Pololu 2810 settling, sensor OFF between jobs, sample count adjustable 3–20 (default 10); up to 2× the requested sample count to obtain fresh valid frames. Samples are median-combined for WATER READ, scheduled transmissions, calibration and verification. Count is stored in V5-compatible CRC-verified A/B config.
 - **Remote hub:** default remains normal mesh broadcast; optional persistent unicast destination for water and HOBO telemetry. HUB SET does **not** select a specific relay or force traffic through Hidden Valley.
-- **Optional preferred relay (V6 update):** `RELAY PREFER !NODEID` persists a desired **first relay** for broadcast water/HOBO telemetry; `RELAY ONCE !NODEID` applies once (RAM-only), `RELAY SHOW` inspects it, and `RELAY AUTO` returns to unrestricted broadcast. The preferred node rebroadcasts under standard Meshtastic flooding. If the source does not overhear that relay within **25 seconds**, the source emits **one new-ID unrestricted broadcast**, avoiding packet-history duplicate suppression. If RAM is insufficient for fallback, transmission uses ordinary flooding immediately. Default AUTO. No updates needed on the ordinary relay or Heltec, assuming standard compatible mesh firmware.
+- **Preferred first relay for ALL originating application traffic (V6 routing update):** `RELAY PREFER !NODEID` now influences locally originated water/HOBO telemetry, standard device telemetry, outbound text DMs, DM replies, and traceroute requests. The preference is applied once in the common router **before** ACK tracking, not inside a sensor module. Ordinary relayed traffic, mesh ACK/control and admin commands retain Meshtastic routing. `RELAY ONCE !NODEID` still affects just the next sensor telemetry packet (RAM-only), to avoid being consumed by its own confirmation reply. `RELAY AUTO` restores ordinary routing. The preference is a **next-hop hint, not a guaranteed source route**: a destination such as Heltec can still receive a packet directly if it hears the sender. No special firmware is required on the preferred relay or Heltec for this hint.
 - **Useful DM diagnostics:** retained watchdog/reset breadcrumbs and live radio/BLE/power statistics arrive in two DM replies, not merely a serial-log statement. Limited battery voltage history is available since the current boot.
 - **Recovery commands:** independently restart the water-sensor driver or HOBO BLE central while preserving calibration/locks; retain CPU soft reboot and hardware-watchdog reset; one-step LAST RESORT emergency reset.
 - **Preservation:** ordinary firmware UF2/OTA and recovery preserve the existing radio identity, channel credentials, logger assignment, water calibration and sensor selection. Only explicit destructive commands clear those.
@@ -60,10 +60,9 @@ Commands are sent as a **direct message to the field node** on its working Mesht
 | `HUB SET !1234ABCD` | Persist node-ID destination for automatic water and HOBO telemetry; no periodic re-entry needed |
 | `HUB AUTO`, `HUB CLEAR` | Persist normal broadcast mode |
 | `RELAY`, `RELAY SHOW` | Show first-hop relay preference and any one-time override (not a HUB destination) |
-| `RELAY PREFER !1234ABCD` | **Persist** Hidden Valley or another designated first relay for outgoing broadcast HOBO/water packets |
-| `RELAY ONCE !1234ABCD` | Prefer the specified relay for **only the next broadcast sensor packet** (RAM-only); then restore previous preference |
-| `RELAY AUTO`, `RELAY CLEAR` | Persist unrestricted Meshtastic broadcast and cancel a pending one-shot relay |
-
+| `RELAY PREFER !1234ABCD` | **Persist** preferred first relay for all locally originated application transmissions, including water/HOBO, standard telemetry, DMs and traceroute |
+| `RELAY ONCE !1234ABCD` | Prefer that relay for **only the next water/HOBO sensor packet** (broadcast or HUB unicast); then return to saved preference |
+| `RELAY AUTO`, `RELAY CLEAR` | Restore standard Meshtastic routing for both broadcast and unicast application packets; clear pending ONCE |
 | `BATTERY`, `BATTERY HISTORY` | Live voltage/percentage/charging; hourly sampled voltage minimum/maximum/first/last this boot |
 | `DIAG`, `STATS`, `WATCHDOG` | Two DM diagnostic messages; radio stats; field/core watchdog state |
 | `CLEAR DIAG` | Clear retained failure breadcrumb; boot count kept |
@@ -79,20 +78,20 @@ Commands are sent as a **direct message to the field node** on its working Mesht
 - HOBO central uses the proven automatic STATUS write-pointer polling (30 seconds), not a forced sensor record every 30 seconds. New logger records drive automatic telemetry.
 - BLE startup has bounded CPU-awake/HFCLK protection, then releases it once logger STATUS baseline completes. Ordinary mesh relay works while other sensor jobs are pending.
 - `HUB` remains broadcast on new or unconfigured stations; `HUB SET` survives normal reboot and application-only flashing. HUB is **not** a relay route override.
-- Preferred first-hop routing is **broadcast-only**, defaults OFF, and does not apply if `HUB SET` changed telemetry to unicast. Restore `HUB AUTO` first if you want first-relay selection while retaining full-mesh broadcast. `RELAY PREFER !<HiddenValleyNodeID>` takes precedence over ordinary flooding only for water/HOBO packet originators; the relay itself can be on standard Meshtastic firmware.
-- **Fail-safe:** a maximum of four preferred packets can await confirmation; when the selected relay is not overheard within 25 seconds, the RAK sends an unrestricted copy with a new packet ID. In a congested network, this can cause **two readings with identical measurement sequence** to arrive at the gateway. It is not end-to-end delivery assurance. Both packets preserve the data. The RAK must be awake to execute the fallback; bench-test under your real sleep/power mode.
+- Preferred first-hop routing is **both unicast and broadcast**, defaults to AUTO, and persists across RAK application-only updates. `HUB SET` remains a *telemetry destination*, independent of which intermediate relay is preferred. Incoming DMs are controlled by their originating radio, not by this station's outgoing preference. This does not override forwarded packets or mesh ACK/control packets. It is a preference rather than a guarantee that the destination will not hear the packet directly.
+- **Fallback safety:** for *broadcasts*, up to four selected packets await evidence of the requested relay; if not overheard after **25 seconds**, the RAK sends a **new packet ID** as an unrestricted broadcast, avoiding mesh duplicate suppression. This can produce duplicate readings in the receiver database. If no fallback memory is available, it floods on the first try. For *unicast* text DMs, traceroute and HUB-targeted sensor packets requesting ACK, Meshtastic's existing bounded retransmissions apply. The **last retry floods normally without the preferred first hop**; no new packet ID is needed for that route-recovery mechanism. Neither mechanism guarantees end-to-end delivery; test under real RAK sleep and power behavior.
 - First-hop routing uses Meshtastic's **last-byte node identifier**, so do not choose a relay sharing the same last byte with another nearby mesh node. Confirm using `RELAY SHOW` and the actual Hidden Valley node ID. Fall back to `RELAY AUTO` if troubleshooting.
 
 - Battery voltage history is RAM-only and starts with the current boot. The charger/thermistor hardware, not this firmware, determines cold-charge protection.
 
-## First relay test (Pack Creek → Hidden Valley → Heltec)
+## Test the preferred relay (Cottonwood/Pack Creek → Hidden Valley → Heltec)
 
-1. Use `HUB AUTO` and `RELAY AUTO` as the starting state; verify one ordinary broadcast reaches Heltec.
-2. DM Pack Creek `RELAY ONCE !<HiddenValleyNodeID>`, then `WATER TELEMETRY NOW` (or let one fresh automatic HOBO record transmit).
-3. Check Hidden Valley forwarded that packet and Heltec ingested it. If Hidden Valley is off, check for the delayed normal-broadcast fallback after 25 seconds.
-4. Only after the one-shot test works, DM `RELAY PREFER !<HiddenValleyNodeID>`. Revert with `RELAY AUTO` instantly if performance degrades.
+1. From an ordinary working mesh, DM the RAK `RELAY PREFER !b57d051f` to save Hidden Valley's preferred first hop, then `RELAY SHOW` to verify the saved ID.
+2. With your phone connected **to that RAK**, run the **ordinary Meshtastic traceroute to Heltec**. It now originates with the preferred next-hop hint. Traceroute remains a unicast probe, and its actual path may still be direct if Heltec hears the RAK.
+3. For real sensor traffic, send `WATER TELEMETRY NOW` and inspect packets at Heltec. `next_hop: 31` (0x1F) proves the RAK selected Hidden Valley; `relay_node: 31` with a decremented hop count on the *same packet ID* indicates Hidden Valley actually forwarded it. A packet with sender's own last byte as `relay_node` is a **direct reception**, not relay proof.
+4. For a single-water-packet test without changing persistent routing, use `RELAY ONCE !b57d051f` followed by `WATER TELEMETRY NOW`. Revert everything using `RELAY AUTO`.
 
-This implementation is covered by automated source and compile gates but **not yet physically tested** on a RAK with a real Hidden Valley relay. Fallback is best-effort, not guaranteed delivery.
+**Traceroute limitations:** this is **not** a new `RELAY TRACE` DM command. It makes *normal outgoing traceroutes* use the saved first-hop hint. Standard traceroute records forwarding hops actually traversed but not every radio that hears the packet. When Heltec is directly reachable, it may receive and answer the probe without Hidden Valley appearing in the trace. A traceroute route is not proof of the water measurement's route. No physical multi-hop field test is claimed by CI.
 
 ## Release checks and rollback
 
