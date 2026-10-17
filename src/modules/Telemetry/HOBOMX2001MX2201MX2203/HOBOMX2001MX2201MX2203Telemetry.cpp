@@ -1,6 +1,6 @@
 #include "configuration.h"
 
-#if defined(ARCH_NRF52) && (defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631))
+#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)
 
 #include "HOBOMX2001MX2201MX2203Telemetry.h"
 #include "../WaterHubTarget.h"
