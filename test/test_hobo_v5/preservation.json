@@ -40,16 +40,6 @@
     },
     {
       "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
-      "sha256": "9d2ac6b677745ac35b7710c0cf772c3eed66b82d1e88f3af63cdcf79cd083216",
-      "signature": "bool DistanceSensorModule::configValid(const PersistentConfig &record) const"
-    },
-    {
-      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
-      "sha256": "169e9709e7a8fff4d71c4b266ac6e39c9fa3c08fcaa682ac56e31066e3064922",
-      "signature": "bool DistanceSensorModule::saveConfig()"
-    },
-    {
-      "path": "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp",
       "sha256": "9dba5059ba46710a22f365015ef55bfa3ba98da41736510a909c1232be3bed5d",
       "signature": "bool DistanceSensorModule::migrateLegacyConfig()"
     },
@@ -133,5 +123,9 @@
       "0xE1",
       "0x65"
     ]
-  }
+  },
+  "v6_allowed_differences": [
+    "WaterDistance config validation now accepts 0 or 3..20 in preserved reserved0",
+    "WaterDistance saveConfig retains reserved0 instead of resetting it"
+  ]
 }
