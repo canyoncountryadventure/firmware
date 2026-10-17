@@ -1,7 +1,7 @@
-name: Build verified RAK Water HOBO V5 and matched Scouts
+name: Build RAK V6 candidate and matched Scouts (no publish)
 on:
   push:
-    branches: [RAK-Water-Distance-HOBO-v5]
+    branches: [RAK-Water-Distance-HOBO-v6]
     paths:
       - "src/**"
       - "test/test_hobo_v5/**"
@@ -17,7 +17,7 @@ on:
       - "tools/publish_rak_v5_readme.py"
   workflow_dispatch:
 concurrency:
-  group: rak-water-hobo-v5
+  group: rak-water-hobo-v6
   cancel-in-progress: true
 env:
   PLATFORMIO_SETTING_ENABLE_TELEMETRY: "false"
@@ -102,39 +102,7 @@ jobs:
           (cd export && sha256sum *.uf2 *.zip) > "export/SHA256-$SENSOR.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: RAK-HOBO-v5-Audit-Repair-${{ matrix.sensor }}
+          name: RAK-HOBO-v6-CANDIDATE-${{ matrix.sensor }}
           path: export/*
           if-no-files-found: error
           retention-days: 30
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          pattern: RAK-HOBO-v5-Audit-Repair-*
-          merge-multiple: true
-          path: export
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: RAK-Water-Distance-HOBO-v5
-          path: publish
-      - name: Publish verified V5 release and front-page links
-        run: |
-          set -euo pipefail
-          cd publish
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          mkdir -p downloads/RAK-HOBO-v5-Audit-Repair
-          cp ../export/* downloads/RAK-HOBO-v5-Audit-Repair/
-          cd downloads/RAK-HOBO-v5-Audit-Repair
-          sha256sum *.uf2 *.zip > SHA256SUMS.txt
-          printf 'Source commit: %s\nWorkflow: https://github.com/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > BUILD.txt
-          cd ../..
-          python3 tools/publish_rak_v5_readme.py
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add downloads/RAK-HOBO-v5-Audit-Repair README.md docs/diagnostic-8/VALIDATION.md
-          git commit -m 'Publish verified Diagnostic 8 RAK4631 app-only firmware'
-          git push origin HEAD:RAK-Water-Distance-HOBO-v5
