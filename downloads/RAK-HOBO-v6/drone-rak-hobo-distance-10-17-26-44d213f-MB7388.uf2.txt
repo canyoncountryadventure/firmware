@@ -1,0 +1,6 @@
+Target source commit: 44d213f92910ae24c287e0068d25ef3232cc9137
+Target environment: rak4631_mb7388_v5
+Scout implementation commit: 37306158a64266fd05dfcd3bf01c5b47d0dc35fa
+Exact embedded application and DAT verified; both LZ4 decoders verified
+c66072443fcda0fcca5ac6e10d6c5dbecbbba3ea39aefac29cb4ca56716509f9  export/drone-rak-hobo-distance-10-17-26-44d213f-MB7388.uf2
+e2aea2bc546fc41d55cabf146a60ba3c5a5d6d16cefc94493327c336c8c7db32  export/field-rak-hobo-distance-10-17-26-44d213f-MB7388-OTA.zip
