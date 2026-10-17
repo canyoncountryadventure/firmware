@@ -25,7 +25,7 @@ for sensor in ("SEN0313", "MB7388"):
     manifest = folder / (scout.name + ".txt")
     for path in (field, ota, scout, manifest):
         assert path.is_file() and path.stat().st_size > 0, path
-    subprocess.run([sys.executable, str(root / "bin/verify_rak_v5.py"),
+    subprocess.run([sys.executable, str(root / "bin/verify_rak_v6.py"),
                     str(field), source], check=True)
     subprocess.run([sys.executable, str(root / "bin/verify_rak_audit_package.py"),
                     str(field), str(ota)], check=True)
