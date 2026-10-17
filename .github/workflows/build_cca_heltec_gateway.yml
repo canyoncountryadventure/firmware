@@ -1,99 +1,77 @@
-name: Build Heltec Gateway v4
-
-# V4 release build publishes the exact current branch head.
-
+name: Build Heltec Gateway V5 (dated release)
 on:
   workflow_dispatch:
   push:
-    branches:
-      - Heltec-Gateway-v4
+    branches: [Heltec-Gateway-v5]
     paths:
       - 'src/**'
       - 'variants/**'
       - 'arch/**'
       - 'platformio.ini'
+      - 'README.md'
       - '.github/workflows/build_cca_heltec_gateway.yml'
       - '.github/workflows/build_firmware.yml'
-      - 'README.md'
-      - 'docs/CCA_HELTEC_SENSOR_GATEWAY.md'
-
+concurrency:
+  group: heltec-gateway-v5
+  cancel-in-progress: true
 permissions: read-all
-
 jobs:
-  build-heltec-v4:
+  build-heltec-v5:
     uses: ./.github/workflows/build_firmware.yml
     secrets: inherit
     with:
-      version: cca-v4-${{ github.run_number }}
+      version: cca-heltec-v5-${{ github.run_number }}
       pio_env: heltec-v4
       platform: esp32s3
 
-  publish-latest:
-    needs: build-heltec-v4
+  publish-v5:
+    needs: build-heltec-v5
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: read
     steps:
-      - name: Download Heltec firmware artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - name: Download exact Heltec V5 output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: firmware-esp32s3-heltec-v4-cca-v4-*
+          pattern: firmware-esp32s3-heltec-v4-cca-heltec-v5-*
           path: heltec-firmware
           merge-multiple: true
-
-      - name: Package latest Heltec build
+      - name: Prepare dated firmware and checksum metadata
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$(find heltec-firmware -type f -print -quit)"
-          zip -j -r Heltec-Gateway-v4.zip heltec-firmware/*
+          date_stamp="$(TZ=America/Denver date +%m-%d-%y)"
+          echo "DATE_STAMP=$date_stamp" >> "$GITHUB_ENV"
+          src="$(find heltec-firmware -maxdepth 1 -name 'firmware-heltec-v4-*.bin' -print -quit)"
+          test -n "$src"
+          mkdir -p release-pack
+          cp "$src" "release-pack/Heltec-Gateway-v5-$date_stamp.bin"
+          (cd heltec-firmware && zip -q -r "../release-pack/Heltec-Gateway-v5-$date_stamp.zip" .)
           {
-            echo "TARGET=Heltec-Gateway-v4"
+            echo "TARGET=Heltec-Gateway-v5"
             echo "HARDWARE=Heltec WiFi LoRa 32 V4 OLED"
-            echo "ENV=heltec-v4"
-            echo "PLATFORM=esp32s3"
-            echo "COMMIT=$GITHUB_SHA"
-            sha256sum Heltec-Gateway-v4.zip
-          } > Heltec-Gateway-v4-BUILD.txt
-
-      - name: Checkout firmware download branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: field-self-recovery
-          path: publish
-          fetch-depth: 0
-
-      - name: Publish permanent Heltec download
+            echo "PIO_ENV=heltec-v4"
+            echo "FORMAT=ESP32-S3 BIN; ZIP includes companion OTA/flash files"
+            echo "SOURCE_COMMIT=$GITHUB_SHA"
+            echo "BUILD_RUN=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            (cd release-pack && sha256sum *.bin *.zip)
+          } > release-pack/BUILD.txt
+      - name: Publish only verified current source
         shell: bash
         run: |
           set -euo pipefail
+          git clone --depth 1 --branch Heltec-Gateway-v5 "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY.git" publish
           cd publish
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          latest="$(git ls-remote origin refs/heads/Heltec-Gateway-v4 | awk '{print $1}')"
+          latest="$(git rev-parse HEAD)"
           if [[ "$latest" != "$GITHUB_SHA" ]]; then
-            echo "Skip stale Heltec V4 output $GITHUB_SHA (now $latest)"
-            exit 0
+            echo "::error::Source branch advanced. Refusing stale Heltec release."
+            exit 1
           fi
-          for attempt in 1 2 3 4 5; do
-            git fetch origin field-self-recovery
-            git reset --hard origin/field-self-recovery
-            mkdir -p downloads
-            cp ../Heltec-Gateway-v4.zip downloads/
-            cp ../Heltec-Gateway-v4-BUILD.txt downloads/
-            git add downloads/Heltec-Gateway-v4.zip downloads/Heltec-Gateway-v4-BUILD.txt
-            if git diff --cached --quiet; then
-              echo "Download already current"
-              exit 0
-            fi
-            git commit -m "Publish Heltec Gateway v4 download"
-            if git push origin HEAD:field-self-recovery; then
-              exit 0
-            fi
-            sleep $((attempt * 3))
-          done
-          echo "Failed to publish Heltec download after retries" >&2
-          exit 1
-
-# Heltec V4 gateway: mesh telemetry forwarding, Wi-Fi/cloud ingest, bounded HTTPS, and shared SX1262 recovery.
+          mkdir -p downloads/Heltec-Gateway-v5
+          cp ../release-pack/* downloads/Heltec-Gateway-v5/
+          git add downloads/Heltec-Gateway-v5
+          git commit -m "Publish dated Heltec V5 image $DATE_STAMP [skip ci]"
+          git push origin HEAD:Heltec-Gateway-v5
