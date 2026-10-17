@@ -1,5 +1,5 @@
 #pragma once
-// RAK V6 preferred FIRST relay for outbound broadcast sensor packets.
+// RAK V6 preferred FIRST relay for locally originated application packets.
 // This is NOT a destination override (HUB SET remains separate).
 // Default is unrestricted Meshtastic broadcast. No storage writes per packet.
 #include "configuration.h"
@@ -41,7 +41,7 @@ inline WaterRelayRecord &waterRelayRecord()
 
 inline uint32_t &waterRelayOnceNode()
 {
-    static uint32_t node = 0; // RAM only, expires when the next broadcast sensor packet is queued
+    static uint32_t node = 0; // RAM only; next generated sensor packet consumes it
     return node;
 }
 
@@ -113,13 +113,20 @@ inline bool setWaterRelayOnceNode(uint32_t node)
     return true;
 }
 
-// Only called by the two real sensor data emitters. Direct replies,
-// unrelated mesh traffic, and unicast HUB packets retain stock routing.
+// Called once, at ReliableRouter::send(), for LOCAL outbound application
+// traffic (both broadcasts and addressed packets). Do not direct relays,
+// radio-control ACKs or unrelated encrypted packet types through this path.
+// RELAY ONCE retains its V6 promise: next sensor telemetry, not the
+// confirmation DM or an unrelated automated position / node-info packet.
 inline void waterRelayPrepareTelemetry(meshtastic_MeshPacket *packet)
 {
-    if (!packet || !nodeDB || packet->to != NODENUM_BROADCAST)
+    if (!packet || !nodeDB || packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
         return;
-    const uint32_t pending = waterRelayOnceNode();
+    const uint32_t port = packet->decoded.portnum;
+    if (port == meshtastic_PortNum_ROUTING_APP || port == meshtastic_PortNum_ADMIN_APP)
+        return;
+    const bool isSensor = (port == meshtastic_PortNum_TELEMETRY_APP || port == meshtastic_PortNum_PRIVATE_APP);
+    const uint32_t pending = isSensor ? waterRelayOnceNode() : 0;
     const uint32_t target = pending ? pending : waterRelayPreferredNode();
     if (!waterRelayValidNode(target))
         return;
