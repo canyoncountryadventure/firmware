@@ -7,6 +7,9 @@
 #include "mesh-pb-constants.h"
 #include "modules/NodeInfoModule.h"
 #include "modules/RoutingModule.h"
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+#include <climits>
+#endif
 
 // ReliableRouter::ReliableRouter() {}
 
@@ -33,11 +36,51 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
         }
     }
 
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    // Telemetry producers alone can set next_hop on a broadcast packet.
+    // Stock MeshService resets next_hop for phone-originated packets.
+    if (isBroadcast(p->to) && isFromUs(p) && p->next_hop != NO_NEXT_HOP_PREFERENCE) {
+        bool tracked = false;
+        for (auto &entry : relayFallbacks) {
+            if (!entry.original) {
+                entry.original = packetPool.allocCopy(*p); // Save decoded payload BEFORE Router::send encrypts it
+                if (entry.original) {
+                    entry.expectedRelay = p->next_hop;
+                    entry.sentAtMs = millis();
+                    tracked = true;
+                }
+                break;
+            }
+        }
+        if (!tracked) {
+            // Safety first: never prefer a relay if there is no RAM to
+            // guarantee a later unrestricted fallback.
+            LOG_WARN("Water relay fallback queue full; send ordinary broadcast");
+            p->next_hop = NO_NEXT_HOP_PREFERENCE;
+        } else {
+            LOG_INFO("Water sensor broadcast prefers first hop 0x%02x, fallback in 25s", p->next_hop);
+        }
+    }
+#endif
     return isBroadcast(p->to) ? FloodingRouter::send(p) : NextHopRouter::send(p);
 }
 
 bool ReliableRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
 {
+#if defined(ARCH_NRF52) && defined(RAK_4631)
+    // This executes BEFORE normal duplicate filtering, so overhearing the
+    // requested relay forwarding our own packet cancels its flood fallback.
+    if (p->transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA &&
+        p->from == getNodeNum()) {
+        for (auto &entry : relayFallbacks) {
+            if (entry.original && p->id == entry.original->id && p->relay_node == entry.expectedRelay) {
+                LOG_INFO("Water preferred relay 0x%02x forwarded packet 0x%08x", entry.expectedRelay, p->id);
+                packetPool.release(entry.original);
+                entry.original = nullptr;
+            }
+        }
+    }
+#endif
     // Note: do not use getFrom() here, because we want to ignore messages sent from phone
     if (p->from == getNodeNum()) {
         printPacket("Rx someone rebroadcasting for us", p);
