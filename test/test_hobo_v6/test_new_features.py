@@ -81,7 +81,7 @@ assert "FloodingRouter::send(fallback)" in reliable
 assert "p->next_hop = NO_NEXT_HOP_PREFERENCE;" in reliable  # no RAM => normal broadcast
 assert "meshtastic_PortNum_TRACEROUTE_APP" not in relay, (
     "Traceroutes must be eligible without a special-case opt-out")
-assert "p->next_hop = NO_NEXT_HOP_PREFERENCE;" in next_hop, "ACK-based fallback must clear preference"
+assert "p.packet->next_hop = NO_NEXT_HOP_PREFERENCE;" in next_hop, "ACK-based fallback must clear preference"
 assert "isFromUs(p) && millis() >= 8000UL" in reliable, "Avoid early FS load"
 wrapper = (root / "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203TelemetryRAK.cpp").read_text()
 assert "#define SEEED_XIAO_NRF52840_KIT 1" in wrapper
