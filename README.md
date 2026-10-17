@@ -1,8 +1,6 @@
-> **October 17, 2026 development branch. NOT a verified firmware release.** Branched from Heltec-Gateway-v4. Existing binary links below refer to prior releases and must not be represented as V5/V6 downloads. No new UF2, OTA, or Scout image has been built or validated yet. Do not flash this branch until matching dated artifacts, SHA-256 checksums, CI results, and hardware verification are published.
-
 > **Heltec Gateway v4:** gateway ingestion, mesh forwarding, Wi-Fi OTA, Vercel/Neon forwarding, and direct local HOBO BLE are active. The shared SX1262 recovery path is retained; HTTPS upload is bounded to 4 seconds and repeated radio recovery failure schedules a whole-node reboot.
 
-# CCA Heltec Sensor Gateway V5 (development)
+# CCA Heltec Sensor Gateway v4
 
 **Canonical Heltec branch:** `Heltec-Gateway-v4`  
 **Gateway hardware:** Heltec WiFi LoRa 32 V4 OLED  
