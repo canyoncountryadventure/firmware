@@ -42,49 +42,33 @@ v1 = struct.pack("<2sBBHhhH6sb", b"MX", 1, 3, seq, -123, 678, raw, mac, rssi)
 assert len(v1) == 19
 assert struct.unpack("<h", v1[6:8])[0] / 10 == -12.3
 
-# Preferred relay: central RAK router covers all outgoing application packets;
-# broadcasts use fresh-ID flood fallback while unicast uses ACK-based retries.
-relay = (root / "src/modules/Telemetry/WaterRelayTarget.h").read_text()
-reliable = (root / "src/mesh/ReliableRouter.cpp").read_text()
-reliable_h = (root / "src/mesh/ReliableRouter.h").read_text()
-next_hop = (root / "src/mesh/NextHopRouter.cpp").read_text()
-assert "water_relay_v6.bin" in relay and "stored.magic" in relay
-assert "waterRelayOnceNode() = 0;" in relay
-# Router-level preference must affect all local outgoing app traffic,
-# not just the individual water and HOBO emitters.
-assert "waterRelayPrepareTelemetry(packet)" not in rak
-assert "waterRelayPrepareTelemetry(packet)" not in dist
-assert "waterRelayPrepareTelemetry(p);" in reliable
-assert reliable.index("waterRelayPrepareTelemetry(p);") < reliable.index("if (p->want_ack)"), (
-    "DM ACK retry must snapshot preference after selection")
-assert "packet->decoded.portnum" in relay
-assert "meshtastic_PortNum_ROUTING_APP" in relay and "meshtastic_PortNum_ADMIN_APP" in relay
-assert "packet->to != NODENUM_BROADCAST" not in relay, "Unicast DMs must be eligible"
-assert "const bool isSensor" in relay and "const uint32_t pending = isSensor" in relay, (
-    "RELAY ONCE must not be consumed by its own outgoing command reply")
-assert "getNextHop(p->to, p->relay_node)" in next_hop
-assert "if (!isFromUs(p) || p->next_hop == NO_NEXT_HOP_PREFERENCE)" in next_hop
-assert "FloodingRouter::send(packetPool.allocCopy(*p.packet));" in next_hop, (
-    "Last unicast ACK retry must bypass preferred next hop and flood normally")
-assert '#include "../WaterRelayTarget.h"' in rak, "RELAY DM handler must include its command declarations"
-assert "RELAY PREFER " in rak and "RELAY ONCE " in rak
-assert "RELAY AUTO" in rak and "RELAY SHOW" in rak
-assert "relayFallbacks[4]" in reliable_h
-assert "RELAY_FALLBACK_MS = 25000UL" in reliable_h
-assert "p->next_hop != NO_NEXT_HOP_PREFERENCE" in reliable
-assert "p->transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA" in reliable
-assert "p->relay_node == entry.expectedRelay" in reliable
-assert "fallback->id = generatePacketId();" in reliable
-assert "fallback->next_hop = NO_NEXT_HOP_PREFERENCE;" in reliable
-assert "FloodingRouter::send(fallback)" in reliable
-assert "p->next_hop = NO_NEXT_HOP_PREFERENCE;" in reliable  # no RAM => normal broadcast
-assert "meshtastic_PortNum_TRACEROUTE_APP" not in relay, (
-    "Traceroutes must be eligible without a special-case opt-out")
-assert "p.packet->next_hop = NO_NEXT_HOP_PREFERENCE;" in next_hop, "ACK-based fallback must clear preference"
-assert "isFromUs(p) && millis() >= 8000UL" in reliable, "Avoid early FS load"
+# No preferred-relay logic in V6: the Meshtastic router matches V5.
+# Git blob digests from RAK-Water-Distance-HOBO-v5 detect routing drift.
+import hashlib
+
+def git_blob_sha1(path):
+    data = (root / path).read_bytes()
+    header = b"blob " + str(len(data)).encode() + bytes([0])
+    return hashlib.sha1(header + data).hexdigest()
+
+router_v5 = {
+    "src/mesh/ReliableRouter.cpp": "42c24c783f6c5bc96ee1b7e9dc7522d27e14a8d1",
+    "src/mesh/ReliableRouter.h": "33121de6be88828aca7d3f1e7620d6e4b40eafab",
+    "src/mesh/NextHopRouter.cpp": "49b54d1817de8f87d038b5893fcda8526dc8b914",
+}
+for path, digest in router_v5.items():
+    assert git_blob_sha1(path) == digest, f"{path} must match stock V5 routing"
+assert not (root / "src/modules/Telemetry/WaterRelayTarget.h").exists()
+assert "WaterRelayTarget" not in rak
+assert "waterRelayPrepareTelemetry" not in dist
+assert "RELAY PREFER" not in rak and "RELAY ONCE" not in rak
+assert "RELAY AUTO" not in rak and "RELAY SHOW" not in rak
+assert "RELAY PREFER" not in recovery and "HELP 8/8" not in recovery
+assert "HELP 7/7" in recovery
+
 wrapper = (root / "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203TelemetryRAK.cpp").read_text()
 assert "#define SEEED_XIAO_NRF52840_KIT 1" in wrapper
 assert '#include "HOBOMX2001MX2201MX2203Telemetry.cpp"' in wrapper
 assert '#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)' in rak
 
-print("PASS: V6 relay DM/fallback gates, recovery and V1/V2 decimal wire compatibility")
+print("PASS: V6 features and hundredths preserved; exact V5 mesh routing; RELAY DMs removed")
