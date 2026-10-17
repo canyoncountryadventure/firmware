@@ -185,6 +185,22 @@ void nrf52FieldDiagPrint()
 #endif
 }
 
+void nrf52FieldDiagFormat(char *out, size_t capacity)
+{
+    if (!out || !capacity)
+        return;
+#if defined(FIELD_RECOVERY_V2)
+    snprintf(out, capacity,
+             "Boots:%lu PrevReset:0x%08lX PrevUptime:%lus\\nLastEvent subsystem=%u operation=%u error=%u",
+             static_cast<unsigned long>(fieldDiag.boots),
+             static_cast<unsigned long>(fieldDiag.lastResetReason),
+             static_cast<unsigned long>(fieldDiag.lastUptimeMs / 1000UL),
+             fieldDiag.subsystem, fieldDiag.operation, fieldDiag.error);
+#else
+    snprintf(out, capacity, "Field diagnostic history is unavailable in this build");
+#endif
+}
+
 void nrf52FieldDiagClear()
 {
 #if defined(FIELD_RECOVERY_V2)
