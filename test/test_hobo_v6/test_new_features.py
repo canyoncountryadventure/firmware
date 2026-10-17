@@ -66,6 +66,7 @@ assert "getNextHop(p->to, p->relay_node)" in next_hop
 assert "if (!isFromUs(p) || p->next_hop == NO_NEXT_HOP_PREFERENCE)" in next_hop
 assert "FloodingRouter::send(packetPool.allocCopy(*p.packet));" in next_hop, (
     "Last unicast ACK retry must bypass preferred next hop and flood normally")
+assert '#include "../WaterRelayTarget.h"' in rak, "RELAY DM handler must include its command declarations"
 assert "RELAY PREFER " in rak and "RELAY ONCE " in rak
 assert "RELAY AUTO" in rak and "RELAY SHOW" in rak
 assert "relayFallbacks[4]" in reliable_h
