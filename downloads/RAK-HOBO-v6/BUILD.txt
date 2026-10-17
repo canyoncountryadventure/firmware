@@ -1,5 +1,5 @@
-Source commit: 44d213f92910ae24c287e0068d25ef3232cc9137
-CI run: https://github.com/canyoncountryadventure/firmware/actions/runs/39068503413
+Source commit: 4ea6cca31ab657b967bff285f43751bd34c5998d
+CI run: https://github.com/canyoncountryadventure/firmware/actions/runs/39071539897
 Build date (America/Denver): 10-17-26
 Hardware: RAK4631/RAK19007
 Dated filenames include source commit ID to avoid same-day stale downloads
