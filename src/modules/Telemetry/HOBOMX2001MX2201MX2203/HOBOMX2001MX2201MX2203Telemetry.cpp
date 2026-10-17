@@ -4,6 +4,7 @@
 
 #include "HOBOMX2001MX2201MX2203Telemetry.h"
 #include "../WaterHubTarget.h"
+#include "../WaterRelayTarget.h"
 
 #include "../../../mesh/generated/meshtastic/telemetry.pb.h"
 #include "FSCommon.h"
