@@ -25,6 +25,7 @@ extern AmbientLightingThread *ambientLightingThread;
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 
