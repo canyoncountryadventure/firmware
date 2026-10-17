@@ -64,6 +64,10 @@ assert "fallback->id = generatePacketId();" in reliable
 assert "fallback->next_hop = NO_NEXT_HOP_PREFERENCE;" in reliable
 assert "FloodingRouter::send(fallback)" in reliable
 assert "p->next_hop = NO_NEXT_HOP_PREFERENCE;" in reliable  # no RAM => normal broadcast
-assert "defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631)" in rak, "HOBO must actually compile for RAK"
+wrapper = (root / "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203TelemetryRAK.cpp").read_text()
+assert "#define SEEED_XIAO_NRF52840_KIT 1" in wrapper
+assert '#include "HOBOMX2001MX2201MX2203Telemetry.cpp"' in wrapper
+assert '#if defined(ARCH_NRF52) && defined(SEEED_XIAO_NRF52840_KIT)' in rak
+assert "waterRelayPrepareTelemetry(packet)" in rak  # compiled into RAK wrapper
 
 print("PASS: V6 relay DM/fallback gates, recovery and V1/V2 decimal wire compatibility")
