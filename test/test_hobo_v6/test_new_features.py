@@ -41,4 +41,29 @@ assert struct.unpack("<b", v2[20:21])[0] == rssi
 v1 = struct.pack("<2sBBHhhH6sb", b"MX", 1, 3, seq, -123, 678, raw, mac, rssi)
 assert len(v1) == 19
 assert struct.unpack("<h", v1[6:8])[0] / 10 == -12.3
-print("PASS: V6 DM/reset/sampling source gates and V1/V2 signed, decimal wire compatibility")
+
+# Preferred relay: only source-created broadcast sensor packets opt in. A
+# failed relay is retried with a *new* packet ID, so ordinary mesh nodes do not
+# reject it as a duplicate of the original directed-first-hop packet.
+relay = (root / "src/modules/Telemetry/WaterRelayTarget.h").read_text()
+reliable = (root / "src/mesh/ReliableRouter.cpp").read_text()
+reliable_h = (root / "src/mesh/ReliableRouter.h").read_text()
+assert "water_relay_v6.bin" in relay and "stored.magic" in relay
+assert "waterRelayOnceNode() = 0;" in relay
+assert "packet->to != NODENUM_BROADCAST" in relay
+assert "waterRelayPrepareTelemetry(packet)" in rak
+assert "waterRelayPrepareTelemetry(packet)" in dist
+assert "RELAY PREFER " in rak and "RELAY ONCE " in rak
+assert "RELAY AUTO" in rak and "RELAY SHOW" in rak
+assert "relayFallbacks[4]" in reliable_h
+assert "RELAY_FALLBACK_MS = 25000UL" in reliable_h
+assert "p->next_hop != NO_NEXT_HOP_PREFERENCE" in reliable
+assert "p->transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA" in reliable
+assert "p->relay_node == entry.expectedRelay" in reliable
+assert "fallback->id = generatePacketId();" in reliable
+assert "fallback->next_hop = NO_NEXT_HOP_PREFERENCE;" in reliable
+assert "FloodingRouter::send(fallback)" in reliable
+assert "p->next_hop = NO_NEXT_HOP_PREFERENCE;" in reliable  # no RAM => normal broadcast
+assert "defined(SEEED_XIAO_NRF52840_KIT) || defined(RAK_4631)" in rak, "HOBO must actually compile for RAK"
+
+print("PASS: V6 relay DM/fallback gates, recovery and V1/V2 decimal wire compatibility")
