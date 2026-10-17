@@ -199,7 +199,7 @@ void nrf52FieldDiagFormat(char *out, size_t capacity)
                             fieldDiag.subsystem == 4 ? "SYSTEM" :
                             fieldDiag.subsystem == 0 ? "NONE" : "OTHER";
     snprintf(out, capacity,
-             "DIAG 1/2 Boots:%lu PrevReset:%s(0x%08lX)\\nEventUp:%lus Last:%s/op%u error:%u",
+             "DIAG 1/2 Boots:%lu PrevReset:%s(0x%08lX)\nEventUp:%lus Last:%s/op%u error:%u",
              static_cast<unsigned long>(fieldDiag.boots), resetLabel,
              static_cast<unsigned long>(bits),
              static_cast<unsigned long>(fieldDiag.lastUptimeMs / 1000UL),
