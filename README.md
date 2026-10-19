@@ -2,7 +2,7 @@
 
 ## October 19, 2026: Independent WATER READ and READ retries
 
-Both commands now have **independent pending flags and 120-second retry timers**, with no retry-count limit. After initial `WATER READ`, `READ` begins when a complete water response arrives or the initial water request times out; missed water responses **keep retrying even after READ starts**. READ also keeps retrying until a complete MX2001 response is queued. Neither command can cancel the other. Invalid/unavailable replies and full upload queues never count as success. Outbound CC01 DMs are spaced at least three seconds apart. The 30-minute cycle re-arms successful types without resetting in-flight retries; automatic telemetry remains enabled. `/json/gateway` exposes `cc01.water_pending`, `cc01.hobo_pending`, `cc01.water_retries`, and `cc01.hobo_retries`; the firmware marker is `v6-cc01-dual-retry-2026-10-19`. **This source change requires a new CI-built and flashed binary; existing downloads below may still describe the previous image until CI publishes.**
+Both commands now have **independent pending flags and 120-second retry timers**, with no retry-count limit. After initial `WATER READ`, `READ` begins when a complete water response arrives or the initial water request times out; missed water responses **keep retrying even after READ starts**. READ also keeps retrying until a complete MX2001 response is queued. Neither command can cancel the other. Invalid/unavailable replies and full upload queues never count as success. Outbound CC01 DMs are spaced at least three seconds apart. The 30-minute cycle re-arms successful types without resetting in-flight retries; automatic telemetry remains enabled. `/json/gateway` exposes `cc01.water_pending`, `cc01.hobo_pending`, `cc01.water_retries`, and `cc01.hobo_retries`; the firmware marker is `v6-cc01-dual-retry-2026-10-19`. **The dual-retry BIN is now built and published.**
 
 ## October 19, 2026: ESP32 floating-point parser repair
 
@@ -10,7 +10,7 @@ Both commands now have **independent pending flags and 120-second retry timers**
 
 V6 now retains the floating-point scanner with `-Wl,-u,_scanf_float` for `heltec-v4`. CI checks that the compiled ELF defines that symbol before publishing. The read-only `/json/gateway` response runs the real parser on both screenshot messages and reports `parser_self_test.water` and `parser_self_test.hobo`. These self-tests never queue or upload synthetic observations.
 
-**Published build:** source `4ed0ed8a7ebbb82eb4d93d3d5809a296edbfbaa8`, firmware `2.7.26.4ed0ed8`. The published BIN/ZIP hashes were independently verified; the downloaded ELF defines `_scanf_float` at `0x4216d080`, and its application matches the standalone BIN. Live RF-to-Neon verification is still required after flashing.
+**Earlier parser-repair build:** source `4ed0ed8a7ebbb82eb4d93d3d5809a296edbfbaa8`, firmware `2.7.26.4ed0ed8`. That build verified the `_scanf_float` linker repair but predates independent WATER READ retries. The new dual-retry build is listed below. On-radio DM and cloud verification is still required after flashing.
 
 The previous receive handler silently ignored valid CC01 sensor replies unless the poller was waiting for that exact response type. This could discard manual responses, late replies after a two-minute timeout, or replies arriving out of order. V6 now parses complete, authorized CC01 `WATER READ` and `MX2001` replies in every polling state and queues them through the existing HTTPS uploader. Only a matching response advances the scheduled poll; unrelated replies do not cancel or restart it. Automatic private packets and the 30-minute polling schedule are unchanged.
 
@@ -28,16 +28,16 @@ Firmware V6 includes scheduled CC01 polling and the encrypted-DM receive fix. Th
 - [**Download Heltec V6 application BIN, October 19, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin)
 - [**Download Heltec V6 OTA/full-flash ZIP, October 19, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.zip)
 - [**Source commit and SHA-256 checksums**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/BUILD.txt)
-- [**Build and regression-test logs**](https://github.com/canyoncountryadventure/firmware/actions/runs/39285948364)
+- [**Build and regression-test logs**](https://github.com/canyoncountryadventure/firmware/actions/runs/39288107998)
 - [Rollback: Heltec V5 (automatic telemetry only)](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v5)
 - [RAK field firmware V6 (unchanged, separate UF2)](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6)
 
 | Published file | SHA-256 |
 | --- | --- |
-| `Heltec-Gateway-v6-10-19-26.bin` | `46cc566f13a319613123fb44c629b1fda06446ce79cca022a66784c2e1c6bbab` |
-| `Heltec-Gateway-v6-10-19-26.zip` | `4d32bb8ae93425550b2d10a811d01f24482a67e67041531a94cb2ee15d31665b` |
+| `Heltec-Gateway-v6-10-19-26.bin` | `2fa4cc606f29af361a4e8121523d9e9997bbb33bc927571eb1d343a7a2fc0e6e` |
+| `Heltec-Gateway-v6-10-19-26.zip` | `29caf103e57b8ffcad52fdc367ede8161bfc0a90ac40dc867a50fa2f4f90fa25` |
 
-Embedded firmware version: `2.7.26.4ed0ed8`. Source commit: `4ed0ed8a7ebbb82eb4d93d3d5809a296edbfbaa8`. The V6 branch includes changes previously labeled V7; no separate V7 branch is needed.
+Current dual-retry source commit: [`ae7ae62d33220ec78c6a53a2a25f3b42066abf21`](https://github.com/canyoncountryadventure/firmware/commit/ae7ae62d33220ec78c6a53a2a25f3b42066abf21). Published artifact commit: `2264c0ca6ad110d1abe9e2a4e59ba8495f227451`. The V6 branch includes changes previously labeled V7; no separate V7 branch is needed.
 
 **This is Heltec hardware V4 firmware, not a RAK UF2.** The standalone BIN is the application image for routine Wi-Fi Unified OTA. Preserve NVS/configuration and the existing OTA loader. The ZIP also contains a factory image, which is not the routine Wi-Fi update target.
 
@@ -48,8 +48,8 @@ Close any TCP monitor first. Download and verify the current application, then u
 ```powershell
 $ErrorActionPreference = "Stop"
 $firmwarePath = Join-Path $PWD "Heltec-Gateway-v6-10-19-26.bin"
-Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/canyoncountryadventure/firmware/c383cac7a61131e3ec6514d870e749d0347fda33/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin" -OutFile $firmwarePath
-if ((Get-FileHash $firmwarePath -Algorithm SHA256).Hash -ne "46cc566f13a319613123fb44c629b1fda06446ce79cca022a66784c2e1c6bbab") { throw "Firmware checksum mismatch" }
+Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/canyoncountryadventure/firmware/2264c0ca6ad110d1abe9e2a4e59ba8495f227451/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin" -OutFile $firmwarePath
+if ((Get-FileHash $firmwarePath -Algorithm SHA256).Hash -ne "2fa4cc606f29af361a4e8121523d9e9997bbb33bc927571eb1d343a7a2fc0e6e") { throw "Firmware checksum mismatch" }
 $ErrorActionPreference = "Continue"
 python -m meshtastic --host 192.168.1.147 --ota-update $firmwarePath
 if ($LASTEXITCODE -ne 0) { throw "Wi-Fi updater failed; inspect its output" }
