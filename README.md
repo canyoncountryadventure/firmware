@@ -1,72 +1,61 @@
-# CCA Heltec Sensor Gateway V5
-**October 17, 2026 · Heltec WiFi LoRa 32 V4 OLED · ESP32-S3**
+# CCA Heltec Sensor Gateway V6
 
-This is the dedicated new V5 gateway branch, replacing V4 as the source for new CCA gateway firmware. The [old Heltec V4](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v4) remains untouched for rollback. Hardware remains **V4 OLED**, despite the *firmware* now being V5. Use PlatformIO environment `heltec-v4`, never the TFT environment for the OLED board.
+**October 18, 2026 | Heltec WiFi LoRa 32 hardware V4 OLED | ESP32-S3 | PlatformIO `heltec-v4`**
 
-## Firmware downloads
+Firmware V6 is a **new branch**, copied from the working Heltec V5. The only runtime extension is a timed CC01/Cottonwood **DM fallback**. Everything already working in V5 remains enabled. The RAK field firmware, sensor calibration, channels, cloud API and database have **not** been changed.
 
-The following links refer to files **actually generated and committed** by the V5 workflow. Filename dates are part of the downloaded files, not merely labels.
+## Downloads and build verification
 
-- [Heltec Gateway V5, October 17, 2026, ESP32-S3 firmware BIN](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v5/downloads/Heltec-Gateway-v5/Heltec-Gateway-v5-10-17-26.bin)
-- [Heltec Gateway V5, October 17, 2026, complete flash/OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v5/downloads/Heltec-Gateway-v5/Heltec-Gateway-v5-10-17-26.zip)
-- [Build source and SHA-256 checksums](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v5/downloads/Heltec-Gateway-v5/BUILD.txt)
-- [Successful GitHub Actions build](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_heltec_gateway.yml?query=branch%3AHeltec-Gateway-v5)
+- [V6 dated releases and checksums](downloads/Heltec-Gateway-v6/BUILD.txt) (published by CI after a successful build; see workflow below)
+- [V6 firmware directory: dated ESP32-S3 BIN and flash/OTA ZIP](downloads/Heltec-Gateway-v6/)
+- [V6 GitHub Actions build and publication history](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_heltec_gateway.yml?query=branch%3AHeltec-Gateway-v6)
+- [Heltec V5 rollback firmware, October 17, 2026](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v5/downloads/Heltec-Gateway-v5)
+- [RAK field firmware V6, separate board and format](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6)
 
-**Heltec ESP32-S3 uses BIN, not a RAK UF2.** The ZIP contains the companion flashing/OTA image set. Do not flash a RAK UF2 onto Heltec hardware or treat a RAK drone Scout image as a Heltec update. A successful CI build proves software compilation; validate BLE/logger/cloud telemetry on hardware.
+**Do not confuse firmware V6 with hardware V4.** The Heltec V4 OLED runs ESP32-S3 **BIN/ZIP**, never a RAK UF2. Only use the dated V6 BIN/ZIP actually produced by a green GitHub Actions run; do not flash anything before a release artifact is present. Build provenance and SHA-256 are in BUILD.txt.
 
-## V5 upgrade summary
+## Exactly what V6 changes
 
-- **Reads RAK HOBO V6's new precise packet.** Accepts V1 `MX`/19-byte stage and temperature *tenths* from previously deployed radios and V2 `MX`/21-byte signed stage32 and temperature16 *hundredths* from RAK V6, automatically selected by explicit payload version and length. No loss of the 0.01 digit during gateway decoding.
-- **Direct Heltec BLE HOBO MX2001 data** is likewise transmitted at hundredths on the mesh; direct local Vercel ingestion retains three-digit numeric JSON precision. MX2201/MX2203 temperature environmental telemetry remains supported.
-- **Distance sensors** keep their 24-byte `DS` packet pathway, including calibrated water stage/distance. Existing moisture/PIR (`RK`), soil (`SM`), environmental and device battery telemetry remain compatible.
-- **Meshtastic forwarding and HTTPS cloud ingest** retain current CCA node IDs and data format. Remote RAK V6's HUB SET changes where the field node directs its telemetry; it does not configure the Heltec or choose a forced relay.
-- **Previous Heltec V4 recovery preserved:** watchdog health, bounded BLE connect/GATT worker, 12-hour maintenance reboot, SX1262 recovery and local/retained diagnostic breadcrumbs. No new factory erase or credential change required for application-only updates.
+Every **30 minutes**, Heltec sends two separate Meshtastic direct messages to **CC01 / Cottonwood Creek `!65165646`** over the gateway's local **LongFast channel 1**:
 
-## Gateway capabilities
+1. **`WATER READ`**: requests a fresh MB7388 ultrasonic reading. Only a complete, calibrated `WATER READ` reply is converted to a normal `water_distance` observation with raw distance (mm) and stage (ft/mm).
+2. **`READ`**: requests a fresh HOBO MX2001 BLE read on CC01. A complete `MX2001` reply becomes an `mx2001` observation with logger MAC, water level, temperature F/C and BLE RSSI. Text has two-decimal-foot and one-decimal-F precision because that is what the **RAK V6 READ DM currently returns**. No extra precision is fabricated.
 
-| Inbound measurement | Packet path | Output |
+The first cycle starts around **2 minutes after Heltec boots**; following cycles start every 30 minutes. Heltec waits up to **2 minutes** for the WATER reply, then sends READ after a short spacing delay and waits up to 2 minutes for that reply. A timeout leaves the missing measurement **unsaved**, logs a warning, and does not block future cycles. Unrelated text DMs cannot produce readings. No request is considered delivered merely because Meshtastic queued it.
+
+Both successful parsed replies use the **existing V5 HTTPS upload queue**: **Heltec → Vercel `/api/ingest` → Neon `moab_watersheds.creek_observations` → watershed dashboard**. Uploads have CC01's node ID and the original Meshtastic DM reply packet ID. The payload marks the provenance as `source: "heltec_dm"`; unavailable logger raw values and sequence numbers are omitted rather than invented. Auto packets retain their original fields. If both routes report the same physical reading, **both are stored** as requested.
+
+### Automatic transmissions remain enabled
+
+**No changes whatsoever** to the V5 inbound `DS` (`PRIVATE_APP`) water handler, `MX` HOBO handler, standard environmental/device telemetry, other stations, gateway local BLE HOBO reader, mesh forwarding, Wi-Fi HTTPS, OTA, watchdog or resets. CC01 can still report automatically to Heltec at any time. **No `HUB SET`, `HUB AUTO`, sensor interval, or RAK firmware change** is required.
+
+Once CC01's automatic packets are reliably arriving, the safest tested rollback is to flash the dated **Heltec V5** application over Wi-Fi, preserving configuration, and resume auto-only mode. V6 does not silently disable the field node's automatic telemetry.
+
+## Legacy capabilities preserved from V5
+
+| Sensor/source | Existing protocol | Gateway behavior |
 | --- | --- | --- |
-| HOBO MX2001 stage + temperature (legacy RAK) | Private `MX` version 1, 19 bytes, tenths | Vercel/Neon plus mesh |
-| HOBO MX2001 stage + temperature (RAK V6) | Private `MX` version 2, 21 bytes, hundredths | Vercel/Neon plus mesh |
-| Direct local HOBO MX2001 via Heltec BLE | BLE logger, V2 `MX` mesh packet + local queue | Vercel/Neon plus mesh |
-| HOBO MX2201/MX2203 | Environmental telemetry | Vercel/Neon plus mesh |
-| RAK SEN0313/MB7388 distance/stage | `DS` private packet | Vercel/Neon |
-| Moisture/PIR/soil | `RK` / `SM` private packet | Vercel/Neon |
-| Meshtastic battery / voltage / channel use / uptime | Device telemetry | Vercel/Neon |
+| Remote HOBO MX2001 (old) | `MX` V1 19-byte private packet, tenths | Existing accurate legacy decoding |
+| Remote HOBO MX2001 (RAK V6) | `MX` V2 21-byte private packet, hundredths | Existing signed stage and hundredths decoding |
+| Direct local HOBO BLE | MX2001, MX2201, MX2203 | Existing `LOGGER`, `READ`, `LOCK`, `UNLOCK`, BLE lock and auto scanner |
+| Ultrasonic water distance/stage | `DS` 24-byte private packet | Existing calibrated distance and stage upload |
+| Moisture/PIR/soil | `RK` / `SM` private packets | Existing unchanged payloads |
+| Temperature and battery | Standard Meshtastic telemetry | Existing voltage, battery percentage, environmental temperature, uptime |
 
-### Heltec direct-message commands
+All accepted sensor data is still uploaded independently with the V5 ingest credential. Local watchdog, diagnostics (`DIAG`, `CRASHLOG`, `WATCHDOG`), SX1262 recovery and 12-hour maintenance reboot are retained.
 
-`LOGGER` checks direct BLE logger model, MAC, RSSI, connection and saved target. `READ` requests a new logger measurement. `LOCK` or `LOCK AA:BB:CC:DD:EE:FF` keeps the logger assignment after reboot; `UNLOCK` clears the lock and resumes discovery. `DIAG` or `CRASHLOG` returns previous-reset details and failure breadcrumbs **by DM**, not just a serial log. `CLEAR DIAG` clears the saved Heltec diagnostic snapshot. `WATCHDOG` reports the 90-second task watchdog and 12-hour preventive reboot schedule.
+## Wi-Fi OTA and rollback
 
-These direct HOBO commands are separate from the RAK station's `SAMPLES`, `WATER ...`, `HUB SET`, `LAST RESORT` and recovery commands. Send station controls to the RAK node, not to the Heltec gateway.
+1. Download the **dated V6 OTA/flash ZIP** from the release directory above. Confirm BUILD.txt source commit, board target and SHA-256.
+2. Heltec's previously observed Wi-Fi address was `192.168.1.147`; verify it is still current. Meshtastic TCP API: **4403**. ESP32 Unified OTA loader: **3232**.
+3. Use the Meshtastic Unified OTA updater with the correct `heltec-v4` ESP32-S3 firmware image. **Preserve NVS/config**; do not factory erase. Keep power and Wi-Fi stable throughout.
+4. Verify Heltec rejoins the mesh and uploads a normal automatic sensor packet. Wait 2 minutes, then observe `CCA CC01 DM poll:` logs or, more reliably, watch Neon for `water_distance`/`mx2001` with `raw.payload.source = "heltec_dm"`.
+5. To revert to automatic-only Heltec, install the dated V5 OTA image the same way. This changes gateway firmware only and does not touch CC01.
 
-## Cloud architecture
+**Cloud verification:** Observe at least one complete CC01 DM reply stored in Neon, and separately verify that standard Pack Creek and CC01 auto `PRIVATE_APP` packets still pass. Compilation/tests do not prove field RF delivery or live HTTPS acceptance.
 
-```text
-RAK SEN0313 / MB7388 + HOBO MX2001    Other Meshtastic field nodes
-               |                                  |
-          Meshtastic LoRa  <-----------------------+
-               |
-         HELTEC V4 OLED RUNNING V5
-             |       |
-       Local BLE     HTTPS ingest (/api/ingest)
-       HOBO option           |
-                         Vercel API
-                            |
-                           Neon
-                            |
-                     Watershed dashboard
-```
+## Build and QA
 
-Gateway Wi-Fi is used for HTTPS/Neon ingestion and OTA, not a replacement for Meshtastic LoRa relaying. The GitHub Actions reusable build injects the `HOBO_HTTP_GATEWAY_INGEST_KEY` repository secret. Verify that a real reading reaches Neon/dashboard before field deployment.
+The dedicated [V6 dated firmware workflow](.github/workflows/build_cca_heltec_gateway.yml) compiles only **`heltec-v4`** using the GitHub Actions `HOBO_HTTP_GATEWAY_INGEST_KEY` secret, runs V5 protocol compatibility tests and new V6 native DM-parser tests, then publishes an actual date-named BIN, ZIP, `BUILD.txt`, SHA-256 checksums and exact source commit. Publishing is blocked if the branch has advanced since the build.
 
-## Updating and rollback
-
-- Routine ESP32-S3 updates should retain NVS, channel keys, Wi-Fi provisioning, BLE bonds and the existing Meshtastic Unified OTA loader. **Do not erase all flash** unless explicitly troubleshooting configuration.
-- Meshtastic TCP API normally uses **4403**; ESP32 Unified OTA loader normally uses **3232**.
-- The dedicated [V5 GitHub Actions workflow](.github/workflows/build_cca_heltec_gateway.yml) compiles the real OLED target `heltec-v4`, builds dated BIN/ZIP files, records the source SHA and checksums, and publishes only after CI success. A later README-only build changes the provenance, not the hardware target.
-- Keep a [Heltec V4 rollback image](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v4) and [RAK V5 station release](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v5) accessible separately. Never mix field and gateway flash images.
-
-**Field acceptance checklist:** mesh receive/transmit; Heltec Wi-Fi/cloud ingest; remote V1 and V2 MX2001; real hundredths at dashboard (no truncation by Vercel/Neon); distance stage and device voltage/percentage; direct Heltec logger BLE scan/model/lock/read; watchdog and `DIAG` DM; successful OTA reboot. GitHub Actions does not exercise physical radio or cloud end-to-end.
-
-See [full gateway operational specification](docs/CCA_HELTEC_SENSOR_GATEWAY.md) and [RAK V6 matching field firmware](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6).
+See [Gateway V6 operations and non-regression checklist](docs/CCA_HELTEC_SENSOR_GATEWAY.md). V5 remains intact for immediate rollback.
