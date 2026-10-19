@@ -1,12 +1,16 @@
 # CCA Heltec Sensor Gateway V6
 
+## Missing MX2001 replies: repeat READ until accepted
+
+Heltec retries `READ` every two minutes after a missing or invalid MX2001 reply, with no retry-count limit. A complete valid reply stops retries only after it enters the upload queue. A full upload queue leaves retries active. The regular 30-minute cycle still requests water and then HOBO; automatic telemetry remains enabled. `/json/gateway` exposes the cumulative `cc01.hobo_retries` counter. Its marker is `v6-cc01-read-retry-2026-10-19`.
+
 ## October 19, 2026: ESP32 floating-point parser repair
 
 **Embedded parser root cause:** the previous ESP32 image linked `sscanf` to its integer-only scanner without the optional `_scanf_float` implementation. Both CC01 reply parsers use `%f`, so native tests passed while the radio rejected the same valid text. The live gateway reported three replies, zero parsed and three format rejections; its other uploads received HTTP 201.
 
 V6 now retains the floating-point scanner with `-Wl,-u,_scanf_float` for `heltec-v4`. CI checks that the compiled ELF defines that symbol before publishing. The read-only `/json/gateway` response runs the real parser on both screenshot messages and reports `parser_self_test.water` and `parser_self_test.hobo`. These self-tests never queue or upload synthetic observations.
 
-**Published build:** source `6c09ca943d505d3bbbf572f28c572ec4fb8e1820`, firmware `2.7.26.6c09ca9`. The published BIN/ZIP hashes were independently verified; the downloaded ELF defines `_scanf_float` at `0x4216cff4`, and its application matches the standalone BIN. Live RF-to-Neon verification is still required after flashing.
+**Published build:** source `4ed0ed8a7ebbb82eb4d93d3d5809a296edbfbaa8`, firmware `2.7.26.4ed0ed8`. The published BIN/ZIP hashes were independently verified; the downloaded ELF defines `_scanf_float` at `0x4216d080`, and its application matches the standalone BIN. Live RF-to-Neon verification is still required after flashing.
 
 The previous receive handler silently ignored valid CC01 sensor replies unless the poller was waiting for that exact response type. This could discard manual responses, late replies after a two-minute timeout, or replies arriving out of order. V6 now parses complete, authorized CC01 `WATER READ` and `MX2001` replies in every polling state and queues them through the existing HTTPS uploader. Only a matching response advances the scheduled poll; unrelated replies do not cancel or restart it. Automatic private packets and the 30-minute polling schedule are unchanged.
 
@@ -24,16 +28,16 @@ Firmware V6 includes scheduled CC01 polling and the encrypted-DM receive fix. Th
 - [**Download Heltec V6 application BIN, October 19, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin)
 - [**Download Heltec V6 OTA/full-flash ZIP, October 19, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.zip)
 - [**Source commit and SHA-256 checksums**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/BUILD.txt)
-- [**Build and regression-test logs**](https://github.com/canyoncountryadventure/firmware/actions/runs/39283643481)
+- [**Build and regression-test logs**](https://github.com/canyoncountryadventure/firmware/actions/runs/39285948364)
 - [Rollback: Heltec V5 (automatic telemetry only)](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v5)
 - [RAK field firmware V6 (unchanged, separate UF2)](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6)
 
 | Published file | SHA-256 |
 | --- | --- |
-| `Heltec-Gateway-v6-10-19-26.bin` | `ef5dfda79f560c52cdc90e9c8510cac3ea124233fef55933c6401706ef933881` |
-| `Heltec-Gateway-v6-10-19-26.zip` | `becc38995d8f0dcd1bdbf41d8c71dc30bfe82fb1df278a93301b82cbdee2abf5` |
+| `Heltec-Gateway-v6-10-19-26.bin` | `46cc566f13a319613123fb44c629b1fda06446ce79cca022a66784c2e1c6bbab` |
+| `Heltec-Gateway-v6-10-19-26.zip` | `4d32bb8ae93425550b2d10a811d01f24482a67e67041531a94cb2ee15d31665b` |
 
-Embedded firmware version: `2.7.26.6c09ca9`. Source commit: `6c09ca943d505d3bbbf572f28c572ec4fb8e1820`. The V6 branch includes changes previously labeled V7; no separate V7 branch is needed.
+Embedded firmware version: `2.7.26.4ed0ed8`. Source commit: `4ed0ed8a7ebbb82eb4d93d3d5809a296edbfbaa8`. The V6 branch includes changes previously labeled V7; no separate V7 branch is needed.
 
 **This is Heltec hardware V4 firmware, not a RAK UF2.** The standalone BIN is the application image for routine Wi-Fi Unified OTA. Preserve NVS/configuration and the existing OTA loader. The ZIP also contains a factory image, which is not the routine Wi-Fi update target.
 
@@ -44,14 +48,14 @@ Close any TCP monitor first. Download and verify the current application, then u
 ```powershell
 $ErrorActionPreference = "Stop"
 $firmwarePath = Join-Path $PWD "Heltec-Gateway-v6-10-19-26.bin"
-Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/canyoncountryadventure/firmware/cf1f4d1d6ff98935f0112182a9b2f09b604bb1ae/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin" -OutFile $firmwarePath
-if ((Get-FileHash $firmwarePath -Algorithm SHA256).Hash -ne "ef5dfda79f560c52cdc90e9c8510cac3ea124233fef55933c6401706ef933881") { throw "Firmware checksum mismatch" }
+Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/canyoncountryadventure/firmware/c383cac7a61131e3ec6514d870e749d0347fda33/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin" -OutFile $firmwarePath
+if ((Get-FileHash $firmwarePath -Algorithm SHA256).Hash -ne "46cc566f13a319613123fb44c629b1fda06446ce79cca022a66784c2e1c6bbab") { throw "Firmware checksum mismatch" }
 $ErrorActionPreference = "Continue"
 python -m meshtastic --host 192.168.1.147 --ota-update $firmwarePath
 if ($LASTEXITCODE -ne 0) { throw "Wi-Fi updater failed; inspect its output" }
 ```
 
-After Heltec reconnects, verify `firmware_fix` is `v6-cc01-float-scan-2026-10-19` and both `parser_self_test` values are `true`. Then inspect `http://192.168.1.147/json/gateway`. Use the actual current IP if it changed. A manual `READ` sent from Heltec to `!65165646` can now be ingested immediately. Verify `cc01.uploaded` increases and the new reading is present in Neon with `source: "heltec_dm"`. Scheduled first-poll delay and 30-minute interval are unchanged.
+After Heltec reconnects, verify `firmware_fix` is `v6-cc01-read-retry-2026-10-19` and both `parser_self_test` values are `true`. Then inspect `http://192.168.1.147/json/gateway`. Use the actual current IP if it changed. A manual `READ` sent from Heltec to `!65165646` can now be ingested immediately. Verify `cc01.uploaded` increases and the new reading is present in Neon with `source: "heltec_dm"`. Scheduled first-poll delay and 30-minute interval are unchanged.
 
 ## Encrypted-DM receive repair included in V6
 
@@ -68,7 +72,7 @@ Every **30 minutes**, Heltec sends two separate Meshtastic direct messages to **
 1. **`WATER READ`**: requests a fresh MB7388 ultrasonic reading. Only a complete, calibrated `WATER READ` reply is converted to a normal `water_distance` observation with raw distance (mm) and stage (ft/mm).
 2. **`READ`**: requests a fresh HOBO MX2001 BLE read on CC01. A complete `MX2001` reply becomes an `mx2001` observation with logger MAC, water level, temperature F/C and BLE RSSI. Text has two-decimal-foot and one-decimal-F precision because that is what the **RAK V6 READ DM currently returns**. No extra precision is fabricated.
 
-The first cycle starts around **2 minutes after Heltec boots**; following cycles start every 30 minutes. Heltec waits up to **2 minutes** for the WATER reply, then sends READ after a short spacing delay and waits up to 2 minutes for that reply. A timeout leaves the missing measurement **unsaved**, logs a warning, and does not block future cycles. Unrelated text DMs cannot produce readings. No request is considered delivered merely because Meshtastic queued it.
+The first cycle starts around **2 minutes after Heltec boots**; following cycles start every 30 minutes. Heltec waits up to **2 minutes** for the WATER reply, then sends READ after a short spacing delay and waits up to 2 minutes for that reply. A missing WATER reply advances to READ after two minutes. A missing or invalid READ reply triggers another READ every two minutes until a valid MX2001 reading enters the upload queue; there is no retry-count limit. The next 30-minute cycle still polls water before resuming HOBO requests. Unrelated text DMs cannot produce readings. No request is considered delivered merely because Meshtastic queued it.
 
 Both successful parsed replies use the **existing V5 HTTPS upload queue**: **Heltec → Vercel `/api/ingest` → Neon `moab_watersheds.creek_observations` → watershed dashboard**. Uploads have CC01's node ID and the original Meshtastic DM reply packet ID. The payload marks the provenance as `source: "heltec_dm"`; unavailable logger raw values and sequence numbers are omitted rather than invented. Auto packets retain their original fields. If both routes report the same physical reading, **both are stored** as requested.
 
