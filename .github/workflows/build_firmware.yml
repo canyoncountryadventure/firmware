@@ -48,6 +48,20 @@ jobs:
           )
           PY
 
+      - name: Use official ESP32 platform archive for Heltec gateway
+        if: inputs.pio_env == 'heltec-v4'
+        run: |
+          python - <<'PYCODE'
+          from pathlib import Path
+          path = Path("variants/esp32/esp32-common.ini")
+          content = path.read_text()
+          expected = "platformio/espressif32@6.13.0"
+          if expected not in content:
+              raise SystemExit("Review gateway platform mirror for the new platform version")
+          path.write_text(content.replace(expected,
+              "https://github.com/platformio/platform-espressif32/archive/refs/tags/v6.13.0.zip"))
+          PYCODE
+
       - name: Build ${{ inputs.platform }}
         id: build
         uses: meshtastic/gh-action-firmware@main
