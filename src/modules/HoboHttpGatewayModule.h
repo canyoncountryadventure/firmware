@@ -89,6 +89,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         char loggerMac[18];
         char loggerModel[12];
         bool localBleSensor;
+        bool dmPollResult; // CC01 DM reply, not a PRIVATE_APP telemetry packet
 
         uint16_t moistureAdc;
         uint16_t moistureSensorMv;
@@ -131,6 +132,19 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     SeenPacket seenPackets[SEEN_PACKET_SLOTS] = {};
     uint8_t seenPacketIndex = 0;
     uint32_t localPacketCounter = 0;
+
+    // CC01 fallback poller is independent of all existing automatic receive paths.
+    enum class Cc01PollState : uint8_t { IDLE, WAIT_WATER, SEND_HOBO, WAIT_HOBO };
+    Cc01PollState cc01PollState = Cc01PollState::IDLE;
+    uint32_t cc01LastPollMs = 0;
+    uint32_t cc01RequestMs = 0;
+    static constexpr uint32_t CC01_POLL_INTERVAL_MS = 30UL * 60UL * 1000UL;
+    static constexpr uint32_t CC01_REPLY_TIMEOUT_MS = 120UL * 1000UL;
+    static constexpr uint8_t CC01_LONGFAST_CHANNEL = 1;
+
+    void pollCc01();
+    bool sendCc01Dm(const char *command);
+    void handleCc01Reply(const meshtastic_MeshPacket &mp);
 
     bool isDuplicate(const meshtastic_MeshPacket &mp);
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);
