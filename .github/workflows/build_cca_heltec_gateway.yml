@@ -1,8 +1,8 @@
-name: Build Heltec Gateway V6 (dated release)
+name: Build Heltec Gateway V7 (dated release)
 on:
   workflow_dispatch:
   push:
-    branches: [Heltec-Gateway-v6]
+    branches: [Heltec-Gateway-v7]
     paths:
       - 'src/**'
       - 'variants/**'
@@ -13,7 +13,7 @@ on:
       - '.github/workflows/build_cca_heltec_gateway.yml'
       - '.github/workflows/build_firmware.yml'
 concurrency:
-  group: heltec-gateway-v6
+  group: heltec-gateway-v7
   cancel-in-progress: true
 permissions: read-all
 jobs:
@@ -26,25 +26,25 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v6/test_dm_parser.cpp -o /tmp/test_cc01_dm
           /tmp/test_cc01_dm
-  build-heltec-v6:
+  build-heltec-v7:
     uses: ./.github/workflows/build_firmware.yml
     secrets: inherit
     with:
-      version: cca-heltec-v6-${{ github.run_number }}
+      version: cca-heltec-v7-${{ github.run_number }}
       pio_env: heltec-v4
       platform: esp32s3
 
-  publish-v6:
-    needs: [build-heltec-v6, gateway-compat-tests]
+  publish-v7:
+    needs: [build-heltec-v7, gateway-compat-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: read
     steps:
-      - name: Download exact Heltec V6 output
+      - name: Download exact Heltec V7 output
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: firmware-esp32s3-heltec-v4-cca-heltec-v6-*
+          pattern: firmware-esp32s3-heltec-v4-cca-heltec-v7-*
           path: heltec-firmware
           merge-multiple: true
       - name: Prepare dated firmware and checksum metadata
@@ -56,10 +56,10 @@ jobs:
           src="$(find heltec-firmware -maxdepth 1 -name 'firmware-heltec-v4-*.bin' -print -quit)"
           test -n "$src"
           mkdir -p release-pack
-          cp "$src" "release-pack/Heltec-Gateway-v6-$date_stamp.bin"
-          (cd heltec-firmware && zip -q -r "../release-pack/Heltec-Gateway-v6-$date_stamp.zip" .)
+          cp "$src" "release-pack/Heltec-Gateway-v7-$date_stamp.bin"
+          (cd heltec-firmware && zip -q -r "../release-pack/Heltec-Gateway-v7-$date_stamp.zip" .)
           {
-            echo "TARGET=Heltec-Gateway-v6"
+            echo "TARGET=Heltec-Gateway-v7"
             echo "HARDWARE=Heltec WiFi LoRa 32 V4 OLED"
             echo "PIO_ENV=heltec-v4"
             echo "FORMAT=ESP32-S3 BIN; ZIP includes companion OTA/flash files"
@@ -71,7 +71,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch Heltec-Gateway-v6 "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY.git" publish
+          git clone --depth 1 --branch Heltec-Gateway-v7 "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY.git" publish
           cd publish
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -80,8 +80,8 @@ jobs:
             echo "::error::Source branch advanced. Refusing stale Heltec release."
             exit 1
           fi
-          mkdir -p downloads/Heltec-Gateway-v6
-          cp ../release-pack/* downloads/Heltec-Gateway-v6/
-          git add downloads/Heltec-Gateway-v6
-          git commit -m "Publish dated Heltec V6 image $DATE_STAMP [skip ci]"
-          git push origin HEAD:Heltec-Gateway-v6
+          mkdir -p downloads/Heltec-Gateway-v7
+          cp ../release-pack/* downloads/Heltec-Gateway-v7/
+          git add downloads/Heltec-Gateway-v7
+          git commit -m "Publish dated Heltec V7 image $DATE_STAMP [skip ci]"
+          git push origin HEAD:Heltec-Gateway-v7
