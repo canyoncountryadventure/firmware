@@ -19,7 +19,7 @@ jobs:
   pio-build:
     name: build-${{ inputs.platform }}
     # Use 'arctastic' self-hosted runner pool when building in the main repo
-    runs-on: ${{ github.repository_owner == 'meshtastic' && 'arctastic' || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.pio_env == 'heltec-v4' && 'ubuntu-22.04' || (github.repository_owner == 'meshtastic' && 'arctastic' || 'ubuntu-latest') }}
     outputs:
       artifact-id: ${{ steps.upload-firmware.outputs.artifact-id }}
     steps:

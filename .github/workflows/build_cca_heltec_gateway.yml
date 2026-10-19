@@ -18,7 +18,7 @@ concurrency:
 permissions: read-all
 jobs:
   gateway-compat-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: python3 test/test_heltec_v5/test_wire_compat.py
@@ -38,7 +38,7 @@ jobs:
 
   publish-v6:
     needs: [build-heltec-v6, gateway-compat-tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
       actions: read
