@@ -62,7 +62,21 @@ jobs:
               "https://github.com/platformio/platform-espressif32/archive/refs/tags/v6.13.0.zip"))
           PYCODE
 
+      - name: Set up host PlatformIO for Heltec gateway
+        if: inputs.pio_env == 'heltec-v4'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/cca-pio"
+          "$RUNNER_TEMP/cca-pio/bin/pip" install 'platformio==6.1.18'
+          echo "$RUNNER_TEMP/cca-pio/bin" >> "$GITHUB_PATH"
+
+      - name: Build Heltec gateway directly on runner
+        if: inputs.pio_env == 'heltec-v4'
+        env:
+          PIO_ENV: ${{ inputs.pio_env }}
+        run: bin/build-esp32.sh "$PIO_ENV"
+
       - name: Build ${{ inputs.platform }}
+        if: inputs.pio_env != 'heltec-v4'
         id: build
         uses: meshtastic/gh-action-firmware@main
         with:

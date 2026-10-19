@@ -55,7 +55,7 @@ jobs:
           set -euo pipefail
           date_stamp="$(TZ=America/Denver date +%m-%d-%y)"
           echo "DATE_STAMP=$date_stamp" >> "$GITHUB_ENV"
-          src="$(find heltec-firmware -maxdepth 1 -name 'firmware-heltec-v4-*.bin' -print -quit)"
+          src="$(find heltec-firmware -maxdepth 1 -name 'firmware-heltec-v4-*.bin' ! -name '*.factory.bin' -print -quit)"
           test -n "$src"
           mkdir -p release-pack
           cp "$src" "release-pack/Heltec-Gateway-v6-$date_stamp.bin"
