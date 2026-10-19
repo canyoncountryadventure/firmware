@@ -109,6 +109,10 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
 {
     if (p == nullptr || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
         return false;
+    // Decode only CC01's LongFast DMs addressed to Heltec; never ingest chat.
+    if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP)
+        return nodeDB != nullptr && getFrom(p) == CC01_NODE &&
+               p->to == nodeDB->getNodeNum() && p->channel == CC01_LONGFAST_CHANNEL;
     if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
         p->decoded.portnum != meshtastic_PortNum_TELEMETRY_APP)
         return false;
@@ -445,6 +449,10 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
 {
     if (isDuplicate(mp))
         return ProcessMessage::CONTINUE;
+    if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+        handleCc01Reply(mp);
+        return ProcessMessage::CONTINUE;
+    }
 
     if (mp.decoded.portnum == meshtastic_PortNum_PRIVATE_APP) {
         // Packet signatures are mutually exclusive; do not fall through when
@@ -494,10 +502,14 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
         body += "\"water_level_ft\":" + String(job.waterLevelFt, 3);
         body += ",\"temperature_f\":" + String(job.temperatureF, 3);
         body += ",\"temperature_c\":" + String(job.temperatureC, 3);
-        body += ",\"temperature_raw\":" + String(job.temperatureRaw);
+        if (!job.dmPollResult)
+            body += ",\"temperature_raw\":" + String(job.temperatureRaw);
         body += ",\"logger_mac\":" + jsonQuoted(job.loggerMac);
         body += ",\"logger_model\":\"MX2001\"";
-        body += ",\"sequence\":" + String(job.sequence);
+        if (!job.dmPollResult)
+            body += ",\"sequence\":" + String(job.sequence);
+        if (job.dmPollResult)
+            body += ",\"source\":\"heltec_dm\"";
         body += ",\"ble_rssi_dbm\":" + String(job.bleRssi);
         if (job.localBleSensor)
             body += ",\"source\":\"heltec_ble\"";
@@ -525,7 +537,10 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
             body += ",\"water_level_ft\":" + String(job.stageMm / 304.8f, 3);
         }
         body += ",\"sensor_type\":" + String(job.distanceSensorType);
-        body += ",\"sequence\":" + String(job.sequence);
+        if (!job.dmPollResult)
+            body += ",\"sequence\":" + String(job.sequence);
+        if (job.dmPollResult)
+            body += ",\"source\":\"heltec_dm\"";
         if (job.sensorTimestamp)
             body += ",\"sensor_timestamp\":" + String(job.sensorTimestamp);
     } else if (job.type == JobType::DEVICE) {
@@ -625,6 +640,8 @@ int32_t HoboHttpGatewayModule::runOnce()
         return 60000;
     if (!WiFi.isConnected())
         return 3000;
+
+    pollCc01(); // Independent fallback DMs; original automatic receivers unchanged.
 
     UploadJob job = {};
     if (!uploadQueue.dequeue(&job, 0))
