@@ -26,6 +26,8 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v6/test_dm_parser.cpp -o /tmp/test_cc01_dm
           /tmp/test_cc01_dm
+      - name: Replay actual CC01 poller states
+        run: python3 test/test_heltec_v6/test_dm_poller.py
   build-heltec-v6:
     uses: ./.github/workflows/build_firmware.yml
     secrets: inherit

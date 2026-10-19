@@ -44,6 +44,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 {
   public:
     HoboHttpGatewayModule();
+    String statusJson();
 
     // Local BLE HOBO readers call these. Every reading is queued immediately.
     bool queueLocalEnvironment(float temperatureC, const char *loggerModel, const char *loggerMac,
@@ -141,6 +142,25 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     static constexpr uint32_t CC01_POLL_INTERVAL_MS = 30UL * 60UL * 1000UL;
     static constexpr uint32_t CC01_REPLY_TIMEOUT_MS = 120UL * 1000UL;
     static constexpr uint8_t CC01_LONGFAST_CHANNEL = 1;
+
+    uint32_t cc01Requests = 0;
+    uint32_t cc01Replies = 0;
+    uint32_t cc01Parsed = 0;
+    uint32_t cc01Queued = 0;
+    uint32_t cc01Rejected = 0;
+    uint32_t cc01Filtered = 0;
+    uint32_t cc01Duplicates = 0;
+    uint32_t cc01Dropped = 0;
+    uint32_t cc01QueueFull = 0;
+    uint32_t cc01LastReplyMs = 0;
+    uint32_t cc01LastReplyPacket = 0;
+    uint32_t cc01Uploaded = 0;
+    uint32_t cc01UploadAttempts = 0;
+    int cc01LastHttpStatus = 0;
+    uint32_t cc01LastUploadPacket = 0;
+    uint32_t cc01LastUploadMs = 0;
+    int lastHttpStatus = 0;
+    uint32_t uploadedJobs = 0;
 
     void pollCc01();
     bool sendCc01Dm(const char *command);

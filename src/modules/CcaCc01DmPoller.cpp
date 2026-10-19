@@ -35,6 +35,7 @@ bool HoboHttpGatewayModule::sendCc01Dm(const char *command)
     packet->want_ack = true;
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     const uint32_t packetId = packet->id;
+    ++cc01Requests;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
     // sendToMesh() returns void; this is only a send attempt. Actual RF
     // delivery must be confirmed by an ACK / valid CC01 sensor reply.
@@ -84,50 +85,53 @@ void HoboHttpGatewayModule::pollCc01()
 
 void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
 {
-    // The gateway already restricts this hook to CC01's LongFast DM replies.
-    // Accept a measurement only while expecting that exact reply type.
+    // Sender, destination and channel were checked by wantPacket().
+    // Sensor replies remain useful after a timeout or a manual request.
+    ++cc01Replies;
+    cc01LastReplyMs = millis();
+    cc01LastReplyPacket = mp.id;
     const size_t n = mp.decoded.payload.size;
-    if (n == 0 || n >= 240)
+    if (n == 0 || n >= 240) {
+        ++cc01Rejected;
         return;
+    }
     char reply[241] = {};
     memcpy(reply, mp.decoded.payload.bytes, n);
 
-    if (cc01PollState == Cc01PollState::WAIT_WATER) {
-        cca_cc01_dm::WaterReading reading;
-        if (!cca_cc01_dm::parseWaterRead(reply, reading)) {
-            LOG_WARN("CCA CC01 DM poll: WATER reply arrived but format was not accepted (%u bytes)",
-                     static_cast<unsigned>(n));
-            return;
-        }
+    cca_cc01_dm::WaterReading water;
+    cca_cc01_dm::HoboReading hobo;
+    if (cca_cc01_dm::parseWaterRead(reply, water)) {
+        const auto &reading = water;
         UploadJob job = {};
         job.type = JobType::WATER_DISTANCE;
         fillCommon(job, mp);
         job.dmPollResult = true;
+        ++cc01Parsed;
         job.distanceValid = true;
         job.stageCalibrated = true;
         job.distanceSensorType = 5; // CC01's installed MB7388 driver
         job.distanceMm = reading.distanceMm;
         job.stageMm = static_cast<int32_t>(lroundf(reading.stageFeet * 304.8f));
         if (uploadQueue.enqueue(job, 0)) {
+            ++cc01Queued;
             LOG_INFO("CCA CC01 DM poll: queued WATER READ stage %.3f ft raw %lu mm",
                      reading.stageFeet, static_cast<unsigned long>(reading.distanceMm));
             setIntervalFromNow(0);
         } else {
+            ++cc01QueueFull;
             LOG_WARN("CCA CC01 DM poll: upload queue full for WATER READ");
         }
-        cc01PollState = Cc01PollState::SEND_HOBO;
-        cc01RequestMs = millis();
-    } else if (cc01PollState == Cc01PollState::WAIT_HOBO) {
-        cca_cc01_dm::HoboReading reading;
-        if (!cca_cc01_dm::parseHoboRead(reply, reading)) {
-            LOG_WARN("CCA CC01 DM poll: HOBO reply arrived but format was not accepted (%u bytes)",
-                     static_cast<unsigned>(n));
-            return;
+        if (cc01PollState == Cc01PollState::WAIT_WATER) {
+            cc01PollState = Cc01PollState::SEND_HOBO;
+            cc01RequestMs = millis();
         }
+    } else if (cca_cc01_dm::parseHoboRead(reply, hobo)) {
+        const auto &reading = hobo;
         UploadJob job = {};
         job.type = JobType::MX2001;
         fillCommon(job, mp);
         job.dmPollResult = true;
+        ++cc01Parsed;
         job.waterLevelFt = reading.levelFeet;
         job.temperatureF = reading.temperatureF;
         job.temperatureC = (reading.temperatureF - 32.0f) * (5.0f / 9.0f);
@@ -135,13 +139,20 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
         snprintf(job.loggerMac, sizeof(job.loggerMac), "%s", reading.mac);
         snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
         if (uploadQueue.enqueue(job, 0)) {
+            ++cc01Queued;
             LOG_INFO("CCA CC01 DM poll: queued READ stage %.2f ft temp %.1f F",
                      reading.levelFeet, reading.temperatureF);
             setIntervalFromNow(0);
         } else {
+            ++cc01QueueFull;
             LOG_WARN("CCA CC01 DM poll: upload queue full for READ");
         }
-        cc01PollState = Cc01PollState::IDLE;
+        if (cc01PollState == Cc01PollState::WAIT_HOBO)
+            cc01PollState = Cc01PollState::IDLE;
+    } else {
+        ++cc01Rejected;
+        LOG_WARN("CCA CC01 DM poll: sensor reply format not accepted (%u bytes), state=%u",
+                 static_cast<unsigned>(n), static_cast<unsigned>(cc01PollState));
     }
 }
 

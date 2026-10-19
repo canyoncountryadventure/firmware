@@ -4,6 +4,7 @@
 #include "RadioLibInterface.h"
 #include "airtime.h"
 #include "main.h"
+#include "modules/HoboHttpGatewayModule.h"
 #include "mesh/http/ContentHelper.h"
 #include "mesh/http/WebServer.h"
 #if HAS_WIFI
@@ -62,6 +63,22 @@ char const *contentTypes[][2] = {{".txt", "text/plain"},     {".html", "text/htm
 // Our API to handle messages to and from the radio.
 HttpAPI webAPI;
 
+#if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+static void handleGatewayStatus(HTTPRequest *, HTTPResponse *res)
+{
+    res->setHeader("Content-Type", "application/json");
+    res->setHeader("Cache-Control", "no-store");
+    if (webServerThread)
+        webServerThread->markActivity();
+    if (!hoboHttpGatewayModule) {
+        res->setStatusCode(503);
+        res->println("{\"error\":\"gateway unavailable\"}");
+        return;
+    }
+    res->println(hoboHttpGatewayModule->statusJson().c_str());
+}
+#endif
+
 void registerHandlers(HTTPServer *insecureServer, HTTPSServer *secureServer)
 {
 
@@ -93,6 +110,12 @@ void registerHandlers(HTTPServer *insecureServer, HTTPSServer *secureServer)
     ResourceNode *nodeJsonDelete = new ResourceNode("/json/fs/delete/static", "DELETE", &handleFsDeleteStatic);
 
     ResourceNode *nodeRoot = new ResourceNode("/*", "GET", &handleStatic);
+
+#if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    ResourceNode *nodeGatewayStatus = new ResourceNode("/json/gateway", "GET", &handleGatewayStatus);
+    secureServer->registerNode(nodeGatewayStatus);
+    insecureServer->registerNode(nodeGatewayStatus);
+#endif
 
     // Secure nodes
     secureServer->registerNode(nodeAPIv1ToRadioOptions);

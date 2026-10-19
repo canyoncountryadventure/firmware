@@ -1,6 +1,15 @@
 # CCA Heltec Sensor Gateway V6
 
-**October 18, 2026 | Heltec WiFi LoRa 32 hardware V4 OLED | ESP32-S3 | PlatformIO `heltec-v4`**
+## October 19, 2026: ingest valid CC01 replies independently of the poll timer
+
+The previous receive handler silently ignored valid CC01 sensor replies unless the poller was waiting for that exact response type. This could discard manual responses, late replies after a two-minute timeout, or replies arriving out of order. V6 now parses complete, authorized CC01 `WATER READ` and `MX2001` replies in every polling state and queues them through the existing HTTPS uploader. Only a matching response advances the scheduled poll; unrelated replies do not cancel or restart it. Automatic private packets and the 30-minute polling schedule are unchanged.
+
+**Wi-Fi-only diagnosis:** open `http://192.168.1.147/json/gateway` (use the gateway's current IP) or run `Invoke-RestMethod http://192.168.1.147/json/gateway | ConvertTo-Json -Depth 5`. This read-only status endpoint reports the V6 fix identifier, uptime, Wi-Fi, whether an ingest credential exists (never its value), queue usage, total accepted uploads, and CC01 requests/replies/parsed/queued/rejected counts, last reply packet ID and last HTTP result. `cc01.uploaded > 0` with HTTP 2xx confirms the cloud accepted a DM reading; confirm its presence in Neon separately. Counters reset on reboot. No USB or serial monitoring is required.
+
+Regression coverage replays the actual production poller with the October 19 screenshot replies in every state, including late replies, full queues, invalid readings and the existing startup/timeout schedule. The packet capture proved that a valid encrypted CC01 reply reached Heltec; it did not expose the poll state or HTTP result, so the timer gate is a confirmed discard path rather than a proven explanation for every missing historical packet.
+
+
+**Updated October 19, 2026 | Heltec WiFi LoRa 32 hardware V4 OLED | ESP32-S3 | PlatformIO `heltec-v4`**
 
 Firmware V6 includes scheduled CC01 polling and the encrypted-DM receive fix. The initial V6 build sent scheduled requests but rejected PKI-encrypted CC01 responses because Meshtastic decodes those DMs on local channel 0, not LongFast channel 1. V6 accepts an addressed reply only from CC01 on authenticated PKI channel 0 or legacy LongFast channel 1, adds parser-failure diagnostics, and no longer calls an unconfirmed send attempt 'queued'. Existing automatic DS/MX packets, all other station handlers, calibration, Wi-Fi, BLE, watchdog, OTA, and the RAK firmware remain unchanged.
 
@@ -14,7 +23,7 @@ Firmware V6 includes scheduled CC01 polling and the encrypted-DM receive fix. Th
 - [Rollback: Heltec V5 (automatic telemetry only)](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v5)
 - [RAK field firmware V6 (unchanged, separate UF2)](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6)
 
-**Naming correction:** The verified October 18 files have been renamed from V7 to V6 without changing their bytes. Their embedded Meshtastic version and source commit remain `2.7.26.7d0a91c` and `7d0a91cd2e7361559db830bb2fd34e0a109f4496`. Future builds publish under V6.
+**October 18 build provenance / naming correction:** The verified October 18 files have been renamed from V7 to V6 without changing their bytes. Their embedded Meshtastic version and source commit remain `2.7.26.7d0a91c` and `7d0a91cd2e7361559db830bb2fd34e0a109f4496`. Future builds publish under V6.
 
 **Verified:** GitHub Actions compiled the Heltec V4 OLED ESP32-S3 target, passed V5 MX2001 wire-compatibility tests plus V6 DM parser and channel tests, and published the dated BIN/ZIP on the V6 branch. Source commit: `7d0a91cd2e7361559db830bb2fd34e0a109f4496`.
 

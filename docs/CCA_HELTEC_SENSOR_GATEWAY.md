@@ -79,7 +79,7 @@ The existing V5 Heltec Gateway remains the base for V6: no change to the mesh, c
 
 - At about 2 minutes after boot, then every 30 minutes: send `WATER READ` by reliable LoRa DM. Wait for a complete calibrated `WATER READ` reply, or timeout after 120 seconds.
 - After the water reply (or timeout), wait at least 3 seconds and send `READ` by reliable LoRa DM. Wait for a complete `MX2001` logger reply, or timeout after 120 seconds.
-- Only parse CC01 `TEXT_MESSAGE_APP` DMs addressed to Heltec, while expecting the corresponding reply. **V6 accepts authenticated PKI replies on Meshtastic's decoded channel index 0, plus non-PKI replies on LongFast channel index 1.** The initial V6 build rejected PKI replies by checking only index 1. Ignore unsolicited DMs and incomplete/invalid sensor responses.
+- Only parse CC01 `TEXT_MESSAGE_APP` DMs addressed to Heltec. Accept complete sensor replies in every polling state, including manual and late replies; only a matching reply advances the scheduled poll. **V6 accepts authenticated PKI replies on Meshtastic's decoded channel index 0, plus non-PKI replies on LongFast channel index 1.** The initial V6 build rejected PKI replies by checking only index 1. Ignore text that is not a complete valid sensor response.
 - Convert successful `WATER READ` into existing `water_distance` job with precise raw mm, stage mm/ft, `distance_valid`, `stage_calibrated`, `sensor_type` MB7388, plus `payload.source = "heltec_dm"`. Do not invent missing stages or sequence numbers.
 - Convert successful `MX2001` reply into existing `mx2001` job with stage, F/C, logger MAC and BLE RSSI, plus `payload.source = "heltec_dm"`. READ text reports hundredths of a foot and tenths F; do not invent original raw temperature or sequence.
 - Use current V5 upload queue and credential, `Heltec -> Vercel /api/ingest -> Neon moab_watersheds.creek_observations`. Retain the DM reply's LoRa packet ID, sending station identity and radio metadata. Failed HTTP uploads use existing bounded retries.
@@ -150,3 +150,10 @@ Every future Heltec build should be checked against this list:
 - Verify the gateway still forwards environmental, device battery percentage/voltage, water distance, rock moisture/PIR and soil packets.
 - Verify retained watchdog (`DIAG`, `WATCHDOG`, 12-hour maintenance, 90-second watchdog), OTA, local HOBO logger lock/scan/reading and mesh/HTTPS coexistence.
 - Inspect dated firmware links, source commit and SHA-256 in [the Heltec V6 README](../README.md). CI compilation alone does not validate physical BLE, radio or cloud ingestion.
+
+
+## Wi-Fi gateway diagnostics (October 19 V6 revision)
+
+`GET /json/gateway` on the Heltec's LAN HTTP or HTTPS server returns non-secret gateway status. Inspect `cc01.replies`, `parsed`, `queued`, `upload_attempts`, `uploaded`, and `last_http_status` to identify the first failed boundary. `filtered_channel`, `rejected_format`, `duplicates`, `queue_full`, and `dropped_upload` identify discarded packets. Packet IDs tie the last reply and last HTTP attempt to the Wi-Fi Meshtastic capture. Counts reset at reboot. No polling or upload is triggered by the endpoint.
+
+Complete CC01 sensor replies must be queued in IDLE, WAIT_WATER, SEND_HOBO and WAIT_HOBO. A late water reply while waiting for HOBO must not cancel that wait, and a manual HOBO reply while waiting for water must not cancel the water wait. Keep sender, destination, decoded-channel/PKI checks and packet-ID duplicate protection intact.

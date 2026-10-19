@@ -120,9 +120,11 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
         const bool addressedToUs = getFrom(p) == CC01_NODE && p->to == nodeDB->getNodeNum();
         const bool accepted = cca_cc01_dm::isCc01Reply(getFrom(p), p->to, nodeDB->getNodeNum(),
                                                        p->channel, p->pki_encrypted);
-        if (addressedToUs && !accepted)
+        if (addressedToUs && !accepted) {
+            ++cc01Filtered;
             LOG_WARN("CCA CC01 DM poll: ignored reply on unexpected channel %u, PKI=%u",
                      static_cast<unsigned>(p->channel), static_cast<unsigned>(p->pki_encrypted));
+        }
         return accepted;
     }
     if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
@@ -459,8 +461,11 @@ bool HoboHttpGatewayModule::enqueueDevice(const meshtastic_MeshPacket &mp)
 
 ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket &mp)
 {
-    if (isDuplicate(mp))
+    if (isDuplicate(mp)) {
+        if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP)
+            ++cc01Duplicates;
         return ProcessMessage::CONTINUE;
+    }
     if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
         handleCc01Reply(mp);
         return ProcessMessage::CONTINUE;
@@ -629,7 +634,17 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
 
     const String body = serializeJob(job);
     const int status = http.POST(body);
+    lastHttpStatus = status;
+    if (job.dmPollResult) {
+        ++cc01UploadAttempts;
+        cc01LastHttpStatus = status;
+        cc01LastUploadPacket = job.packetId;
+        cc01LastUploadMs = millis();
+    }
     if (status >= 200 && status < 300) {
+        ++uploadedJobs;
+        if (job.dmPollResult)
+            ++cc01Uploaded;
         LOG_INFO("CCA clean gateway: cloud accepted packet 0x%08lx type=%u HTTP=%d",
                  static_cast<unsigned long>(job.packetId), static_cast<unsigned>(job.type), status);
         http.end();
@@ -644,6 +659,39 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     }
     http.end();
     return false;
+}
+
+String HoboHttpGatewayModule::statusJson()
+{
+    const char *states[] = {"idle", "waiting_water", "spacing_before_read", "waiting_hobo"};
+    String body = "{\"firmware_fix\":\"v6-cc01-independent-replies-2026-10-19\"";
+    body += ",\"uptime_ms\":" + String(millis());
+    body += ",\"wifi_connected\":";
+    body += WiFi.isConnected() ? "true" : "false";
+    body += ",\"ingest_key_present\":";
+    body += strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) ? "true" : "false";
+    body += ",\"queue_used\":" + String(uploadQueue.numUsed());
+    body += ",\"uploaded_total\":" + String(uploadedJobs);
+    body += ",\"last_http_status\":" + String(lastHttpStatus);
+    body += ",\"cc01\":{\"poll_state\":" + jsonQuoted(states[static_cast<unsigned>(cc01PollState)]);
+    body += ",\"requests\":" + String(cc01Requests);
+    body += ",\"replies\":" + String(cc01Replies);
+    body += ",\"parsed\":" + String(cc01Parsed);
+    body += ",\"queued\":" + String(cc01Queued);
+    body += ",\"rejected_format\":" + String(cc01Rejected);
+    body += ",\"queue_full\":" + String(cc01QueueFull);
+    body += ",\"filtered_channel\":" + String(cc01Filtered);
+    body += ",\"duplicates\":" + String(cc01Duplicates);
+    body += ",\"dropped_upload\":" + String(cc01Dropped);
+    body += ",\"last_reply_ms\":" + String(cc01LastReplyMs);
+    body += ",\"last_reply_packet\":" + String(cc01LastReplyPacket);
+    body += ",\"upload_attempts\":" + String(cc01UploadAttempts);
+    body += ",\"uploaded\":" + String(cc01Uploaded);
+    body += ",\"last_http_status\":" + String(cc01LastHttpStatus);
+    body += ",\"last_upload_packet\":" + String(cc01LastUploadPacket);
+    body += ",\"last_upload_ms\":" + String(cc01LastUploadMs);
+    body += "}}";
+    return body;
 }
 
 int32_t HoboHttpGatewayModule::runOnce()
@@ -672,6 +720,8 @@ int32_t HoboHttpGatewayModule::runOnce()
         }
     }
 
+    if (job.dmPollResult)
+        ++cc01Dropped;
     LOG_ERROR("CCA clean gateway: dropping packet 0x%08lx after upload failure",
               static_cast<unsigned long>(job.packetId));
     return 1000;
