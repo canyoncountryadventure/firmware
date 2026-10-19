@@ -1,4 +1,5 @@
 #include "HoboHttpGatewayModule.h"
+#include "CcaCc01DmParser.h"
 
 #if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
 
@@ -114,14 +115,15 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
         // Meshtastic PKI DMs are decrypted with channel index 0, even if the
         // sender requested our LongFast channel 1. V6 rejected every such
         // valid CC01 reply before the DM parser could run.
-        const bool addressedToUs = nodeDB != nullptr && getFrom(p) == CC01_NODE &&
-                                   p->to == nodeDB->getNodeNum();
-        const bool secureDm = p->pki_encrypted && p->channel == 0;
-        const bool legacyLongFastDm = p->channel == CC01_LONGFAST_CHANNEL;
-        if (addressedToUs && !secureDm && !legacyLongFastDm)
+        if (nodeDB == nullptr)
+            return false;
+        const bool addressedToUs = getFrom(p) == CC01_NODE && p->to == nodeDB->getNodeNum();
+        const bool accepted = cca_cc01_dm::isCc01Reply(getFrom(p), p->to, nodeDB->getNodeNum(),
+                                                       p->channel, p->pki_encrypted);
+        if (addressedToUs && !accepted)
             LOG_WARN("CCA CC01 DM poll: ignored reply on unexpected channel %u, PKI=%u",
                      static_cast<unsigned>(p->channel), static_cast<unsigned>(p->pki_encrypted));
-        return addressedToUs && (secureDm || legacyLongFastDm);
+        return accepted;
     }
     if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
         p->decoded.portnum != meshtastic_PortNum_TELEMETRY_APP)
