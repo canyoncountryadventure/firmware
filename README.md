@@ -1,8 +1,12 @@
 # CCA Heltec Sensor Gateway V6
 
-## October 19, 2026: verified CC01 ingestion repair
+## October 19, 2026: ESP32 floating-point parser repair
 
-**Published and verified:** GitHub Actions compiled the Heltec V4 OLED application, passed the native parser/poller and V5 wire-compatibility tests, and published the October 19 BIN/ZIP. Both downloads were independently retrieved and their SHA-256 hashes checked. The BIN contains the independent-reply fix and `/json/gateway` route; the ZIP application image matches the standalone BIN exactly. Source: `2494b6206420b330b6cc317bdc59c300510d75e3`. [Successful build log and publication](https://github.com/canyoncountryadventure/firmware/actions/runs/39279737963). Live RF-to-Neon verification is still required after flashing.
+**Embedded parser root cause:** the previous ESP32 image linked `sscanf` to its integer-only scanner without the optional `_scanf_float` implementation. Both CC01 reply parsers use `%f`, so native tests passed while the radio rejected the same valid text. The live gateway reported three replies, zero parsed and three format rejections; its other uploads received HTTP 201.
+
+V6 now retains the floating-point scanner with `-Wl,-u,_scanf_float` for `heltec-v4`. CI checks that the compiled ELF defines that symbol before publishing. The read-only `/json/gateway` response runs the real parser on both screenshot messages and reports `parser_self_test.water` and `parser_self_test.hobo`. These self-tests never queue or upload synthetic observations.
+
+**Published build:** source `6c09ca943d505d3bbbf572f28c572ec4fb8e1820`, firmware `2.7.26.6c09ca9`. The published BIN/ZIP hashes were independently verified; the downloaded ELF defines `_scanf_float` at `0x4216cff4`, and its application matches the standalone BIN. Live RF-to-Neon verification is still required after flashing.
 
 The previous receive handler silently ignored valid CC01 sensor replies unless the poller was waiting for that exact response type. This could discard manual responses, late replies after a two-minute timeout, or replies arriving out of order. V6 now parses complete, authorized CC01 `WATER READ` and `MX2001` replies in every polling state and queues them through the existing HTTPS uploader. Only a matching response advances the scheduled poll; unrelated replies do not cancel or restart it. Automatic private packets and the 30-minute polling schedule are unchanged.
 
@@ -20,16 +24,16 @@ Firmware V6 includes scheduled CC01 polling and the encrypted-DM receive fix. Th
 - [**Download Heltec V6 application BIN, October 19, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin)
 - [**Download Heltec V6 OTA/full-flash ZIP, October 19, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.zip)
 - [**Source commit and SHA-256 checksums**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/BUILD.txt)
-- [**Build and regression-test logs**](https://github.com/canyoncountryadventure/firmware/actions/runs/39279737963)
+- [**Build and regression-test logs**](https://github.com/canyoncountryadventure/firmware/actions/runs/39283643481)
 - [Rollback: Heltec V5 (automatic telemetry only)](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v5)
 - [RAK field firmware V6 (unchanged, separate UF2)](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6)
 
 | Published file | SHA-256 |
 | --- | --- |
-| `Heltec-Gateway-v6-10-19-26.bin` | `def468f75664eec2825468d79ef97d3190ef5ca14298302ab8903b8ad0640bcf` |
-| `Heltec-Gateway-v6-10-19-26.zip` | `fc98ec73cd5ea5fe3a5f79f4b814eaa0c4515e3ea5b8037cbf5b67fc335f648b` |
+| `Heltec-Gateway-v6-10-19-26.bin` | `ef5dfda79f560c52cdc90e9c8510cac3ea124233fef55933c6401706ef933881` |
+| `Heltec-Gateway-v6-10-19-26.zip` | `becc38995d8f0dcd1bdbf41d8c71dc30bfe82fb1df278a93301b82cbdee2abf5` |
 
-Embedded firmware version: `2.7.26.2494b62`. Source commit: `2494b6206420b330b6cc317bdc59c300510d75e3`. The V6 branch includes changes previously labeled V7; no separate V7 branch is needed.
+Embedded firmware version: `2.7.26.6c09ca9`. Source commit: `6c09ca943d505d3bbbf572f28c572ec4fb8e1820`. The V6 branch includes changes previously labeled V7; no separate V7 branch is needed.
 
 **This is Heltec hardware V4 firmware, not a RAK UF2.** The standalone BIN is the application image for routine Wi-Fi Unified OTA. Preserve NVS/configuration and the existing OTA loader. The ZIP also contains a factory image, which is not the routine Wi-Fi update target.
 
@@ -40,14 +44,14 @@ Close any TCP monitor first. Download and verify the current application, then u
 ```powershell
 $ErrorActionPreference = "Stop"
 $firmwarePath = Join-Path $PWD "Heltec-Gateway-v6-10-19-26.bin"
-Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/canyoncountryadventure/firmware/4130004bbeafe9c84b8aafd9068a929d29f8c984/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin" -OutFile $firmwarePath
-if ((Get-FileHash $firmwarePath -Algorithm SHA256).Hash -ne "def468f75664eec2825468d79ef97d3190ef5ca14298302ab8903b8ad0640bcf") { throw "Firmware checksum mismatch" }
+Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/canyoncountryadventure/firmware/cf1f4d1d6ff98935f0112182a9b2f09b604bb1ae/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin" -OutFile $firmwarePath
+if ((Get-FileHash $firmwarePath -Algorithm SHA256).Hash -ne "ef5dfda79f560c52cdc90e9c8510cac3ea124233fef55933c6401706ef933881") { throw "Firmware checksum mismatch" }
 $ErrorActionPreference = "Continue"
 python -m meshtastic --host 192.168.1.147 --ota-update $firmwarePath
 if ($LASTEXITCODE -ne 0) { throw "Wi-Fi updater failed; inspect its output" }
 ```
 
-After Heltec reconnects, inspect `http://192.168.1.147/json/gateway`. Use the actual current IP if it changed. A manual `READ` sent from Heltec to `!65165646` can now be ingested immediately. Verify `cc01.uploaded` increases and the new reading is present in Neon with `source: "heltec_dm"`. Scheduled first-poll delay and 30-minute interval are unchanged.
+After Heltec reconnects, verify `firmware_fix` is `v6-cc01-float-scan-2026-10-19` and both `parser_self_test` values are `true`. Then inspect `http://192.168.1.147/json/gateway`. Use the actual current IP if it changed. A manual `READ` sent from Heltec to `!65165646` can now be ingested immediately. Verify `cc01.uploaded` increases and the new reading is present in Neon with `source: "heltec_dm"`. Scheduled first-poll delay and 30-minute interval are unchanged.
 
 ## Encrypted-DM receive repair included in V6
 
