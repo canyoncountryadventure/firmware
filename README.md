@@ -1,8 +1,8 @@
 # CCA Heltec Sensor Gateway V6
 
-## October 19, 2026: source fix — firmware build currently blocked
+## October 19, 2026: verified CC01 ingestion repair
 
-**Availability: source and native regression tests are complete; the new firmware is NOT published.** GitHub Actions could download the official ESP32 platform archive, but PlatformIO's registry failed while fetching `espressif/toolchain-xtensa-esp32s3@8.4.0+2021r2-patch5`, before C++ compilation. [Build status and dependency failure](https://github.com/canyoncountryadventure/firmware/actions/runs/39276027742). The October 18 downloads below do **not** include the independent-reply fix or `/json/gateway`; do not reflash them expecting this repair. A new dated BIN/ZIP will only be linked after a successful ESP32 build and checksum verification.
+**Published and verified:** GitHub Actions compiled the Heltec V4 OLED application, passed the native parser/poller and V5 wire-compatibility tests, and published the October 19 BIN/ZIP. Both downloads were independently retrieved and their SHA-256 hashes checked. The BIN contains the independent-reply fix and `/json/gateway` route; the ZIP application image matches the standalone BIN exactly. Source: `2494b6206420b330b6cc317bdc59c300510d75e3`. [Successful build log and publication](https://github.com/canyoncountryadventure/firmware/actions/runs/39279737963). Live RF-to-Neon verification is still required after flashing.
 
 The previous receive handler silently ignored valid CC01 sensor replies unless the poller was waiting for that exact response type. This could discard manual responses, late replies after a two-minute timeout, or replies arriving out of order. V6 now parses complete, authorized CC01 `WATER READ` and `MX2001` replies in every polling state and queues them through the existing HTTPS uploader. Only a matching response advances the scheduled poll; unrelated replies do not cancel or restart it. Automatic private packets and the 30-minute polling schedule are unchanged.
 
@@ -17,24 +17,37 @@ Firmware V6 includes scheduled CC01 polling and the encrypted-DM receive fix. Th
 
 ## Verified V6 downloads and build provenance
 
-- [**Download Heltec V6 firmware BIN, October 18, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-18-26.bin)
-- [**Download Heltec V6 OTA/full-flash ZIP, October 18, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-18-26.zip)
-- [**Verified source commit and SHA-256 checksums**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/BUILD.txt)
-- [V6 release directory](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6)
-- [**Successful V6 build + automated tests + publication**](https://github.com/canyoncountryadventure/firmware/actions/runs/39206425413)
+- [**Download Heltec V6 application BIN, October 19, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin)
+- [**Download Heltec V6 OTA/full-flash ZIP, October 19, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.zip)
+- [**Source commit and SHA-256 checksums**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/BUILD.txt)
+- [**Build and regression-test logs**](https://github.com/canyoncountryadventure/firmware/actions/runs/39279737963)
 - [Rollback: Heltec V5 (automatic telemetry only)](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v5)
 - [RAK field firmware V6 (unchanged, separate UF2)](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6)
 
-**October 18 build provenance / naming correction:** The verified October 18 files have been renamed from V7 to V6 without changing their bytes. Their embedded Meshtastic version and source commit remain `2.7.26.7d0a91c` and `7d0a91cd2e7361559db830bb2fd34e0a109f4496`. Future builds publish under V6.
-
-**Verified:** GitHub Actions compiled the Heltec V4 OLED ESP32-S3 target, passed V5 MX2001 wire-compatibility tests plus V6 DM parser and channel tests, and published the dated BIN/ZIP on the V6 branch. Source commit: `7d0a91cd2e7361559db830bb2fd34e0a109f4496`.
-
 | Published file | SHA-256 |
 | --- | --- |
-| `Heltec-Gateway-v6-10-18-26.bin` | `f54d7100e6bc9bfb889572c78a7897e3f94aaf406a05237e6871a774f66c2553` |
-| `Heltec-Gateway-v6-10-18-26.zip` | `f63a21317c9454ba67ec3d434bbae059712ccde1a7e382136e25d6bc8af3241c` |
+| `Heltec-Gateway-v6-10-19-26.bin` | `def468f75664eec2825468d79ef97d3190ef5ca14298302ab8903b8ad0640bcf` |
+| `Heltec-Gateway-v6-10-19-26.zip` | `fc98ec73cd5ea5fe3a5f79f4b814eaa0c4515e3ea5b8037cbf5b67fc335f648b` |
 
-**This is a Heltec hardware V4 firmware, not a RAK UF2.** For a routine Wi-Fi Unified OTA upgrade, use the non-factory application image in the ZIP with the existing loader, keeping configuration/NVS intact. Do not flash the full factory image for a routine update.
+Embedded firmware version: `2.7.26.2494b62`. Source commit: `2494b6206420b330b6cc317bdc59c300510d75e3`. The V6 branch includes changes previously labeled V7; no separate V7 branch is needed.
+
+**This is Heltec hardware V4 firmware, not a RAK UF2.** The standalone BIN is the application image for routine Wi-Fi Unified OTA. Preserve NVS/configuration and the existing OTA loader. The ZIP also contains a factory image, which is not the routine Wi-Fi update target.
+
+### Wi-Fi flash from PowerShell
+
+Close any TCP monitor first. Download and verify the current application, then use Meshtastic's Wi-Fi updater:
+
+```powershell
+$ErrorActionPreference = "Stop"
+$firmwarePath = Join-Path $PWD "Heltec-Gateway-v6-10-19-26.bin"
+Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/canyoncountryadventure/firmware/4130004bbeafe9c84b8aafd9068a929d29f8c984/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-19-26.bin" -OutFile $firmwarePath
+if ((Get-FileHash $firmwarePath -Algorithm SHA256).Hash -ne "def468f75664eec2825468d79ef97d3190ef5ca14298302ab8903b8ad0640bcf") { throw "Firmware checksum mismatch" }
+$ErrorActionPreference = "Continue"
+python -m meshtastic --host 192.168.1.147 --ota-update $firmwarePath
+if ($LASTEXITCODE -ne 0) { throw "Wi-Fi updater failed; inspect its output" }
+```
+
+After Heltec reconnects, inspect `http://192.168.1.147/json/gateway`. Use the actual current IP if it changed. A manual `READ` sent from Heltec to `!65165646` can now be ingested immediately. Verify `cc01.uploaded` increases and the new reading is present in Neon with `source: "heltec_dm"`. Scheduled first-poll delay and 30-minute interval are unchanged.
 
 ## Encrypted-DM receive repair included in V6
 
