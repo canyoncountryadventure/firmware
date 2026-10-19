@@ -110,9 +110,19 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     if (p == nullptr || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
         return false;
     // Decode only CC01's LongFast DMs addressed to Heltec; never ingest chat.
-    if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP)
-        return nodeDB != nullptr && getFrom(p) == CC01_NODE &&
-               p->to == nodeDB->getNodeNum() && p->channel == CC01_LONGFAST_CHANNEL;
+    if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+        // Meshtastic PKI DMs are decrypted with channel index 0, even if the
+        // sender requested our LongFast channel 1. V6 rejected every such
+        // valid CC01 reply before the DM parser could run.
+        const bool addressedToUs = nodeDB != nullptr && getFrom(p) == CC01_NODE &&
+                                   p->to == nodeDB->getNodeNum();
+        const bool secureDm = p->pki_encrypted && p->channel == 0;
+        const bool legacyLongFastDm = p->channel == CC01_LONGFAST_CHANNEL;
+        if (addressedToUs && !secureDm && !legacyLongFastDm)
+            LOG_WARN("CCA CC01 DM poll: ignored reply on unexpected channel %u, PKI=%u",
+                     static_cast<unsigned>(p->channel), static_cast<unsigned>(p->pki_encrypted));
+        return addressedToUs && (secureDm || legacyLongFastDm);
+    }
     if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
         p->decoded.portnum != meshtastic_PortNum_TELEMETRY_APP)
         return false;
