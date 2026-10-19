@@ -4,15 +4,24 @@
 
 Firmware V7 is a **new branch**, copied from Heltec V6 to repair CC01 DM replies. V6 sent scheduled requests but rejected PKI-encrypted CC01 responses because Meshtastic decodes those DMs on local channel 0, not LongFast channel 1. V7 accepts an addressed reply only from CC01 on authenticated PKI channel 0 or legacy LongFast channel 1, adds parser-failure diagnostics, and no longer calls an unconfirmed send attempt 'queued'. Existing automatic DS/MX packets, all other station handlers, calibration, Wi-Fi, BLE, watchdog, OTA, and the RAK firmware remain unchanged.
 
-## Downloads and build verification
+## Verified V7 downloads and build provenance
 
-- [V7 dated ESP32-S3 firmware BIN and OTA/flash ZIP download directory](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7)
-- [V7 SHA-256 hashes, source commit and GitHub Actions build run](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/BUILD.txt)
-- [V7 build and publication history](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_heltec_gateway.yml?query=branch%3AHeltec-Gateway-v7)
-- [**Rollback: Heltec V6 (October 18, 2026)**](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6)
-- [RAK field firmware V6 (separate board and UF2 format, unchanged)](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6)
+- [**Download Heltec V7 firmware BIN, October 18, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-18-26.bin)
+- [**Download Heltec V7 OTA/full-flash ZIP, October 18, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-18-26.zip)
+- [**Verified source commit and SHA-256 checksums**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/BUILD.txt)
+- [V7 release directory](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7)
+- [**Successful V7 build + automated tests + publication**](https://github.com/canyoncountryadventure/firmware/actions/runs/39206425413)
+- [Rollback: Heltec V6 firmware (October 18, 2026)](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6)
+- [RAK field firmware V6 (unchanged, separate UF2)](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6)
 
-**Use only V7 files after the V7 GitHub Actions build succeeds.** The build names the image with the actual Mountain Time date and publishes checksums. This Heltec hardware V4 OLED needs an ESP32-S3 BIN/OTA ZIP, **not a RAK UF2**. Until artifacts are published and checked, no V7 image is available for flashing.
+**Verified:** GitHub Actions compiled the Heltec V4 OLED ESP32-S3 target, passed V5 MX2001 wire-compatibility tests plus V6/V7 DM parser and channel tests, and published the dated BIN/ZIP on the V7 branch. Source commit: `7d0a91cd2e7361559db830bb2fd34e0a109f4496`.
+
+| Published file | SHA-256 |
+| --- | --- |
+| `Heltec-Gateway-v7-10-18-26.bin` | `f54d7100e6bc9bfb889572c78a7897e3f94aaf406a05237e6871a774f66c2553` |
+| `Heltec-Gateway-v7-10-18-26.zip` | `f63a21317c9454ba67ec3d434bbae059712ccde1a7e382136e25d6bc8af3241c` |
+
+**This is a Heltec hardware V4 firmware, not a RAK UF2.** For a routine Wi-Fi Unified OTA upgrade, use the non-factory application image in the ZIP with the existing loader, keeping configuration/NVS intact. Do not flash the full factory image for a routine update.
 
 ## Why V6 failed and what V7 repairs
 
