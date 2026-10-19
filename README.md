@@ -1,37 +1,39 @@
-# CCA Heltec Sensor Gateway V7
+# CCA Heltec Sensor Gateway V6
 
 **October 18, 2026 | Heltec WiFi LoRa 32 hardware V4 OLED | ESP32-S3 | PlatformIO `heltec-v4`**
 
-Firmware V7 is a **new branch**, copied from Heltec V6 to repair CC01 DM replies. V6 sent scheduled requests but rejected PKI-encrypted CC01 responses because Meshtastic decodes those DMs on local channel 0, not LongFast channel 1. V7 accepts an addressed reply only from CC01 on authenticated PKI channel 0 or legacy LongFast channel 1, adds parser-failure diagnostics, and no longer calls an unconfirmed send attempt 'queued'. Existing automatic DS/MX packets, all other station handlers, calibration, Wi-Fi, BLE, watchdog, OTA, and the RAK firmware remain unchanged.
+Firmware V6 includes scheduled CC01 polling and the encrypted-DM receive fix. The initial V6 build sent scheduled requests but rejected PKI-encrypted CC01 responses because Meshtastic decodes those DMs on local channel 0, not LongFast channel 1. V6 accepts an addressed reply only from CC01 on authenticated PKI channel 0 or legacy LongFast channel 1, adds parser-failure diagnostics, and no longer calls an unconfirmed send attempt 'queued'. Existing automatic DS/MX packets, all other station handlers, calibration, Wi-Fi, BLE, watchdog, OTA, and the RAK firmware remain unchanged.
 
-## Verified V7 downloads and build provenance
+## Verified V6 downloads and build provenance
 
-- [**Download Heltec V7 firmware BIN, October 18, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-18-26.bin)
-- [**Download Heltec V7 OTA/full-flash ZIP, October 18, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-18-26.zip)
-- [**Verified source commit and SHA-256 checksums**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/BUILD.txt)
-- [V7 release directory](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7)
-- [**Successful V7 build + automated tests + publication**](https://github.com/canyoncountryadventure/firmware/actions/runs/39206425413)
-- [Rollback: Heltec V6 firmware (October 18, 2026)](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6)
+- [**Download Heltec V6 firmware BIN, October 18, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-18-26.bin)
+- [**Download Heltec V6 OTA/full-flash ZIP, October 18, 2026**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/Heltec-Gateway-v6-10-18-26.zip)
+- [**Verified source commit and SHA-256 checksums**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6/BUILD.txt)
+- [V6 release directory](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6/downloads/Heltec-Gateway-v6)
+- [**Successful V6 build + automated tests + publication**](https://github.com/canyoncountryadventure/firmware/actions/runs/39206425413)
+- [Rollback: Heltec V5 (automatic telemetry only)](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v5)
 - [RAK field firmware V6 (unchanged, separate UF2)](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v6)
 
-**Verified:** GitHub Actions compiled the Heltec V4 OLED ESP32-S3 target, passed V5 MX2001 wire-compatibility tests plus V6/V7 DM parser and channel tests, and published the dated BIN/ZIP on the V7 branch. Source commit: `7d0a91cd2e7361559db830bb2fd34e0a109f4496`.
+**Naming correction:** The verified October 18 files have been renamed from V7 to V6 without changing their bytes. Their embedded Meshtastic version and source commit remain `2.7.26.7d0a91c` and `7d0a91cd2e7361559db830bb2fd34e0a109f4496`. Future builds publish under V6.
+
+**Verified:** GitHub Actions compiled the Heltec V4 OLED ESP32-S3 target, passed V5 MX2001 wire-compatibility tests plus V6 DM parser and channel tests, and published the dated BIN/ZIP on the V6 branch. Source commit: `7d0a91cd2e7361559db830bb2fd34e0a109f4496`.
 
 | Published file | SHA-256 |
 | --- | --- |
-| `Heltec-Gateway-v7-10-18-26.bin` | `f54d7100e6bc9bfb889572c78a7897e3f94aaf406a05237e6871a774f66c2553` |
-| `Heltec-Gateway-v7-10-18-26.zip` | `f63a21317c9454ba67ec3d434bbae059712ccde1a7e382136e25d6bc8af3241c` |
+| `Heltec-Gateway-v6-10-18-26.bin` | `f54d7100e6bc9bfb889572c78a7897e3f94aaf406a05237e6871a774f66c2553` |
+| `Heltec-Gateway-v6-10-18-26.zip` | `f63a21317c9454ba67ec3d434bbae059712ccde1a7e382136e25d6bc8af3241c` |
 
 **This is a Heltec hardware V4 firmware, not a RAK UF2.** For a routine Wi-Fi Unified OTA upgrade, use the non-factory application image in the ZIP with the existing loader, keeping configuration/NVS intact. Do not flash the full factory image for a routine update.
 
-## Why V6 failed and what V7 repairs
+## Encrypted-DM receive repair included in V6
 
-On Meshtastic 2.7.26, a PKI-encrypted direct message is decrypted for the destination with **local channel index 0**, regardless of the LongFast index chosen when composing the request. V6's `wantPacket()` accepted CC01 `TEXT_MESSAGE_APP` replies only if `channel == 1`. Valid encrypted replies were dropped before `handleCc01Reply()`. V7 fixes the receive filter while preserving sender/destination authorization and the existing LongFast fallback.
+On Meshtastic 2.7.26, a PKI-encrypted direct message is decrypted for the destination with **local channel index 0**, regardless of the LongFast index chosen when composing the request. The initial V6 `wantPacket()` accepted CC01 `TEXT_MESSAGE_APP` replies only if `channel == 1`. Valid encrypted replies were dropped before `handleCc01Reply()`. V6 fixes the receive filter while preserving sender/destination authorization and the existing LongFast fallback.
 
-V7 also reports outbound requests as **attempted, delivery unconfirmed** rather than claiming the RF network queued/delivered them, and logs when a CC01 reply arrives but does not match the strict `WATER READ` or `MX2001` parser. The 2-minute initial delay, 30-minute polling, reply timeouts, and unconditional automatic packet handling are unchanged.
+V6 also reports outbound requests as **attempted, delivery unconfirmed** rather than claiming the RF network queued/delivered them, and logs when a CC01 reply arrives but does not match the strict `WATER READ` or `MX2001` parser. The 2-minute initial delay, 30-minute polling, reply timeouts, and unconditional automatic packet handling are unchanged.
 
-**On-device validation still required:** reboot V7 on Heltec with Wi-Fi online, observe `CCA CC01 DM poll: sent request WATER READ`, then verify at least one decoded CC01 DM reply is uploaded with `metrics.source = "heltec_dm"` in `moab_watersheds.creek_observations`. This distinguishes sending, receiving/parsing and HTTPS storage. Compilation alone does not prove LoRa delivery.
+**On-device validation still required:** reboot V6 on Heltec with Wi-Fi online, observe `CCA CC01 DM poll: sent request WATER READ`, then verify at least one decoded CC01 DM reply is uploaded with `metrics.source = "heltec_dm"` in `moab_watersheds.creek_observations`. This distinguishes sending, receiving/parsing and HTTPS storage. Compilation alone does not prove LoRa delivery.
 
-## Scheduled DM behavior, retained from V6
+## Scheduled DM behavior
 
 Every **30 minutes**, Heltec sends two separate Meshtastic direct messages to **CC01 / Cottonwood Creek `!65165646`** over the gateway's local **LongFast channel 1**:
 
@@ -46,9 +48,9 @@ Both successful parsed replies use the **existing V5 HTTPS upload queue**: **Hel
 
 **No changes whatsoever** to the V5 inbound `DS` (`PRIVATE_APP`) water handler, `MX` HOBO handler, standard environmental/device telemetry, other stations, gateway local BLE HOBO reader, mesh forwarding, Wi-Fi HTTPS, OTA, watchdog or resets. CC01 can still report automatically to Heltec at any time. **No `HUB SET`, `HUB AUTO`, sensor interval, or RAK firmware change** is required.
 
-Once CC01's automatic packets are reliably arriving, the safest tested rollback is to flash the dated **Heltec V5** application over Wi-Fi, preserving configuration, and resume auto-only mode. V7 does not silently disable the field node's automatic telemetry.
+Once CC01's automatic packets are reliably arriving, the safest tested rollback is to flash the dated **Heltec V5** application over Wi-Fi, preserving configuration, and resume auto-only mode. V6 does not silently disable the field node's automatic telemetry.
 
-## Legacy capabilities preserved from V5 and V6
+## Legacy capabilities preserved from V5
 
 | Sensor/source | Existing protocol | Gateway behavior |
 | --- | --- | --- |
@@ -63,16 +65,16 @@ All accepted sensor data is still uploaded independently with the existing V5/V6
 
 ## Wi-Fi OTA and rollback
 
-1. Download the **dated V7 OTA/flash ZIP** from the release directory above. Confirm BUILD.txt source commit, board target and SHA-256.
+1. Download the **dated V6 OTA/flash ZIP** from the release directory above. Confirm BUILD.txt source commit, board target and SHA-256.
 2. Heltec's previously observed Wi-Fi address was `192.168.1.147`; verify it is still current. Meshtastic TCP API: **4403**. ESP32 Unified OTA loader: **3232**.
 3. Use the Meshtastic Unified OTA updater with the correct `heltec-v4` ESP32-S3 firmware image. **Preserve NVS/config**; do not factory erase. Keep power and Wi-Fi stable throughout.
 4. Verify Heltec rejoins the mesh and uploads a normal automatic sensor packet. Wait 2 minutes, then observe `CCA CC01 DM poll:` logs or, more reliably, watch Neon for `water_distance`/`mx2001` with `raw.payload.source = "heltec_dm"`.
-5. To revert to V6 behavior, install the dated V6 OTA image; to revert to auto-only Heltec, install the dated V5 OTA image the same way. This changes gateway firmware only and does not touch CC01.
+5. To return to auto-only Heltec, install the dated V5 OTA image the same way. This changes gateway firmware only and does not touch CC01.
 
 **Cloud verification:** Observe at least one complete CC01 DM reply stored in Neon, and separately verify that standard Pack Creek and CC01 auto `PRIVATE_APP` packets still pass. Compilation/tests do not prove field RF delivery or live HTTPS acceptance.
 
 ## Build and QA
 
-The dedicated [V7 dated firmware workflow](.github/workflows/build_cca_heltec_gateway.yml) compiles only **`heltec-v4`** using the GitHub Actions `HOBO_HTTP_GATEWAY_INGEST_KEY` secret, runs V5 protocol compatibility tests and V6/V7 native DM-parser and channel-routing tests, then publishes an actual date-named BIN, ZIP, `BUILD.txt`, SHA-256 checksums and exact source commit. Publishing is blocked if the branch has advanced since the build.
+The dedicated [V6 dated firmware workflow](.github/workflows/build_cca_heltec_gateway.yml) compiles only **`heltec-v4`** using the GitHub Actions `HOBO_HTTP_GATEWAY_INGEST_KEY` secret, runs V5 protocol compatibility tests and V6 native DM-parser and channel-routing tests, then publishes an actual date-named BIN, ZIP, `BUILD.txt`, SHA-256 checksums and exact source commit. Publishing is blocked if the branch has advanced since the build.
 
-See [Gateway V7 operations and non-regression checklist](docs/CCA_HELTEC_SENSOR_GATEWAY.md). V5 and V6 remain intact for rollback.
+See [Gateway V6 operations and non-regression checklist](docs/CCA_HELTEC_SENSOR_GATEWAY.md). V5 remains available for auto-only rollback.
