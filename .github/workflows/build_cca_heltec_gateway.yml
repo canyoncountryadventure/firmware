@@ -1,4 +1,4 @@
-name: Build Heltec Gateway V5 (dated release)
+name: Build Heltec Gateway V6 (dated release)
 on:
   workflow_dispatch:
   push:
@@ -10,12 +10,12 @@ on:
       - 'platformio.ini'
       - 'README.md'
       - 'docs/CCA_HELTEC_SENSOR_GATEWAY.md'
-      - 'test/test_heltec_v5/**
-      - 'test/test_heltec_v6/**''
+      - 'test/test_heltec_v5/**'
+      - 'test/test_heltec_v6/**'
       - '.github/workflows/build_cca_heltec_gateway.yml'
       - '.github/workflows/build_firmware.yml'
 concurrency:
-  group: heltec-gateway-v5
+  group: heltec-gateway-v6
   cancel-in-progress: true
 permissions: read-all
 jobs:
