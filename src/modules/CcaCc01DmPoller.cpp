@@ -3,6 +3,8 @@
 
 #if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
 
+#include "MeshService.h"
+#include "Router.h"
 #include "NodeDB.h"
 #include "main.h"
 #include <cmath>
@@ -15,13 +17,13 @@ constexpr uint32_t CC01_POLL_NODE = 1695962694UL; // !65165646
 
 bool HoboHttpGatewayModule::sendCc01Dm(const char *command)
 {
-    if (command == nullptr || nodeDB == nullptr || service == nullptr)
+    if (command == nullptr || nodeDB == nullptr || router == nullptr || service == nullptr)
         return false;
     const size_t len = strlen(command);
     if (len == 0 || len > 240)
         return false;
 
-    meshtastic_MeshPacket *packet = allocDataPacket();
+    meshtastic_MeshPacket *packet = router->allocForSending();
     if (!packet)
         return false;
     memcpy(packet->decoded.payload.bytes, command, len);
