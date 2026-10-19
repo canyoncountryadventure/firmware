@@ -1,4 +1,4 @@
-# CCA Heltec Sensor Gateway V6 — Operational Specification
+# CCA Heltec Sensor Gateway V7 — Operational Specification
 
 ## Purpose
 
@@ -6,7 +6,7 @@ The Heltec WiFi LoRa 32 **hardware V4 OLED running gateway firmware V6** is the 
 
 ## Canonical branch and target
 
-- Current firmware branch: `Heltec-Gateway-v6` (V5/V4 retained unchanged for rollback)
+- Current firmware branch: `Heltec-Gateway-v7` (V6/V5/V4 retained unchanged for rollback)
 - Board: Heltec WiFi LoRa 32 V4 OLED
 - PlatformIO environment: `heltec-v4`
 - Architecture: `esp32s3`
@@ -73,13 +73,13 @@ Current behavior:
 9. Each successful automatic reading is sent over Meshtastic and also enters the existing Heltec HTTP/Neon upload path.
 10. BLE activity must not disable ordinary Meshtastic receive/relay/gateway behavior.
 
-## V6 CC01 automatic DM fallback (only runtime change)
+## V7 CC01 DM fallback and PKI reply repair
 
-The existing V5 Heltec Gateway remains the base for V6: no change to the mesh, cloud HTTP, watchdog, BLE/HOBO local reader, node allowlist, all original private packet decoders, stage calibration or RAK field firmware. Additive fallback specifically targets CC01 `!65165646` via Heltec LongFast local channel index 1.
+The existing V5 Heltec Gateway remains the base for V6: no change to the mesh, cloud HTTP, watchdog, BLE/HOBO local reader, node allowlist, all original private packet decoders, stage calibration or RAK field firmware. V6's additive fallback targets CC01 `!65165646` via Heltec LongFast local channel index 1.
 
 - At about 2 minutes after boot, then every 30 minutes: send `WATER READ` by reliable LoRa DM. Wait for a complete calibrated `WATER READ` reply, or timeout after 120 seconds.
 - After the water reply (or timeout), wait at least 3 seconds and send `READ` by reliable LoRa DM. Wait for a complete `MX2001` logger reply, or timeout after 120 seconds.
-- Only parse CC01 `TEXT_MESSAGE_APP` DMs addressed to Heltec, on LongFast channel 1, while expecting the corresponding reply. Ignore unsolicited DMs and incomplete/invalid sensor responses.
+- Only parse CC01 `TEXT_MESSAGE_APP` DMs addressed to Heltec, while expecting the corresponding reply. **V7 accepts authenticated PKI replies on Meshtastic's decoded channel index 0, plus non-PKI replies on LongFast channel index 1.** V6 rejected PKI replies by checking only index 1. Ignore unsolicited DMs and incomplete/invalid sensor responses.
 - Convert successful `WATER READ` into existing `water_distance` job with precise raw mm, stage mm/ft, `distance_valid`, `stage_calibrated`, `sensor_type` MB7388, plus `payload.source = "heltec_dm"`. Do not invent missing stages or sequence numbers.
 - Convert successful `MX2001` reply into existing `mx2001` job with stage, F/C, logger MAC and BLE RSSI, plus `payload.source = "heltec_dm"`. READ text reports hundredths of a foot and tenths F; do not invent original raw temperature or sequence.
 - Use current V5 upload queue and credential, `Heltec -> Vercel /api/ingest -> Neon moab_watersheds.creek_observations`. Retain the DM reply's LoRa packet ID, sending station identity and radio metadata. Failed HTTP uploads use existing bounded retries.
@@ -112,9 +112,9 @@ Do not create one firmware branch per sensor or per deployment location.
 
 Use:
 
-`Actions -> Build Heltec Gateway V6 (dated release) -> Run workflow`
+`Actions -> Build Heltec Gateway V7 (dated release) -> Run workflow`
 
-The dedicated V6 workflow builds only `heltec-v4` on `esp32s3`, uses the repository secret `HOBO_HTTP_GATEWAY_INGEST_KEY`, and after successful compilation commits date-named BIN/ZIP plus SHA-256 hashes to `downloads/Heltec-Gateway-v5`. These files are linked in the branch README. Firmware V6 is not a Heltec hardware revision. The matching RAK V6 field node must use RAK UF2, never this ESP32-S3 BIN.
+The dedicated V7 workflow builds only `heltec-v4` on `esp32s3`, uses the repository secret `HOBO_HTTP_GATEWAY_INGEST_KEY`, and after successful compilation commits date-named BIN/ZIP plus SHA-256 hashes to `downloads/Heltec-Gateway-v7`. These files are linked in the branch README. Firmware V7 is not a Heltec hardware revision. The matching RAK V6 field node must use RAK UF2, never this ESP32-S3 BIN.
 
 ## Wi-Fi OTA path
 
@@ -140,11 +140,13 @@ Every future Heltec build should be checked against this list:
 - Direct HOBO scan/lock/read/automatic telemetry works.
 - `READ`, `LOGGER`, `LOCK`, and `UNLOCK` remain functional.
 
-## Heltec V6 compatibility acceptance
+## Heltec V7 compatibility acceptance
 
+- Verify a valid PKI-encrypted CC01 reply on decoded channel 0 is accepted by the gateway, and non-PKI traffic on channel 0 or unrelated nodes is rejected.
+- Verify the serial log differentiates a send attempt from a confirmed response and reports malformed DM reply format.
 - Verify legacy 19-byte MX2001 `MX` V1 stage and temperature are divided by 10, not 100.
 - Verify 21-byte `MX` V2 uses stage signed int32 LE /100, temperature signed int16 LE /100, raw thermometer int16, six MAC bytes and RSSI at byte 20. Reject mismatched version/length.
 - Verify cloud body forwards stage, F and C with three decimal places available and the API/database do not round the incoming stage back to tenths.
 - Verify the gateway still forwards environmental, device battery percentage/voltage, water distance, rock moisture/PIR and soil packets.
 - Verify retained watchdog (`DIAG`, `WATCHDOG`, 12-hour maintenance, 90-second watchdog), OTA, local HOBO logger lock/scan/reading and mesh/HTTPS coexistence.
-- Inspect dated firmware links, source commit and SHA-256 in [the Heltec V6 README](../README.md). CI compilation alone does not validate physical BLE, radio or cloud ingestion.
+- Inspect dated firmware links, source commit and SHA-256 in [the Heltec V7 README](../README.md). CI compilation alone does not validate physical BLE, radio or cloud ingestion.
