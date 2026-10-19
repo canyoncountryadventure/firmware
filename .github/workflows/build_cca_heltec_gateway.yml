@@ -8,8 +8,6 @@ on:
       - 'variants/**'
       - 'arch/**'
       - 'platformio.ini'
-      - 'README.md'
-      - 'docs/CCA_HELTEC_SENSOR_GATEWAY.md'
       - 'test/test_heltec_v5/**'
       - 'test/test_heltec_v6/**'
       - '.github/workflows/build_cca_heltec_gateway.yml'
