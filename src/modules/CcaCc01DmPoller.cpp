@@ -7,6 +7,7 @@
 #include "Router.h"
 #include "NodeDB.h"
 #include "main.h"
+#include "mesh/Throttle.h"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -48,7 +49,9 @@ bool HoboHttpGatewayModule::sendCc01Dm(const char *command)
 void HoboHttpGatewayModule::pollCc01()
 {
     const uint32_t now = millis();
-    if (cc01PollState == Cc01PollState::IDLE) {
+    if (cc01PollState == Cc01PollState::IDLE ||
+        (cc01PollState == Cc01PollState::WAIT_HOBO &&
+         !Throttle::isWithinTimespanMs(cc01LastPollMs, CC01_POLL_INTERVAL_MS))) {
         const bool due = cc01LastPollMs == 0 ? now >= 120000UL :
                          static_cast<uint32_t>(now - cc01LastPollMs) >= CC01_POLL_INTERVAL_MS;
         if (!due)
@@ -73,13 +76,16 @@ void HoboHttpGatewayModule::pollCc01()
             cc01RequestMs = now;
         } else {
             LOG_WARN("CCA CC01 DM poll: READ could not be queued");
-            cc01PollState = Cc01PollState::IDLE;
+            cc01PollState = Cc01PollState::WAIT_HOBO;
+            cc01RequestMs = now;
         }
     }
     if (cc01PollState == Cc01PollState::WAIT_HOBO &&
         static_cast<uint32_t>(now - cc01RequestMs) >= CC01_REPLY_TIMEOUT_MS) {
-        LOG_WARN("CCA CC01 DM poll: READ reply timeout");
-        cc01PollState = Cc01PollState::IDLE;
+        ++cc01HoboRetries;
+        cc01RequestMs = now;
+        LOG_WARN("CCA CC01 DM poll: READ reply timeout, retry %lu", static_cast<unsigned long>(cc01HoboRetries));
+        sendCc01Dm("READ");
     }
 }
 
@@ -140,6 +146,8 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
         snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
         if (uploadQueue.enqueue(job, 0)) {
             ++cc01Queued;
+            if (cc01PollState == Cc01PollState::WAIT_HOBO || cc01PollState == Cc01PollState::SEND_HOBO)
+                cc01PollState = Cc01PollState::IDLE;
             LOG_INFO("CCA CC01 DM poll: queued READ stage %.2f ft temp %.1f F",
                      reading.levelFeet, reading.temperatureF);
             setIntervalFromNow(0);
@@ -147,8 +155,6 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
             ++cc01QueueFull;
             LOG_WARN("CCA CC01 DM poll: upload queue full for READ");
         }
-        if (cc01PollState == Cc01PollState::WAIT_HOBO)
-            cc01PollState = Cc01PollState::IDLE;
     } else {
         ++cc01Rejected;
         LOG_WARN("CCA CC01 DM poll: sensor reply format not accepted (%u bytes), state=%u",

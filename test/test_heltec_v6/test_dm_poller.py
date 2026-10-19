@@ -13,6 +13,7 @@ body = body.replace('HoboHttpGatewayModule();', 'HoboHttpGatewayModule() : uploa
 body = body.replace(' override', '')
 source = (root / 'src/modules/CcaCc01DmPoller.cpp').read_text()
 source = re.sub(r'^#include "(?:HoboHttpGatewayModule.h|MeshService.h|Router.h|NodeDB.h|main.h)"\n', '', source, flags=re.M)
+source = source.replace('#include "mesh/Throttle.h"', '#include "src/mesh/Throttle.h"')
 source = source.replace('#include "CcaCc01DmParser.h"', '#include "src/modules/CcaCc01DmParser.h"')
 fixture = r'''
 #include <cstdint>
@@ -32,6 +33,8 @@ void logLine(const char *, ...) {}
 #define LOG_WARN(...) logLine(__VA_ARGS__)
 uint32_t clockMs = 0;
 uint32_t millis() { return clockMs; }
+#include "src/mesh/Throttle.h"
+bool Throttle::isWithinTimespanMs(uint32_t last, uint32_t interval) { return uint32_t(clockMs-last) < interval; }
 template <class T> struct TypedQueue {
     std::vector<T> jobs;
     bool full = false;
@@ -84,7 +87,7 @@ int main() {
         assert(r.type == G::JobType::MX2001 && r.dmPollResult && r.bleRssi == -76);
         assert(fabs(r.waterLevelFt - 0.54f) < 0.001f && fabs(r.temperatureF - 49.4f) < 0.001f);
         assert(!strcmp(r.loggerMac, "E3:1A:98:DC:FB:C2"));
-        assert(h.cc01PollState == (state == G::Cc01PollState::WAIT_HOBO ? G::Cc01PollState::IDLE : state));
+        assert(h.cc01PollState == ((state == G::Cc01PollState::WAIT_HOBO || state == G::Cc01PollState::SEND_HOBO) ? G::Cc01PollState::IDLE : state));
     }
     G invalid; invalid.cc01PollState = G::Cc01PollState::WAIT_WATER;
     invalid.handleCc01Reply(reply("HOBO unavailable"));
@@ -99,8 +102,25 @@ int main() {
     clockMs += 120000; poll.pollCc01(); assert(poll.cc01PollState == G::Cc01PollState::SEND_HOBO);
     clockMs += 3000; poll.pollCc01(); assert(poll.cc01Requests == 2);
     assert(poll.cc01PollState == G::Cc01PollState::WAIT_HOBO);
-    clockMs += 120000; poll.pollCc01(); assert(poll.cc01PollState == G::Cc01PollState::IDLE);
-    poll.handleCc01Reply(hobo); assert(poll.cc01Queued == 1); // late reply after timeout
+    for (unsigned i = 1; i <= 5; ++i) {
+        clockMs += 119999; poll.pollCc01(); assert(poll.cc01HoboRetries == i-1);
+        clockMs += 1; poll.pollCc01();
+        assert(poll.cc01PollState == G::Cc01PollState::WAIT_HOBO);
+        assert(poll.cc01HoboRetries == i && poll.cc01Requests == 2+i);
+    }
+    poll.handleCc01Reply(reply("HOBO unavailable"));
+    assert(poll.cc01PollState == G::Cc01PollState::WAIT_HOBO);
+    poll.uploadQueue.full = true; poll.handleCc01Reply(hobo);
+    assert(poll.cc01PollState == G::Cc01PollState::WAIT_HOBO);
+    poll.uploadQueue.full = false; poll.handleCc01Reply(hobo);
+    assert(poll.cc01Queued == 1 && poll.cc01PollState == G::Cc01PollState::IDLE);
+    const auto sent = poll.cc01Requests;
+    clockMs += 120000; poll.pollCc01(); assert(poll.cc01Requests == sent);
+    G overdue; overdue.cc01LastPollMs = 120000;
+    overdue.cc01PollState = G::Cc01PollState::WAIT_HOBO;
+    clockMs = 120000 + G::CC01_POLL_INTERVAL_MS;
+    overdue.pollCc01();
+    assert(overdue.cc01PollState == G::Cc01PollState::WAIT_WATER && overdue.cc01Requests == 1);
     return 0;
 }
 '''

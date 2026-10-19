@@ -143,6 +143,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     static constexpr uint32_t CC01_REPLY_TIMEOUT_MS = 120UL * 1000UL;
     static constexpr uint8_t CC01_LONGFAST_CHANNEL = 1;
 
+    uint32_t cc01HoboRetries = 0;
     uint32_t cc01Requests = 0;
     uint32_t cc01Replies = 0;
     uint32_t cc01Parsed = 0;

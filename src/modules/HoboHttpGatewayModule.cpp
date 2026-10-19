@@ -664,7 +664,7 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
 String HoboHttpGatewayModule::statusJson()
 {
     const char *states[] = {"idle", "waiting_water", "spacing_before_read", "waiting_hobo"};
-    String body = "{\"firmware_fix\":\"v6-cc01-float-scan-2026-10-19\"";
+    String body = "{\"firmware_fix\":\"v6-cc01-read-retry-2026-10-19\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -686,6 +686,7 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"last_http_status\":" + String(lastHttpStatus);
     body += ",\"cc01\":{\"poll_state\":" + jsonQuoted(states[static_cast<unsigned>(cc01PollState)]);
     body += ",\"requests\":" + String(cc01Requests);
+    body += ",\"hobo_retries\":" + String(cc01HoboRetries);
     body += ",\"replies\":" + String(cc01Replies);
     body += ",\"parsed\":" + String(cc01Parsed);
     body += ",\"queued\":" + String(cc01Queued);
