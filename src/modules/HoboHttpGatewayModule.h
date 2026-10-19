@@ -135,14 +135,26 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint32_t localPacketCounter = 0;
 
     // CC01 fallback poller is independent of all existing automatic receive paths.
-    enum class Cc01PollState : uint8_t { IDLE, WAIT_WATER, SEND_HOBO, WAIT_HOBO };
-    Cc01PollState cc01PollState = Cc01PollState::IDLE;
+    // WATER READ and READ have separate pending flags and 120-second timers.
+    // Never let success or failure of one command cancel the other.
+    bool cc01PollStarted = false;
+    bool cc01WaterPending = false;
+    bool cc01HoboPending = false;
+    bool cc01WaterSent = false;
+    bool cc01HoboSent = false;
+    bool cc01ReadReady = false;
+    bool cc01HasDmSent = false;
     uint32_t cc01LastPollMs = 0;
-    uint32_t cc01RequestMs = 0;
+    uint32_t cc01WaterRequestMs = 0;
+    uint32_t cc01HoboRequestMs = 0;
+    uint32_t cc01ReadReadyMs = 0;
+    uint32_t cc01LastDmSendMs = 0;
     static constexpr uint32_t CC01_POLL_INTERVAL_MS = 30UL * 60UL * 1000UL;
     static constexpr uint32_t CC01_REPLY_TIMEOUT_MS = 120UL * 1000UL;
+    static constexpr uint32_t CC01_DM_SPACING_MS = 3000UL;
     static constexpr uint8_t CC01_LONGFAST_CHANNEL = 1;
 
+    uint32_t cc01WaterRetries = 0;
     uint32_t cc01HoboRetries = 0;
     uint32_t cc01Requests = 0;
     uint32_t cc01Replies = 0;

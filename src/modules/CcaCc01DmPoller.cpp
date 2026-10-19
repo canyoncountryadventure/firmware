@@ -49,43 +49,77 @@ bool HoboHttpGatewayModule::sendCc01Dm(const char *command)
 void HoboHttpGatewayModule::pollCc01()
 {
     const uint32_t now = millis();
-    if (cc01PollState == Cc01PollState::IDLE ||
-        (cc01PollState == Cc01PollState::WAIT_HOBO &&
-         !Throttle::isWithinTimespanMs(cc01LastPollMs, CC01_POLL_INTERVAL_MS))) {
-        const bool due = cc01LastPollMs == 0 ? now >= 120000UL :
-                         static_cast<uint32_t>(now - cc01LastPollMs) >= CC01_POLL_INTERVAL_MS;
-        if (!due)
-            return;
+    // The 30-minute cycle re-arms only readings already received. A reading
+    // that is still missing retains its own timer and keeps retrying.
+    const bool due = !cc01PollStarted ? now >= 120000UL :
+                     static_cast<uint32_t>(now - cc01LastPollMs) >= CC01_POLL_INTERVAL_MS;
+    if (due) {
+        cc01PollStarted = true;
         cc01LastPollMs = now;
+        if (!cc01WaterPending) {
+            cc01WaterPending = true;
+            cc01WaterSent = false;
+        }
+        if (!cc01HoboPending) {
+            cc01HoboPending = true;
+            cc01HoboSent = false;
+            cc01ReadReady = false;
+        }
+        LOG_INFO("CCA CC01 DM poll: cycle due; WATER pending=%u READ pending=%u",
+                 cc01WaterPending, cc01HoboPending);
+    }
+    if (!cc01PollStarted)
+        return;
+
+    // Preserve the original initial sequence: WATER READ first, then READ
+    // after a valid water result or the first 120-second water timeout.
+    // Subsequent retries are independent, regardless of either result.
+    if (cc01HoboPending && !cc01HoboSent && !cc01ReadReady &&
+        cc01WaterSent &&
+        static_cast<uint32_t>(now - cc01WaterRequestMs) >= CC01_REPLY_TIMEOUT_MS) {
+        cc01ReadReady = true;
+        cc01ReadReadyMs = now;
+        LOG_WARN("CCA CC01 DM poll: WATER READ timeout; retrying WATER while starting READ");
+    }
+
+    // At least 3 seconds between ALL outbound CC01 requests, including
+    // simultaneous retry deadlines, to avoid needless radio collisions.
+    if (cc01HasDmSent && static_cast<uint32_t>(now - cc01LastDmSendMs) < CC01_DM_SPACING_MS)
+        return;
+
+    const bool waterDue = cc01WaterPending &&
+                          (!cc01WaterSent ||
+                           static_cast<uint32_t>(now - cc01WaterRequestMs) >= CC01_REPLY_TIMEOUT_MS);
+    if (waterDue) {
         if (sendCc01Dm("WATER READ")) {
-            cc01PollState = Cc01PollState::WAIT_WATER;
-            cc01RequestMs = now;
+            if (cc01WaterSent) {
+                ++cc01WaterRetries;
+                LOG_WARN("CCA CC01 DM poll: WATER READ retry %lu",
+                         static_cast<unsigned long>(cc01WaterRetries));
+            }
+            cc01WaterSent = true;
+            cc01WaterRequestMs = now;
+            cc01LastDmSendMs = now;
+            cc01HasDmSent = true;
         }
         return;
     }
-    if (cc01PollState == Cc01PollState::WAIT_WATER &&
-        static_cast<uint32_t>(now - cc01RequestMs) >= CC01_REPLY_TIMEOUT_MS) {
-        LOG_WARN("CCA CC01 DM poll: WATER READ reply timeout, continuing to READ");
-        cc01PollState = Cc01PollState::SEND_HOBO;
-        cc01RequestMs = now;
-    }
-    if (cc01PollState == Cc01PollState::SEND_HOBO &&
-        static_cast<uint32_t>(now - cc01RequestMs) >= 3000UL) {
-        if (sendCc01Dm("READ")) {
-            cc01PollState = Cc01PollState::WAIT_HOBO;
-            cc01RequestMs = now;
-        } else {
-            LOG_WARN("CCA CC01 DM poll: READ could not be queued");
-            cc01PollState = Cc01PollState::WAIT_HOBO;
-            cc01RequestMs = now;
+
+    const bool hoboDue = cc01HoboPending &&
+                         (cc01HoboSent ?
+                          static_cast<uint32_t>(now - cc01HoboRequestMs) >= CC01_REPLY_TIMEOUT_MS :
+                          cc01ReadReady &&
+                          static_cast<uint32_t>(now - cc01ReadReadyMs) >= CC01_DM_SPACING_MS);
+    if (hoboDue && sendCc01Dm("READ")) {
+        if (cc01HoboSent) {
+            ++cc01HoboRetries;
+            LOG_WARN("CCA CC01 DM poll: READ retry %lu",
+                     static_cast<unsigned long>(cc01HoboRetries));
         }
-    }
-    if (cc01PollState == Cc01PollState::WAIT_HOBO &&
-        static_cast<uint32_t>(now - cc01RequestMs) >= CC01_REPLY_TIMEOUT_MS) {
-        ++cc01HoboRetries;
-        cc01RequestMs = now;
-        LOG_WARN("CCA CC01 DM poll: READ reply timeout, retry %lu", static_cast<unsigned long>(cc01HoboRetries));
-        sendCc01Dm("READ");
+        cc01HoboSent = true;
+        cc01HoboRequestMs = now;
+        cc01LastDmSendMs = now;
+        cc01HasDmSent = true;
     }
 }
 
@@ -120,16 +154,19 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
         job.stageMm = static_cast<int32_t>(lroundf(reading.stageFeet * 304.8f));
         if (uploadQueue.enqueue(job, 0)) {
             ++cc01Queued;
+            if (cc01WaterPending) {
+                cc01WaterPending = false;
+                if (cc01HoboPending && !cc01HoboSent) {
+                    cc01ReadReady = true;
+                    cc01ReadReadyMs = millis();
+                }
+            }
             LOG_INFO("CCA CC01 DM poll: queued WATER READ stage %.3f ft raw %lu mm",
                      reading.stageFeet, static_cast<unsigned long>(reading.distanceMm));
             setIntervalFromNow(0);
         } else {
             ++cc01QueueFull;
             LOG_WARN("CCA CC01 DM poll: upload queue full for WATER READ");
-        }
-        if (cc01PollState == Cc01PollState::WAIT_WATER) {
-            cc01PollState = Cc01PollState::SEND_HOBO;
-            cc01RequestMs = millis();
         }
     } else if (cca_cc01_dm::parseHoboRead(reply, hobo)) {
         const auto &reading = hobo;
@@ -146,8 +183,9 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
         snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
         if (uploadQueue.enqueue(job, 0)) {
             ++cc01Queued;
-            if (cc01PollState == Cc01PollState::WAIT_HOBO || cc01PollState == Cc01PollState::SEND_HOBO)
-                cc01PollState = Cc01PollState::IDLE;
+            // A valid MX2001 reply ends only READ retries. The ultrasonic
+            // poll continues until its own valid result is queued.
+            cc01HoboPending = false;
             LOG_INFO("CCA CC01 DM poll: queued READ stage %.2f ft temp %.1f F",
                      reading.levelFeet, reading.temperatureF);
             setIntervalFromNow(0);
@@ -158,7 +196,8 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
     } else {
         ++cc01Rejected;
         LOG_WARN("CCA CC01 DM poll: sensor reply format not accepted (%u bytes), state=%u",
-                 static_cast<unsigned>(n), static_cast<unsigned>(cc01PollState));
+                 static_cast<unsigned>(n), static_cast<unsigned>(cc01WaterPending) +
+                 (static_cast<unsigned>(cc01HoboPending) << 1));
     }
 }
 

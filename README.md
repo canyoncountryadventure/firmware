@@ -1,8 +1,8 @@
 # CCA Heltec Sensor Gateway V6
 
-## Missing MX2001 replies: repeat READ until accepted
+## October 19, 2026: Independent WATER READ and READ retries
 
-Heltec retries `READ` every two minutes after a missing or invalid MX2001 reply, with no retry-count limit. A complete valid reply stops retries only after it enters the upload queue. A full upload queue leaves retries active. The regular 30-minute cycle still requests water and then HOBO; automatic telemetry remains enabled. `/json/gateway` exposes the cumulative `cc01.hobo_retries` counter. Its marker is `v6-cc01-read-retry-2026-10-19`.
+Both commands now have **independent pending flags and 120-second retry timers**, with no retry-count limit. After initial `WATER READ`, `READ` begins when a complete water response arrives or the initial water request times out; missed water responses **keep retrying even after READ starts**. READ also keeps retrying until a complete MX2001 response is queued. Neither command can cancel the other. Invalid/unavailable replies and full upload queues never count as success. Outbound CC01 DMs are spaced at least three seconds apart. The 30-minute cycle re-arms successful types without resetting in-flight retries; automatic telemetry remains enabled. `/json/gateway` exposes `cc01.water_pending`, `cc01.hobo_pending`, `cc01.water_retries`, and `cc01.hobo_retries`; the firmware marker is `v6-cc01-dual-retry-2026-10-19`. **This source change requires a new CI-built and flashed binary; existing downloads below may still describe the previous image until CI publishes.**
 
 ## October 19, 2026: ESP32 floating-point parser repair
 
@@ -55,7 +55,7 @@ python -m meshtastic --host 192.168.1.147 --ota-update $firmwarePath
 if ($LASTEXITCODE -ne 0) { throw "Wi-Fi updater failed; inspect its output" }
 ```
 
-After Heltec reconnects, verify `firmware_fix` is `v6-cc01-read-retry-2026-10-19` and both `parser_self_test` values are `true`. Then inspect `http://192.168.1.147/json/gateway`. Use the actual current IP if it changed. A manual `READ` sent from Heltec to `!65165646` can now be ingested immediately. Verify `cc01.uploaded` increases and the new reading is present in Neon with `source: "heltec_dm"`. Scheduled first-poll delay and 30-minute interval are unchanged.
+After Heltec reconnects, verify `firmware_fix` is `v6-cc01-dual-retry-2026-10-19` and both `parser_self_test` values are `true`. Then inspect `http://192.168.1.147/json/gateway`. Use the actual current IP if it changed. A manual `READ` sent from Heltec to `!65165646` can now be ingested immediately. Verify `cc01.uploaded` increases and the new reading is present in Neon with `source: "heltec_dm"`. Scheduled first-poll delay and 30-minute interval are unchanged.
 
 ## Encrypted-DM receive repair included in V6
 
@@ -72,7 +72,7 @@ Every **30 minutes**, Heltec sends two separate Meshtastic direct messages to **
 1. **`WATER READ`**: requests a fresh MB7388 ultrasonic reading. Only a complete, calibrated `WATER READ` reply is converted to a normal `water_distance` observation with raw distance (mm) and stage (ft/mm).
 2. **`READ`**: requests a fresh HOBO MX2001 BLE read on CC01. A complete `MX2001` reply becomes an `mx2001` observation with logger MAC, water level, temperature F/C and BLE RSSI. Text has two-decimal-foot and one-decimal-F precision because that is what the **RAK V6 READ DM currently returns**. No extra precision is fabricated.
 
-The first cycle starts around **2 minutes after Heltec boots**; following cycles start every 30 minutes. Heltec waits up to **2 minutes** for the WATER reply, then sends READ after a short spacing delay and waits up to 2 minutes for that reply. A missing WATER reply advances to READ after two minutes. A missing or invalid READ reply triggers another READ every two minutes until a valid MX2001 reading enters the upload queue; there is no retry-count limit. The next 30-minute cycle still polls water before resuming HOBO requests. Unrelated text DMs cannot produce readings. No request is considered delivered merely because Meshtastic queued it.
+The first cycle starts around **2 minutes after Heltec boots**; following cycles start every 30 minutes. Heltec waits up to **2 minutes** for the WATER reply, then sends READ after a short spacing delay and waits up to 2 minutes for that reply. A missing WATER reply advances to READ after two minutes. Missing or invalid WATER READ and READ replies independently trigger another request approximately every two minutes until each reading enters the upload queue. A full queue never stops either retry. Both remain active concurrently after the initial water timeout, and transmissions are spaced at least three seconds apart. The next 30-minute cycle still polls water before resuming HOBO requests. Unrelated text DMs cannot produce readings. No request is considered delivered merely because Meshtastic queued it.
 
 Both successful parsed replies use the **existing V5 HTTPS upload queue**: **Heltec → Vercel `/api/ingest` → Neon `moab_watersheds.creek_observations` → watershed dashboard**. Uploads have CC01's node ID and the original Meshtastic DM reply packet ID. The payload marks the provenance as `source: "heltec_dm"`; unavailable logger raw values and sequence numbers are omitted rather than invented. Auto packets retain their original fields. If both routes report the same physical reading, **both are stored** as requested.
 

@@ -663,8 +663,12 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
 
 String HoboHttpGatewayModule::statusJson()
 {
-    const char *states[] = {"idle", "waiting_water", "spacing_before_read", "waiting_hobo"};
-    String body = "{\"firmware_fix\":\"v6-cc01-read-retry-2026-10-19\"";
+    const char *state =
+        cc01WaterPending && cc01HoboPending ?
+        (cc01HoboSent ? "waiting_both" : (cc01ReadReady ? "spacing_before_read" : "waiting_water")) :
+        cc01WaterPending ? "waiting_water" :
+        cc01HoboPending ? (cc01HoboSent ? "waiting_hobo" : "spacing_before_read") : "idle";
+    String body = "{\"firmware_fix\":\"v6-cc01-dual-retry-2026-10-19\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -684,8 +688,11 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"queue_used\":" + String(uploadQueue.numUsed());
     body += ",\"uploaded_total\":" + String(uploadedJobs);
     body += ",\"last_http_status\":" + String(lastHttpStatus);
-    body += ",\"cc01\":{\"poll_state\":" + jsonQuoted(states[static_cast<unsigned>(cc01PollState)]);
+    body += ",\"cc01\":{\"poll_state\":" + jsonQuoted(state);
     body += ",\"requests\":" + String(cc01Requests);
+    body += ",\"water_pending\":" + String(cc01WaterPending ? "true" : "false");
+    body += ",\"hobo_pending\":" + String(cc01HoboPending ? "true" : "false");
+    body += ",\"water_retries\":" + String(cc01WaterRetries);
     body += ",\"hobo_retries\":" + String(cc01HoboRetries);
     body += ",\"replies\":" + String(cc01Replies);
     body += ",\"parsed\":" + String(cc01Parsed);

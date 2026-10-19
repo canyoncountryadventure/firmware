@@ -72,58 +72,95 @@ int main() {
     using G = HoboHttpGatewayModule;
     const auto water = reply("WATER READ\nRaw: 8.865 ft (2702mm)\nStage: 0.577 ft (17.6 cm)\nSamples:10 Spread:1mm");
     const auto hobo = reply("MX2001\nLogger: E3:1A:98:DC:FB:C2\nBLE: -76 dBm\nLevel: 0.54 ft\nTemp: 49.4 F");
-    for (auto state : {G::Cc01PollState::IDLE, G::Cc01PollState::WAIT_WATER,
-                       G::Cc01PollState::SEND_HOBO, G::Cc01PollState::WAIT_HOBO}) {
-        G g; g.cc01PollState = state;
-        g.handleCc01Reply(water);
-        assert(g.uploadQueue.jobs.size() == 1 && g.cc01Parsed == 1 && g.cc01Queued == 1);
-        const auto &w = g.uploadQueue.jobs[0];
-        assert(w.type == G::JobType::WATER_DISTANCE && w.distanceMm == 2702 && w.dmPollResult);
-        assert(w.from == 1695962694UL && w.packetId == water.id && w.stageMm == 176);
-        assert(g.cc01PollState == (state == G::Cc01PollState::WAIT_WATER ? G::Cc01PollState::SEND_HOBO : state));
-        G h; h.cc01PollState = state; h.handleCc01Reply(hobo);
-        assert(h.uploadQueue.jobs.size() == 1 && h.cc01Queued == 1);
-        const auto &r = h.uploadQueue.jobs[0];
-        assert(r.type == G::JobType::MX2001 && r.dmPollResult && r.bleRssi == -76);
-        assert(fabs(r.waterLevelFt - 0.54f) < 0.001f && fabs(r.temperatureF - 49.4f) < 0.001f);
-        assert(!strcmp(r.loggerMac, "E3:1A:98:DC:FB:C2"));
-        assert(h.cc01PollState == ((state == G::Cc01PollState::WAIT_HOBO || state == G::Cc01PollState::SEND_HOBO) ? G::Cc01PollState::IDLE : state));
-    }
-    G invalid; invalid.cc01PollState = G::Cc01PollState::WAIT_WATER;
-    invalid.handleCc01Reply(reply("HOBO unavailable"));
-    invalid.handleCc01Reply(reply("WATER READ\nRaw: 8.865 ft (2702mm)\nStage: NOT CALIBRATED\nSamples:10"));
-    assert(invalid.uploadQueue.jobs.empty() && invalid.cc01Rejected == 2);
-    assert(invalid.cc01PollState == G::Cc01PollState::WAIT_WATER);
-    G full; full.uploadQueue.full = true; full.handleCc01Reply(hobo);
-    assert(full.cc01Parsed == 1 && full.cc01Queued == 0 && full.cc01QueueFull == 1);
-    G poll; clockMs = 119999; poll.pollCc01(); assert(poll.cc01Requests == 0);
-    clockMs = 120000; poll.pollCc01(); assert(poll.cc01Requests == 1);
-    assert(poll.cc01PollState == G::Cc01PollState::WAIT_WATER);
-    clockMs += 120000; poll.pollCc01(); assert(poll.cc01PollState == G::Cc01PollState::SEND_HOBO);
-    clockMs += 3000; poll.pollCc01(); assert(poll.cc01Requests == 2);
-    assert(poll.cc01PollState == G::Cc01PollState::WAIT_HOBO);
-    for (unsigned i = 1; i <= 5; ++i) {
-        clockMs += 119999; poll.pollCc01(); assert(poll.cc01HoboRetries == i-1);
-        clockMs += 1; poll.pollCc01();
-        assert(poll.cc01PollState == G::Cc01PollState::WAIT_HOBO);
-        assert(poll.cc01HoboRetries == i && poll.cc01Requests == 2+i);
-    }
-    poll.handleCc01Reply(reply("HOBO unavailable"));
-    assert(poll.cc01PollState == G::Cc01PollState::WAIT_HOBO);
-    poll.uploadQueue.full = true; poll.handleCc01Reply(hobo);
-    assert(poll.cc01PollState == G::Cc01PollState::WAIT_HOBO);
-    poll.uploadQueue.full = false; poll.handleCc01Reply(hobo);
-    assert(poll.cc01Queued == 1 && poll.cc01PollState == G::Cc01PollState::IDLE);
-    const auto sent = poll.cc01Requests;
-    clockMs += 120000; poll.pollCc01(); assert(poll.cc01Requests == sent);
-    G overdue; overdue.cc01LastPollMs = 120000;
-    overdue.cc01PollState = G::Cc01PollState::WAIT_HOBO;
+
+    // Parsed replies are useful at any time, even outside scheduled polling.
+    G manual; manual.handleCc01Reply(water); manual.handleCc01Reply(hobo);
+    assert(manual.uploadQueue.jobs.size() == 2 && manual.cc01Queued == 2);
+    assert(manual.uploadQueue.jobs[0].type == G::JobType::WATER_DISTANCE);
+    assert(manual.uploadQueue.jobs[0].distanceMm == 2702);
+    assert(manual.uploadQueue.jobs[0].stageMm == 176);
+    assert(manual.uploadQueue.jobs[1].type == G::JobType::MX2001);
+    assert(fabs(manual.uploadQueue.jobs[1].waterLevelFt - .54f) < .001f);
+    assert(fabs(manual.uploadQueue.jobs[1].temperatureF - 49.4f) < .001f);
+
+    // No send before two minutes. Initial WATER times out and retries,
+    // then the first READ runs after radio spacing, not after WATER success.
+    G g; clockMs = 119999; g.pollCc01(); assert(g.cc01Requests == 0);
+    clockMs = 120000; g.pollCc01();
+    assert(g.cc01Requests == 1 && g.cc01WaterPending && g.cc01HoboPending);
+    assert(g.cc01WaterSent && !g.cc01HoboSent);
+    clockMs = 239999; g.pollCc01(); assert(g.cc01Requests == 1);
+    clockMs = 240000; g.pollCc01();
+    assert(g.cc01Requests == 2 && g.cc01WaterRetries == 1);
+    clockMs = 242999; g.pollCc01(); assert(g.cc01Requests == 2);
+    clockMs = 243000; g.pollCc01();
+    assert(g.cc01Requests == 3 && g.cc01HoboSent);
+    clockMs = 360000; g.pollCc01();
+    assert(g.cc01Requests == 4 && g.cc01WaterRetries == 2);
+    clockMs = 362999; g.pollCc01(); assert(g.cc01HoboRetries == 0);
+    clockMs = 363000; g.pollCc01();
+    assert(g.cc01Requests == 5 && g.cc01HoboRetries == 1);
+
+    // Invalid format, including "unavailable", satisfies neither request.
+    g.handleCc01Reply(reply("HOBO unavailable"));
+    g.handleCc01Reply(reply("WATER READ\nRaw: 8.865 ft (2702mm)\nStage: NOT CALIBRATED\nSamples:10"));
+    assert(g.cc01Rejected == 2 && g.cc01WaterPending && g.cc01HoboPending);
+
+    // A valid HOBO stops only HOBO retries; WATER continues until valid.
+    g.handleCc01Reply(hobo);
+    assert(!g.cc01HoboPending && g.cc01WaterPending);
+    clockMs = 480000; g.pollCc01();
+    assert(g.cc01Requests == 6 && g.cc01WaterRetries == 3 && g.cc01HoboRetries == 1);
+    g.handleCc01Reply(water);
+    assert(!g.cc01WaterPending && !g.cc01HoboPending && g.cc01Queued == 2);
+    const auto n = g.cc01Requests;
+    clockMs = 600000; g.pollCc01(); assert(g.cc01Requests == n);
+
+    // Opposite success order: WATER stops, READ continues independently.
+    G opposite; clockMs = 120000; opposite.pollCc01();
+    clockMs = 120100; opposite.handleCc01Reply(water);
+    assert(!opposite.cc01WaterPending && opposite.cc01HoboPending);
+    clockMs = 123099; opposite.pollCc01(); assert(opposite.cc01Requests == 1);
+    clockMs = 123100; opposite.pollCc01();
+    assert(opposite.cc01Requests == 2 && opposite.cc01HoboSent);
+    clockMs = 243100; opposite.pollCc01();
+    assert(opposite.cc01Requests == 3 && opposite.cc01HoboRetries == 1);
+    assert(opposite.cc01WaterRetries == 0 && !opposite.cc01WaterPending);
+
+    // Full upload queue never counts as success for either sensor.
+    G full; clockMs = 120000; full.pollCc01();
+    full.uploadQueue.full = true;
+    full.handleCc01Reply(water); full.handleCc01Reply(hobo);
+    assert(full.cc01QueueFull == 2 && full.cc01WaterPending && full.cc01HoboPending);
+    full.uploadQueue.full = false;
+    full.handleCc01Reply(hobo);
+    assert(!full.cc01HoboPending && full.cc01WaterPending);
+    full.handleCc01Reply(water);
+    assert(!full.cc01WaterPending && full.cc01Queued == 2);
+
+    // The 30-minute cycle re-arms successful types, but does not reset
+    // outstanding retries or suppress the opposite type.
+    G newCycle; clockMs = 120000; newCycle.pollCc01();
+    clockMs = 120100; newCycle.handleCc01Reply(hobo);
+    clockMs = 120200; newCycle.handleCc01Reply(water);
+    assert(!newCycle.cc01HoboPending && !newCycle.cc01WaterPending);
     clockMs = 120000 + G::CC01_POLL_INTERVAL_MS;
-    overdue.pollCc01();
-    assert(overdue.cc01PollState == G::Cc01PollState::WAIT_WATER && overdue.cc01Requests == 1);
+    newCycle.pollCc01();
+    assert(newCycle.cc01WaterPending && newCycle.cc01HoboPending &&
+           newCycle.cc01Requests == 2 && !newCycle.cc01HoboSent);
+
+    G pendingCycle; clockMs = 120000; pendingCycle.pollCc01();
+    clockMs = 120100; pendingCycle.handleCc01Reply(hobo);
+    clockMs = 120000 + G::CC01_POLL_INTERVAL_MS;
+    pendingCycle.pollCc01();
+    // WATER was still missing. Its request timer remains at the last retry;
+    // the new HOBO cycle is re-armed rather than lost.
+    assert(pendingCycle.cc01WaterPending && pendingCycle.cc01HoboPending &&
+           pendingCycle.cc01WaterRetries == 1 && pendingCycle.cc01Requests == 2);
     return 0;
 }
 '''
+
 with tempfile.TemporaryDirectory() as directory:
     path = Path(directory)
     cpp = path / 'poller.cpp'
