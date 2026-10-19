@@ -5,6 +5,15 @@
 int main()
 {
     using namespace cca_cc01_dm;
+    constexpr uint32_t heltec = 2740603892UL; // !a35a4bf4
+    constexpr uint32_t cc01 = 1695962694UL;  // !65165646
+    // Meshtastic delivers secure unicast DMs with decoded channel 0.
+    assert(isCc01Reply(cc01, heltec, heltec, 0, true));
+    assert(isCc01Reply(cc01, heltec, heltec, 1, false));
+    assert(!isCc01Reply(cc01, heltec, heltec, 0, false));
+    assert(!isCc01Reply(cc01, heltec, heltec, 2, true));
+    assert(!isCc01Reply(cc01, 999UL, heltec, 0, true));
+    assert(!isCc01Reply(1949224949UL, heltec, heltec, 0, true));
     WaterReading water;
     assert(parseWaterRead("WATER READ\nRaw: 8.770 ft (2673mm)\nStage: 0.735 ft (22.4 cm)\nSamples:10 Spread:0mm", water));
     assert(water.distanceMm == 2673);
