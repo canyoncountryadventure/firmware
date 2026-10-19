@@ -34,11 +34,14 @@ bool HoboHttpGatewayModule::sendCc01Dm(const char *command)
     packet->channel = CC01_LONGFAST_CHANNEL; // Local channel 1 on Heltec
     packet->want_ack = true;
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
+    const uint32_t packetId = packet->id;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
-    LOG_INFO("CCA CC01 DM poll: queued %s to 0x%08lx on LongFast ch %u",
+    // sendToMesh() returns void; this is only a send attempt. Actual RF
+    // delivery must be confirmed by an ACK / valid CC01 sensor reply.
+    LOG_INFO("CCA CC01 DM poll: sent request %s to 0x%08lx packet=0x%08lx (delivery unconfirmed)",
              command, static_cast<unsigned long>(CC01_POLL_NODE),
-             CC01_LONGFAST_CHANNEL);
-    return true; // Queued is NOT the same as delivered.
+             static_cast<unsigned long>(packetId));
+    return true; // Not proof of RF delivery; network errors have their own log.
 }
 
 void HoboHttpGatewayModule::pollCc01()
@@ -91,8 +94,11 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
 
     if (cc01PollState == Cc01PollState::WAIT_WATER) {
         cca_cc01_dm::WaterReading reading;
-        if (!cca_cc01_dm::parseWaterRead(reply, reading))
+        if (!cca_cc01_dm::parseWaterRead(reply, reading)) {
+            LOG_WARN("CCA CC01 DM poll: WATER reply arrived but format was not accepted (%u bytes)",
+                     static_cast<unsigned>(n));
             return;
+        }
         UploadJob job = {};
         job.type = JobType::WATER_DISTANCE;
         fillCommon(job, mp);
@@ -113,8 +119,11 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
         cc01RequestMs = millis();
     } else if (cc01PollState == Cc01PollState::WAIT_HOBO) {
         cca_cc01_dm::HoboReading reading;
-        if (!cca_cc01_dm::parseHoboRead(reply, reading))
+        if (!cca_cc01_dm::parseHoboRead(reply, reading)) {
+            LOG_WARN("CCA CC01 DM poll: HOBO reply arrived but format was not accepted (%u bytes)",
+                     static_cast<unsigned>(n));
             return;
+        }
         UploadJob job = {};
         job.type = JobType::MX2001;
         fillCommon(job, mp);
