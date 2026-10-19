@@ -1,6 +1,8 @@
 # CCA Heltec Sensor Gateway V6
 
-## October 19, 2026: ingest valid CC01 replies independently of the poll timer
+## October 19, 2026: source fix — firmware build currently blocked
+
+**Availability: source and native regression tests are complete; the new firmware is NOT published.** GitHub Actions could download the official ESP32 platform archive, but PlatformIO's registry failed while fetching `espressif/toolchain-xtensa-esp32s3@8.4.0+2021r2-patch5`, before C++ compilation. [Build status and dependency failure](https://github.com/canyoncountryadventure/firmware/actions/runs/39276027742). The October 18 downloads below do **not** include the independent-reply fix or `/json/gateway`; do not reflash them expecting this repair. A new dated BIN/ZIP will only be linked after a successful ESP32 build and checksum verification.
 
 The previous receive handler silently ignored valid CC01 sensor replies unless the poller was waiting for that exact response type. This could discard manual responses, late replies after a two-minute timeout, or replies arriving out of order. V6 now parses complete, authorized CC01 `WATER READ` and `MX2001` replies in every polling state and queues them through the existing HTTPS uploader. Only a matching response advances the scheduled poll; unrelated replies do not cancel or restart it. Automatic private packets and the 30-minute polling schedule are unchanged.
 
