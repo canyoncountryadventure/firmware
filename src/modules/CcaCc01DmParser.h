@@ -9,6 +9,19 @@
 
 namespace cca_cc01_dm {
 
+// PKI messages are presented to MeshModules on decoded channel 0, regardless
+// of the channel index selected by the sender. Non-PKI DMs must be on the
+// configured LongFast channel (1). Source and destination must still match.
+inline bool isCc01Reply(uint32_t from, uint32_t to, uint32_t gateway,
+                        uint8_t decodedChannel, bool pkiEncrypted)
+{
+    constexpr uint32_t CC01_NODE = 1695962694UL; // !65165646
+    constexpr uint8_t LONGFAST_LOCAL_CHANNEL = 1;
+    return from == CC01_NODE && to == gateway &&
+           ((pkiEncrypted && decodedChannel == 0) ||
+            (!pkiEncrypted && decodedChannel == LONGFAST_LOCAL_CHANNEL));
+}
+
 struct WaterReading {
     uint32_t distanceMm = 0;
     float stageFeet = 0;
