@@ -664,7 +664,18 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
 String HoboHttpGatewayModule::statusJson()
 {
     const char *states[] = {"idle", "waiting_water", "spacing_before_read", "waiting_hobo"};
-    String body = "{\"firmware_fix\":\"v6-cc01-independent-replies-2026-10-19\"";
+    String body = "{\"firmware_fix\":\"v6-cc01-float-scan-2026-10-19\"";
+    // Exercise the actual embedded parser without queuing synthetic observations.
+    cca_cc01_dm::WaterReading water;
+    cca_cc01_dm::HoboReading hobo;
+    const bool waterOk = cca_cc01_dm::parseWaterRead(
+        "WATER READ\nRaw: 8.865 ft (2702mm)\nStage: 0.577 ft (17.6 cm)\nSamples:10 Spread:1mm", water);
+    const bool hoboOk = cca_cc01_dm::parseHoboRead(
+        "MX2001\nLogger: E3:1A:98:DC:FB:C2\nBLE: -76 dBm\nLevel: 0.54 ft\nTemp: 49.4 F", hobo);
+    body += ",\"parser_self_test\":{\"water\":";
+    body += waterOk ? "true" : "false";
+    body += ",\"hobo\":";
+    body += hoboOk ? "true}" : "false}";
     body += ",\"uptime_ms\":" + String(millis());
     body += ",\"wifi_connected\":";
     body += WiFi.isConnected() ? "true" : "false";

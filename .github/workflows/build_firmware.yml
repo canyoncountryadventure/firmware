@@ -75,6 +75,18 @@ jobs:
           PIO_ENV: ${{ inputs.pio_env }}
         run: bin/build-esp32.sh "$PIO_ENV"
 
+      - name: Verify Heltec floating-point scanner is linked
+        if: inputs.pio_env == 'heltec-v4'
+        run: |
+          set -euo pipefail
+          nm_tool="$HOME/.platformio/packages/toolchain-xtensa-esp32s3/bin/xtensa-esp32s3-elf-nm"
+          "$nm_tool" release/firmware-heltec-v4-*.elf > "$RUNNER_TEMP/heltec-symbols.txt"
+          if ! grep -Eq '^[0-9a-fA-F]+ [TW] _scanf_float$' "$RUNNER_TEMP/heltec-symbols.txt"; then
+            echo "::error::CC01 float scanner is missing from the embedded image"
+            exit 1
+          fi
+          echo "CC01 floating-point scanner verified in embedded ELF"
+
       - name: Build ${{ inputs.platform }}
         if: inputs.pio_env != 'heltec-v4'
         id: build
