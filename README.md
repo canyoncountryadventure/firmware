@@ -1,4 +1,37 @@
-# CCA Heltec Sensor Gateway V6
+# CCA Heltec Sensor Gateway V7
+
+**October 20, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
+
+## Verified V7 release downloads
+
+- [**Download dated V7 application BIN (Wi-Fi OTA)**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-20-26.bin)
+- [**Download dated V7 firmware ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-20-26.zip)
+- [**SHA-256 hashes, exact source commit and build log**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/BUILD.txt)
+- [**V7 build and full test run (passed)**](https://github.com/canyoncountryadventure/firmware/actions/runs/39522159565)
+- [**V7 recovery details and limitations**](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/README.md)
+- [**V6 rollback branch (unchanged)**](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6)
+
+**Source proven by CI:** `1a5381cf9e7cfa0f55fad2d1e4fc452c7ecb9cb1`. Binary SHA-256: `8a7756f505a7571d3643180ea5f1917d7fb3c62c3c6d2248208c6e83843ed513`.
+
+## What V7 changes
+
+V7 preserves V6 automatic telemetry, MX2001/ultrasonic decoding, encrypted Cottonwood `WATER READ` and `READ` requests/replies, the independent DM retries, the verified ESP32 floating-point parser link fix, 90-second main-loop task watchdog, and the 12-hour preventive reboot.
+
+The new progress supervisor runs inside the ESP32 main loop and tracks **real radio RX and hardware TX_DONE interrupts**, gateway worker progress, HTTPS POST attempts, Wi-Fi status and successful cloud uploads. It schedules recovery for a stopped worker (2 minutes), no RX *and* no completed TX despite DM requests (60 minutes), no RX with successful TX (guarded radio reinitialization at 90 minutes, reboot after 3 hours), stuck HTTP upload queue (10 minutes without POST attempts), prolonged negative HTTPS transport failures (60 minutes), and prolonged Wi-Fi loss (60 minutes). It caps consecutive **health-triggered** reboots at two until the gateway demonstrates successful RX and cloud upload during one hour of uptime. Existing scheduled Meshtastic reboots remain unchanged.
+
+**No unconditional 3-hour reboot.** Missing radio traffic can also mean all field nodes are unreachable, not necessarily that Heltec failed. The software health supervisor cannot replace an *external* hardware watchdog for complete SoC/power lockups. Restarts can discard unsent in-RAM telemetry.
+
+V7 moves scheduled Cottonwood RF DMs ahead of the Wi-Fi-connected check. Thus remote measurement requests still occur while Wi-Fi is unavailable, with replies queued for forwarding. The gateway diagnostic endpoint `/json/gateway` now reports supervisor RX/worker activity ages, recovery reason and reboot count. The build and V5/V6 compatibility tests all passed; field validation after flashing is still required.
+
+### Updating the live Heltec
+
+Use the **non-factory** `Heltec-Gateway-v7-10-20-26.bin` for the existing Meshtastic Wi-Fi Unified OTA workflow. Preserve NVS, encryption keys, channel settings, node identity and OTA partitions. The ZIP may contain factory/full-flash images which are **not** the normal Wi-Fi OTA target.
+
+After the upgrade, check `http://192.168.1.147/json/gateway` (or the device's current LAN IP). Expected marker: `v7-health-recovery-2026-10-20`. Verify both automatic readings and DM-triggered readings reach Neon and that the supervisor's recovery counters remain sensible.
+
+---
+
+## Archived V6 release notes and rollback documentation
 
 ## October 19, 2026: Independent WATER READ and READ retries
 
@@ -37,7 +70,7 @@ Firmware V6 includes scheduled CC01 polling and the encrypted-DM receive fix. Th
 | `Heltec-Gateway-v6-10-19-26.bin` | `2fa4cc606f29af361a4e8121523d9e9997bbb33bc927571eb1d343a7a2fc0e6e` |
 | `Heltec-Gateway-v6-10-19-26.zip` | `29caf103e57b8ffcad52fdc367ede8161bfc0a90ac40dc867a50fa2f4f90fa25` |
 
-Current dual-retry source commit: [`ae7ae62d33220ec78c6a53a2a25f3b42066abf21`](https://github.com/canyoncountryadventure/firmware/commit/ae7ae62d33220ec78c6a53a2a25f3b42066abf21). Published artifact commit: `2264c0ca6ad110d1abe9e2a4e59ba8495f227451`. The V6 branch includes changes previously labeled V7; no separate V7 branch is needed.
+Current dual-retry source commit: [`ae7ae62d33220ec78c6a53a2a25f3b42066abf21`](https://github.com/canyoncountryadventure/firmware/commit/ae7ae62d33220ec78c6a53a2a25f3b42066abf21). Published artifact commit: `2264c0ca6ad110d1abe9e2a4e59ba8495f227451`. V6 historical documentation was written before the new V7 health-supervisor branch; retain V6 as the rollback image.
 
 **This is Heltec hardware V4 firmware, not a RAK UF2.** The standalone BIN is the application image for routine Wi-Fi Unified OTA. Preserve NVS/configuration and the existing OTA loader. The ZIP also contains a factory image, which is not the routine Wi-Fi update target.
 
