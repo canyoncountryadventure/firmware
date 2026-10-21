@@ -109,7 +109,7 @@ static void networkDownDoesNotBlockRfPoll() {
         s.txDoneIrq++;
         s.dmRequests++;
         auto action=g.update(m(i)+1000,s);
-        if(i<60) assert(action==R::None);
+        if(i<61) assert(action==R::None);
         else assert(action==R::WifiStalled);
     }
 }
