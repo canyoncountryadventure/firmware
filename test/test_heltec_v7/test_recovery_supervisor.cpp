@@ -119,7 +119,7 @@ static void monotonicWrap() {
     s.wifiConnected=true;
     g.update(UINT32_MAX-1000,s);
     s.gatewayCycles=1;
-    s.rxGood=1;
+    // Preserve RX silence across the 32-bit millisecond counter wrap.
     s.txDoneIrq=1;
     assert(g.update(4000,s)==R::None);
     assert(g.rxAgeMs(4000)==5001);
