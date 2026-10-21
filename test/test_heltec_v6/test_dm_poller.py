@@ -40,6 +40,7 @@ template <class T> struct TypedQueue {
     bool full = false;
     TypedQueue(int) {}
     bool enqueue(T job, int) { if (full) return false; jobs.push_back(job); return true; }
+    unsigned numUsed() { return jobs.size(); }
 };
 struct meshtastic_MeshPacket {
     uint32_t id = 1, to = 0, from = 1695962694UL;
