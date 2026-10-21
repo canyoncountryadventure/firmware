@@ -49,7 +49,7 @@ static void rxSilenceWithTxWorking() {
     CcaGatewaySnapshot s;
     s.wifiConnected=true;
     g.update(1000,s);
-    for(uint32_t i=1;i<=181;i++){
+    for(uint32_t i=1;i<=180;i++){
         s.gatewayCycles++;
         if(i%30==0){s.dmRequests++;s.txDoneIrq++;}
         auto result=g.update(m(i)+1000,s);
