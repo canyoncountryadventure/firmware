@@ -171,7 +171,8 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     bool hasQueuedTx() { return !txQueue.empty(); }
 
     /** Field health diagnostics. */
-    uint32_t txDoneIrqCount = 0; // Actual successful TX_DONE IRQs, unlike legacy txGood\n    uint32_t lastTxCompleteMs = 0;
+    uint32_t txDoneIrqCount = 0; // Actual successful TX_DONE IRQs, unlike legacy txGood
+    uint32_t lastTxCompleteMs = 0;
     uint32_t radioRecoveryAttempts = 0;
     uint32_t radioRecoverySuccesses = 0;
 
