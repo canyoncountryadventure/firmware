@@ -25,10 +25,10 @@ jobs:
       - run: python3 test/test_heltec_v5/test_wire_compat.py
       - name: Test CC01 DM reply parsers
         run: |
-          g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v7/test_dm_parser.cpp -o /tmp/test_cc01_dm
+          g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v6/test_dm_parser.cpp -o /tmp/test_cc01_dm
           /tmp/test_cc01_dm
       - name: Replay actual CC01 poller states
-        run: python3 test/test_heltec_v7/test_dm_poller.py
+        run: python3 test/test_heltec_v6/test_dm_poller.py
       - name: Exercise V7 watchdog progress and failure logic
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v7/test_recovery_supervisor.cpp -o /tmp/test_gateway_v7
