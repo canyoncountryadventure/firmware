@@ -3,6 +3,12 @@
 #include "configuration.h"
 #include "esp_task_wdt.h"
 #include "main.h"
+#if defined(HELTEC_V4) && HAS_WIFI
+#include "mesh/RadioLibInterface.h"
+#include "modules/HoboHttpGatewayModule.h"
+#include "modules/CcaGatewaySupervisor.h"
+#include <WiFi.h>
+#endif
 
 #if !defined(CONFIG_IDF_TARGET_ESP32S2) && !MESHTASTIC_EXCLUDE_BLUETOOTH
 #include "nimble/NimbleBluetooth.h"
@@ -28,6 +34,36 @@
 #include <nvs.h>
 #include <nvs_flash.h>
 
+
+#if defined(HELTEC_V4) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+namespace {
+constexpr uint32_t CCA_V7_RECOVERY_MAGIC = 0x43435737UL; // CCW7
+struct CcaV7RecoveryRetained {
+    uint32_t magic;
+    uint32_t consecutiveRecoveryBoots;
+    uint32_t lastRecoveryReason;
+};
+RTC_NOINIT_ATTR CcaV7RecoveryRetained ccaV7RecoveryRetained;
+CcaGatewaySupervisor ccaV7Supervisor;
+uint32_t ccaV7LastCheckMs = 0;
+bool ccaV7RebootPending = false;
+uint32_t ccaV7BlockedReason = 0;
+}
+String ccaHeltecGatewaySupervisorJson()
+{
+    const uint32_t now = millis();
+    String result = "{\"rx_age_seconds\":" + String(ccaV7Supervisor.rxAgeMs(now) / 1000UL);
+    result += ",\"radio_activity_age_seconds\":" + String(ccaV7Supervisor.rfAgeMs(now) / 1000UL);
+    result += ",\"worker_age_seconds\":" + String(ccaV7Supervisor.moduleAgeMs(now) / 1000UL);
+    result += ",\"soft_radio_recovery_attempted\":";
+    result += ccaV7Supervisor.softRecoveryAttempted() ? "true" : "false";
+    result += ",\"recovery_reboots_since_healthy\":" + String(ccaV7RecoveryRetained.consecutiveRecoveryBoots);
+    result += ",\"last_recovery_reason\":" + String(ccaV7RecoveryRetained.lastRecoveryReason);
+    result += ",\"recovery_blocked_reason\":" + String(ccaV7BlockedReason);
+    result += "}";
+    return result;
+}
+#endif
 
 #if defined(HELTEC_V4)
 namespace
@@ -394,6 +430,13 @@ void esp32Setup()
     preferences.end();
 #if defined(HELTEC_V4)
     heltecFieldDiagBoot(rebootCounter);
+#if HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    if (ccaV7RecoveryRetained.magic != CCA_V7_RECOVERY_MAGIC) {
+        ccaV7RecoveryRetained.magic = CCA_V7_RECOVERY_MAGIC;
+        ccaV7RecoveryRetained.consecutiveRecoveryBoots = 0;
+        ccaV7RecoveryRetained.lastRecoveryReason = 0;
+    }
+#endif
 #endif
     LOG_DEBUG("Number of Device Reboots: %d", rebootCounter);
 #if !MESHTASTIC_EXCLUDE_WIFI
@@ -435,6 +478,52 @@ void esp32Setup()
 void esp32Loop()
 {
     esp_task_wdt_reset(); // service our app level watchdog
+#if defined(HELTEC_V4) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    const uint32_t ccaNow = millis();
+    if (!ccaV7RebootPending && (uint32_t)(ccaNow - ccaV7LastCheckMs) >= 5000UL) {
+        ccaV7LastCheckMs = ccaNow;
+        RadioLibInterface *radio = RadioLibInterface::instance;
+        if (radio != nullptr && hoboHttpGatewayModule != nullptr) {
+            CcaGatewaySnapshot snapshot;
+            snapshot.rxGood = radio->rxGood;
+            snapshot.txDoneIrq = radio->txDoneIrqCount;
+            snapshot.gatewayCycles = hoboHttpGatewayModule->healthCycles();
+            snapshot.httpAttempts = hoboHttpGatewayModule->healthHttpAttempts();
+            snapshot.httpAccepted = hoboHttpGatewayModule->healthHttpAccepted();
+            snapshot.dmRequests = hoboHttpGatewayModule->healthDmRequests();
+            snapshot.queueUsed = hoboHttpGatewayModule->healthQueueUsed();
+            snapshot.lastHttpStatus = hoboHttpGatewayModule->healthLastHttpStatus();
+            snapshot.wifiConnected = WiFi.isConnected();
+            const CcaGatewayRecovery action = ccaV7Supervisor.update(ccaNow, snapshot);
+            if (action == CcaGatewayRecovery::SoftRecoverRx) {
+                LOG_WARN("CCA V7: 90-minute RX silence; requesting guarded radio reinit");
+                if (!radio->recoverRadioForHealth())
+                    LOG_WARN("CCA V7: radio reinit deferred/failed; 3-hour backstop remains armed");
+            } else if (action != CcaGatewayRecovery::None) {
+                const uint32_t reason = static_cast<uint32_t>(action);
+                if (ccaV7RecoveryRetained.consecutiveRecoveryBoots < 2) {
+                    ++ccaV7RecoveryRetained.consecutiveRecoveryBoots;
+                    ccaV7RecoveryRetained.lastRecoveryReason = reason;
+                    esp32FieldDiagEvent(6, static_cast<uint8_t>(reason), snapshot.rxGood);
+                    LOG_ERROR("CCA V7: health reboot reason=%lu recovered_count=%lu",
+                              static_cast<unsigned long>(reason),
+                              static_cast<unsigned long>(ccaV7RecoveryRetained.consecutiveRecoveryBoots));
+                    ccaV7RebootPending = true;
+                    if (rebootAtMsec == 0)
+                        rebootAtMsec = ccaNow + 5000UL;
+                } else {
+                    ccaV7BlockedReason = reason;
+                }
+            }
+            // Re-arm after proven radio RX + cloud upload and one hour of stable uptime.
+            if (ccaV7Supervisor.provenHealthy() && ccaNow >= 60UL * 60UL * 1000UL &&
+                ccaV7RecoveryRetained.consecutiveRecoveryBoots) {
+                ccaV7RecoveryRetained.consecutiveRecoveryBoots = 0;
+                ccaV7BlockedReason = 0;
+            }
+        }
+    }
+#endif
 #if defined(HELTEC_V4)
     if (heltecFieldDiag.magic == HELTEC_FIELD_DIAG_MAGIC)
         heltecFieldDiag.lastAliveMs = millis();

@@ -159,6 +159,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
 
     /** Periodic radio upkeep: recover an offline receiver before ordinary AGC maintenance. */
     void periodicRadioMaintenance();
+    bool recoverRadioForHealth(); // Guarded, one-shot recovery requested by V7
 
     /** Chip-specific recovery hook. SX126x overrides this with a full hardware re-init. */
     virtual bool recoverChipStateLoss() { return false; }
@@ -170,7 +171,7 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     bool hasQueuedTx() { return !txQueue.empty(); }
 
     /** Field health diagnostics. */
-    uint32_t lastTxCompleteMs = 0;
+    uint32_t txDoneIrqCount = 0; // Actual successful TX_DONE IRQs, unlike legacy txGood\n    uint32_t lastTxCompleteMs = 0;
     uint32_t radioRecoveryAttempts = 0;
     uint32_t radioRecoverySuccesses = 0;
 

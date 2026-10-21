@@ -606,7 +606,12 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
     body += ",\"relay_node\":" + String(job.relayNode);
     body += ",\"channel\":" + String(job.channel);
     body += ",\"gateway\":" + jsonQuoted(HOBO_HTTP_GATEWAY_NAME);
-    body += "}}";
+    body += "}";
+#if defined(HELTEC_V4)
+    extern String ccaHeltecGatewaySupervisorJson();
+    body += ",\"supervisor\":" + ccaHeltecGatewaySupervisorJson();
+#endif
+    body += "}";
     return body;
 }
 
@@ -633,6 +638,7 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     http.addHeader("User-Agent", "cca-heltec-clean-gateway/1.0");
 
     const String body = serializeJob(job);
+    ++healthPostAttempts;
     const int status = http.POST(body);
     lastHttpStatus = status;
     if (job.dmPollResult) {
@@ -668,7 +674,7 @@ String HoboHttpGatewayModule::statusJson()
         (cc01HoboSent ? "waiting_both" : (cc01ReadReady ? "spacing_before_read" : "waiting_water")) :
         cc01WaterPending ? "waiting_water" :
         cc01HoboPending ? (cc01HoboSent ? "waiting_hobo" : "spacing_before_read") : "idle";
-    String body = "{\"firmware_fix\":\"v6-cc01-dual-retry-2026-10-19\"";
+    String body = "{\"firmware_fix\":\"v7-health-recovery-2026-10-20\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -715,12 +721,15 @@ String HoboHttpGatewayModule::statusJson()
 
 int32_t HoboHttpGatewayModule::runOnce()
 {
+    ++healthLoopCycles;
+    // Polling is LoRa, not Wi-Fi. Keep CC01 WATER READ and READ active even
+    // during a Wi-Fi outage; replies queue until upload resumes.
+    pollCc01();
+
     if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0)
         return 60000;
     if (!WiFi.isConnected())
         return 3000;
-
-    pollCc01(); // Independent fallback DMs; original automatic receivers unchanged.
 
     UploadJob job = {};
     if (!uploadQueue.dequeue(&job, 0))

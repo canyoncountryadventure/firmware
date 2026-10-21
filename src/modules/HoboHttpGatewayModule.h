@@ -45,6 +45,12 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
   public:
     HoboHttpGatewayModule();
     String statusJson();
+    uint32_t healthCycles() const { return healthLoopCycles; }
+    uint32_t healthHttpAttempts() const { return healthPostAttempts; }
+    uint32_t healthHttpAccepted() const { return uploadedJobs; }
+    uint32_t healthDmRequests() const { return cc01Requests; }
+    uint32_t healthQueueUsed() { return uploadQueue.numUsed(); }
+    int healthLastHttpStatus() const { return lastHttpStatus; }
 
     // Local BLE HOBO readers call these. Every reading is queued immediately.
     bool queueLocalEnvironment(float temperatureC, const char *loggerModel, const char *loggerMac,
@@ -174,6 +180,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint32_t cc01LastUploadMs = 0;
     int lastHttpStatus = 0;
     uint32_t uploadedJobs = 0;
+    uint32_t healthLoopCycles = 0;
+    uint32_t healthPostAttempts = 0;
 
     void pollCc01();
     bool sendCc01Dm(const char *command);

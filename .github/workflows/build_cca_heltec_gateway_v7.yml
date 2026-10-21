@@ -1,0 +1,94 @@
+name: Build Heltec Gateway V7 (dated release)
+on:
+  workflow_dispatch:
+  push:
+    branches: [Heltec-Gateway-v7]
+    paths:
+      - 'src/**'
+      - 'variants/**'
+      - 'arch/**'
+      - 'platformio.ini'
+      - 'test/test_heltec_v5/**'
+      - 'test/test_heltec_v6/**'
+      - 'test/test_heltec_v7/**'
+      - '.github/workflows/build_cca_heltec_gateway_v7.yml'
+      - '.github/workflows/build_firmware.yml'
+concurrency:
+  group: heltec-gateway-v7
+  cancel-in-progress: true
+permissions: read-all
+jobs:
+  gateway-compat-tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: python3 test/test_heltec_v5/test_wire_compat.py
+      - name: Test CC01 DM reply parsers
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v7/test_dm_parser.cpp -o /tmp/test_cc01_dm
+          /tmp/test_cc01_dm
+      - name: Replay actual CC01 poller states
+        run: python3 test/test_heltec_v7/test_dm_poller.py
+      - name: Exercise V7 watchdog progress and failure logic
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v7/test_recovery_supervisor.cpp -o /tmp/test_gateway_v7
+          /tmp/test_gateway_v7
+  build-heltec-v7:
+    uses: ./.github/workflows/build_firmware.yml
+    secrets: inherit
+    with:
+      version: cca-heltec-v7-${{ github.run_number }}
+      pio_env: heltec-v4
+      platform: esp32s3
+
+  publish-v7:
+    needs: [build-heltec-v7, gateway-compat-tests]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download exact Heltec V7 output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: firmware-esp32s3-heltec-v4-cca-heltec-v7-*
+          path: heltec-firmware
+          merge-multiple: true
+      - name: Prepare dated firmware and checksum metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          date_stamp="$(TZ=America/Denver date +%m-%d-%y)"
+          echo "DATE_STAMP=$date_stamp" >> "$GITHUB_ENV"
+          src="$(find heltec-firmware -maxdepth 1 -name 'firmware-heltec-v4-*.bin' ! -name '*.factory.bin' -print -quit)"
+          test -n "$src"
+          mkdir -p release-pack
+          cp "$src" "release-pack/Heltec-Gateway-v7-$date_stamp.bin"
+          (cd heltec-firmware && zip -q -r "../release-pack/Heltec-Gateway-v7-$date_stamp.zip" .)
+          {
+            echo "TARGET=Heltec-Gateway-v7"
+            echo "HARDWARE=Heltec WiFi LoRa 32 V4 OLED"
+            echo "PIO_ENV=heltec-v4"
+            echo "FORMAT=ESP32-S3 BIN; ZIP includes companion OTA/flash files"
+            echo "SOURCE_COMMIT=$GITHUB_SHA"
+            echo "BUILD_RUN=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            (cd release-pack && sha256sum *.bin *.zip)
+          } > release-pack/BUILD.txt
+      - name: Publish only verified current source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch Heltec-Gateway-v7 "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY.git" publish
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          latest="$(git rev-parse HEAD)"
+          if [[ "$latest" != "$GITHUB_SHA" ]]; then
+            echo "::error::Source branch advanced. Refusing stale Heltec release."
+            exit 1
+          fi
+          mkdir -p downloads/Heltec-Gateway-v7
+          cp ../release-pack/* downloads/Heltec-Gateway-v7/
+          git add downloads/Heltec-Gateway-v7
+          git commit -m "Publish dated Heltec V7 image $DATE_STAMP [skip ci]"
+          git push origin HEAD:Heltec-Gateway-v7

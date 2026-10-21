@@ -498,8 +498,10 @@ void RadioLibInterface::handleTransmitInterrupt()
 {
     // This can be null if we forced the device to enter standby mode.  In that case
     // ignore the transmit interrupt
-    if (sendingPacket)
+    if (sendingPacket) {
+        ++txDoneIrqCount; // IRQ-confirmed TX, not a failed startTransmit() cleanup
         completeSending();
+    }
     powerMon->clearState(meshtastic_PowerMon_State_Lora_TXOn); // But our transmitter is definitely off now
 }
 
@@ -657,6 +659,18 @@ void RadioLibInterface::periodicRadioMaintenance()
         return;
     }
     resetAGC();
+}
+
+bool RadioLibInterface::recoverRadioForHealth()
+{
+    // Never reinitialize in the middle of a real TX/RX or pending IRQ.
+    if (sendingPacket != nullptr || hasQueuedTx() ||
+        (isReceiving && isActivelyReceiving()) || isIRQPending())
+        return false;
+    if (!maybeRecoverChipStateLoss())
+        return false;
+    startReceive();
+    return true;
 }
 
 bool RadioLibInterface::maybeRecoverChipStateLoss()
