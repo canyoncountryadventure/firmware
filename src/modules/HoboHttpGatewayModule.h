@@ -72,6 +72,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         DEVICE = 3,
         SOIL = 4,
         WATER_DISTANCE = 5,
+        SENSOR_STATUS = 6,
     };
 
     struct UploadJob {
@@ -124,6 +125,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t uptimeSeconds;
 
         char stationName[40];
+        char sensorStatusType[8];
+        char sensorStatusReason[20];
     };
 
     struct SeenPacket {
@@ -140,24 +143,34 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint8_t seenPacketIndex = 0;
     uint32_t localPacketCounter = 0;
 
-    // CC01 fallback poller is independent of all existing automatic receive paths.
-    // WATER READ and READ have separate pending flags and 120-second timers.
-    // Never let success or failure of one command cancel the other.
+    // Ordered CC01 sensor cycle: water first, HOBO second, each at most 3 attempts.
+    // All times are monotonic millis; a sensor fault never schedules a reboot.
+    enum class Cc01Phase : uint8_t { Idle, Water, Hobo, Done };
+    Cc01Phase cc01Phase = Cc01Phase::Idle;
     bool cc01PollStarted = false;
     bool cc01WaterPending = false;
     bool cc01HoboPending = false;
-    bool cc01WaterSent = false;
-    bool cc01HoboSent = false;
-    bool cc01ReadReady = false;
     bool cc01HasDmSent = false;
+    bool cc01WaterEnabled = true;
+    bool cc01HoboEnabled = true;
+    bool cc01FastMode = false;
+    bool cc01HaveStage = false;
+    float cc01LastStageFt = 0.0f;
+    uint32_t cc01LastStageMs = 0;
+    uint32_t cc01AdminNode = 0;
+    uint32_t cc01ConfigVersion = 0;
     uint32_t cc01LastPollMs = 0;
     uint32_t cc01WaterRequestMs = 0;
     uint32_t cc01HoboRequestMs = 0;
-    uint32_t cc01ReadReadyMs = 0;
     uint32_t cc01LastDmSendMs = 0;
-    static constexpr uint32_t CC01_POLL_INTERVAL_MS = 30UL * 60UL * 1000UL;
-    static constexpr uint32_t CC01_REPLY_TIMEOUT_MS = 120UL * 1000UL;
+    uint32_t cc01NextConfigMs = 0;
+    uint8_t cc01WaterAttempts = 0;
+    uint8_t cc01HoboAttempts = 0;
+    static constexpr uint32_t CC01_NORMAL_INTERVAL_MS = 60UL * 60UL * 1000UL;
+    static constexpr uint32_t CC01_FAST_INTERVAL_MS = 15UL * 60UL * 1000UL;
+    static constexpr uint32_t CC01_REPLY_TIMEOUT_MS = 30UL * 1000UL;
     static constexpr uint32_t CC01_DM_SPACING_MS = 3000UL;
+    static constexpr uint8_t CC01_ATTEMPT_LIMIT = 3;
     static constexpr uint8_t CC01_LONGFAST_CHANNEL = 1;
 
     uint32_t cc01WaterRetries = 0;
@@ -186,6 +199,11 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     void pollCc01();
     bool sendCc01Dm(const char *command);
     void handleCc01Reply(const meshtastic_MeshPacket &mp);
+    void handleCc01ControlDm(const meshtastic_MeshPacket &mp);
+    void refreshCc01CloudControl();
+    void persistCc01Settings();
+    void queueCc01SensorStatus(const meshtastic_MeshPacket &mp, const char *sensor, const char *reason);
+    bool sendCc01Text(uint32_t to, const char *command);
 
     bool isDuplicate(const meshtastic_MeshPacket &mp);
     bool enqueueMX2001(const meshtastic_MeshPacket &mp);

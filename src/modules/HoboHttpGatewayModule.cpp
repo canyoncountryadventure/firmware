@@ -11,6 +11,7 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <Preferences.h>
 
 #include <cstdio>
 #include <cstring>
@@ -99,6 +100,14 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
 {
     isPromiscuous = true;
     uploadQueue.setReader(this);
+    Preferences saved;
+    if (saved.begin("cca_cc01", true)) {
+        cc01WaterEnabled = saved.getBool("water", true);
+        cc01HoboEnabled = saved.getBool("hobo", true);
+        cc01AdminNode = saved.getUInt("admin", 0);
+        cc01ConfigVersion = saved.getUInt("version", 0);
+        saved.end();
+    }
     setInterval(1000);
     LOG_INFO("CCA clean gateway enabled: immediate independent forwarding -> %s", HOBO_HTTP_GATEWAY_URL);
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
@@ -118,6 +127,9 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
         if (nodeDB == nullptr)
             return false;
         const bool addressedToUs = getFrom(p) == CC01_NODE && p->to == nodeDB->getNodeNum();
+        if (cc01AdminNode != 0 && getFrom(p) == cc01AdminNode && p->to == nodeDB->getNodeNum() &&
+            (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL))
+            return true;
         const bool accepted = cca_cc01_dm::isCc01Reply(getFrom(p), p->to, nodeDB->getNodeNum(),
                                                        p->channel, p->pki_encrypted);
         if (addressedToUs && !accepted) {
@@ -389,6 +401,12 @@ bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp
     if (!job.distanceValid || !job.stageCalibrated || job.stageMm == INT32_MIN)
         job.stageCalibrated = false;
 
+    if (from == CC01_NODE && job.stageCalibrated) {
+        cc01HaveStage = true;
+        cc01LastStageFt = job.stageMm / 304.8f;
+        cc01LastStageMs = millis();
+        cc01FastMode = cc01LastStageFt > 0.75f;
+    }
     if (!uploadQueue.enqueue(job, 0)) {
         LOG_WARN("CCA clean gateway: queue full; dropped water-distance packet from 0x%08lx",
                  static_cast<unsigned long>(job.from));
@@ -467,7 +485,8 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
         return ProcessMessage::CONTINUE;
     }
     if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
-        handleCc01Reply(mp);
+        if (getFrom(&mp) == CC01_NODE) handleCc01Reply(mp);
+        else if (cc01AdminNode != 0 && getFrom(&mp) == cc01AdminNode) handleCc01ControlDm(mp);
         return ProcessMessage::CONTINUE;
     }
 
@@ -496,6 +515,11 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
     String body;
     body.reserve(1100);
     body += "{";
+    if (job.type == JobType::SENSOR_STATUS) {
+        return String("{\"type\":\"event\",\"sensor\":") + jsonQuoted(job.sensorStatusType) +
+               ",\"status\":" + jsonQuoted(job.sensorStatusReason) +
+               ",\"packet_id\":" + String(job.packetId) + "}";
+    }
     if (job.type == JobType::MX2001)
         body += "\"type\":\"mx2001\"";
     else if (job.type == JobType::MOISTURE_PIR)
@@ -628,7 +652,8 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     client.setInsecure();
     HTTPClient http;
     http.setTimeout(4000);
-    if (!http.begin(client, HOBO_HTTP_GATEWAY_URL)) {
+    if (!http.begin(client, job.type == JobType::SENSOR_STATUS ?
+                    "https://meshtastic-ecru.vercel.app/api/cc01-control" : HOBO_HTTP_GATEWAY_URL)) {
         LOG_WARN("CCA clean gateway: could not initialize HTTPS request");
         return false;
     }
@@ -700,6 +725,13 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"hobo_pending\":" + String(cc01HoboPending ? "true" : "false");
     body += ",\"water_retries\":" + String(cc01WaterRetries);
     body += ",\"hobo_retries\":" + String(cc01HoboRetries);
+    body += ",\"water_attempts\":" + String(cc01WaterAttempts);
+    body += ",\"hobo_attempts\":" + String(cc01HoboAttempts);
+    body += ",\"water_enabled\":" + String(cc01WaterEnabled ? "true":"false");
+    body += ",\"hobo_enabled\":" + String(cc01HoboEnabled ? "true":"false");
+    body += ",\"fast_mode\":" + String(cc01FastMode ? "true":"false");
+    body += ",\"latest_stage_ft\":" + (cc01HaveStage ? String(cc01LastStageFt,3) : "null");
+    body += ",\"config_version\":" + String(cc01ConfigVersion);
     body += ",\"replies\":" + String(cc01Replies);
     body += ",\"parsed\":" + String(cc01Parsed);
     body += ",\"queued\":" + String(cc01Queued);
@@ -725,6 +757,7 @@ int32_t HoboHttpGatewayModule::runOnce()
     // Polling is LoRa, not Wi-Fi. Keep CC01 WATER READ and READ active even
     // during a Wi-Fi outage; replies queue until upload resumes.
     pollCc01();
+    refreshCc01CloudControl();
 
     if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0)
         return 60000;
