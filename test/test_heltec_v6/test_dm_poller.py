@@ -54,7 +54,7 @@ struct meshtastic_MeshPacket{
 """
 impl=r"""
 void HoboHttpGatewayModule::fillCommon(UploadJob&j,const meshtastic_MeshPacket&m){j.packetId=m.id;j.from=m.from;}
-bool HoboHttpGatewayModule::sendCc01Dm(const char*cmd){cc01Requests++;requests.emplace_back(cmd);return true;}
+void HoboHttpGatewayModule::persistCc01Settings(){}\nbool HoboHttpGatewayModule::sendCc01Dm(const char*cmd){cc01Requests++;requests.emplace_back(cmd);return true;}
 void HoboHttpGatewayModule::queueCc01SensorStatus(const meshtastic_MeshPacket&,const char*s,const char*r){failures.push_back(std::string(s)+":"+r);}
 meshtastic_MeshPacket packet(const char*s){meshtastic_MeshPacket p;p.decoded.payload.size=strlen(s);memcpy(p.decoded.payload.bytes,s,strlen(s));return p;}
 int main(){
