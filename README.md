@@ -4,20 +4,22 @@
 
 ## Verified V7 release downloads
 
-- [**Download dated V7 application BIN (Wi-Fi OTA)**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-20-26.bin)
-- [**Download dated V7 firmware ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-20-26.zip)
+- [**Download dated V7 application BIN (Wi-Fi OTA)**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-22-26.bin)
+- [**Download dated V7 firmware ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-22-26.zip)
 - [**SHA-256 hashes, exact source commit and build log**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/BUILD.txt)
-- [**V7 build and full test run (passed)**](https://github.com/canyoncountryadventure/firmware/actions/runs/39522159565)
+- [**V7 build and full test run (passed)**](https://github.com/canyoncountryadventure/firmware/actions/runs/39797239447)
 - [**V7 recovery details and limitations**](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/README.md)
 - [**V6 rollback branch (unchanged)**](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6)
 
-**Source proven by CI:** `1a5381cf9e7cfa0f55fad2d1e4fc452c7ecb9cb1`. Binary SHA-256: `8a7756f505a7571d3643180ea5f1917d7fb3c62c3c6d2248208c6e83843ed513`.
+**Source proven by CI:** `076dd4d0d36f20af06dc3ffa4a89662ff9e7ceec`. Binary SHA-256: `6960c143d8c8c1a78ad37e2d75368a4590d93873aa1a62f54382436a66a1504e`.
 
 ## What V7 changes
 
 V7 preserves V6 automatic telemetry, MX2001/ultrasonic decoding, encrypted Cottonwood `WATER READ` and `READ` requests/replies, the independent DM retries, the verified ESP32 floating-point parser link fix, 90-second main-loop task watchdog, and the 12-hour preventive reboot.
 
-The October 22 V7 update adds ordered 3-attempt/30-second CC01 requests (WATER READ first, then READ), stage-adaptive hourly or 15-minute polling above 0.75 ft, pause/resume controls in the protected Moab Watersheds dashboard, and authorized remote DM controls. Explicit CC01 HOBO unavailable and ultrasonic TIMEOUT replies now upload distinct diagnostics without fabricating sensor observations. A HOBO unavailable reply terminates that cycle immediately. Old V7 image remains a rollback until the dated October 22 build is verified.\n\nThe new progress supervisor runs inside the ESP32 main loop and tracks **real radio RX and hardware TX_DONE interrupts**, gateway worker progress, HTTPS POST attempts, Wi-Fi status and successful cloud uploads. It schedules recovery for a stopped worker (2 minutes), no RX *and* no completed TX despite DM requests (60 minutes), no RX with successful TX (guarded radio reinitialization at 90 minutes, reboot after 3 hours), stuck HTTP upload queue (10 minutes without POST attempts), prolonged negative HTTPS transport failures (60 minutes), and prolonged Wi-Fi loss (60 minutes). It caps consecutive **health-triggered** reboots at two until the gateway demonstrates successful RX and cloud upload during one hour of uptime. Existing scheduled Meshtastic reboots remain unchanged.
+The October 22 V7 update adds ordered 3-attempt/30-second CC01 requests (WATER READ first, then READ), stage-adaptive hourly or 15-minute polling above 0.75 ft, pause/resume controls in the protected Moab Watersheds dashboard, and authorized remote DM controls. Explicit CC01 HOBO unavailable and ultrasonic TIMEOUT replies now upload distinct diagnostics without fabricating sensor observations. A HOBO unavailable reply terminates that cycle immediately. Old V7 image remains a rollback until the dated October 22 build is verified.
+
+The new progress supervisor runs inside the ESP32 main loop and tracks **real radio RX and hardware TX_DONE interrupts**, gateway worker progress, HTTPS POST attempts, Wi-Fi status and successful cloud uploads. It schedules recovery for a stopped worker (2 minutes), no RX *and* no completed TX despite DM requests (60 minutes), no RX with successful TX (guarded radio reinitialization at 90 minutes, reboot after 3 hours), stuck HTTP upload queue (10 minutes without POST attempts), prolonged negative HTTPS transport failures (60 minutes), and prolonged Wi-Fi loss (60 minutes). It caps consecutive **health-triggered** reboots at two until the gateway demonstrates successful RX and cloud upload during one hour of uptime. Existing scheduled Meshtastic reboots remain unchanged.
 
 **No unconditional 3-hour reboot.** Missing radio traffic can also mean all field nodes are unreachable, not necessarily that Heltec failed. The software health supervisor cannot replace an *external* hardware watchdog for complete SoC/power lockups. Restarts can discard unsent in-RAM telemetry.
 

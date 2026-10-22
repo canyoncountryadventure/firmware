@@ -1,9 +1,13 @@
-# Heltec Gateway V7 | Recovery Firmware | 2026-10-20
+# Heltec Gateway V7 | Recovery + Adaptive Polling Firmware | 2026-10-22
 
 Production source: [Heltec-Gateway-v7](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v7).
 Safe rollback: [Heltec-Gateway-v6](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6).
 
 Target: **Heltec WiFi LoRa 32 V4 OLED**, ESP32-S3, PlatformIO \`heltec-v4\`.
+
+Verified application image: `Heltec-Gateway-v7-10-22-26.bin`  
+Source commit: `076dd4d0d36f20af06dc3ffa4a89662ff9e7ceec`  
+SHA-256: `6960c143d8c8c1a78ad37e2d75368a4590d93873aa1a62f54382436a66a1504e`
 
 ## What changed from V6
 - The pre-existing 90-second task watchdog and scheduled 12-hour main-loop reboot remain.
