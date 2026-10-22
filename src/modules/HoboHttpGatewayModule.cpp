@@ -655,7 +655,7 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     HTTPClient http;
     http.setTimeout(4000);
     if (!http.begin(client, job.type == JobType::SENSOR_STATUS ?
-                    "https://meshtastic-ecru.vercel.app/api/cc01-control" : HOBO_HTTP_GATEWAY_URL)) {
+                    "https://meshtastic-ecru.vercel.app/api/ingest?control=cc01" : HOBO_HTTP_GATEWAY_URL)) {
         LOG_WARN("CCA clean gateway: could not initialize HTTPS request");
         return false;
     }

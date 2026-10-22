@@ -223,7 +223,7 @@ void HoboHttpGatewayModule::refreshCc01CloudControl()
     cc01NextConfigMs=now+120000UL;
     WiFiClientSecure client; client.setInsecure();
     HTTPClient http; http.setTimeout(4000);
-    if (!http.begin(client,"https://meshtastic-ecru.vercel.app/api/cc01-control")) return;
+    if (!http.begin(client,"https://meshtastic-ecru.vercel.app/api/ingest?control=cc01")) return;
     http.addHeader("X-Ingest-Key",HOBO_HTTP_GATEWAY_INGEST_KEY);
     const int status=http.GET();
     if (status==200) {
@@ -244,7 +244,7 @@ void HoboHttpGatewayModule::refreshCc01CloudControl()
     }
     http.end();
     HTTPClient report;
-    if (!report.begin(client,"https://meshtastic-ecru.vercel.app/api/cc01-control")) return;
+    if (!report.begin(client,"https://meshtastic-ecru.vercel.app/api/ingest?control=cc01")) return;
     report.addHeader("X-Ingest-Key",HOBO_HTTP_GATEWAY_INGEST_KEY);
     report.addHeader("Content-Type","application/json");
     const String json=String("{\"type\":\"report\",\"water_enabled\":") +
