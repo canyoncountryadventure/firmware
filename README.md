@@ -1,6 +1,6 @@
 # CCA Heltec Sensor Gateway V7
 
-**October 20, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
+**October 22, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
 
 ## Verified V7 release downloads
 
@@ -17,7 +17,7 @@
 
 V7 preserves V6 automatic telemetry, MX2001/ultrasonic decoding, encrypted Cottonwood `WATER READ` and `READ` requests/replies, the independent DM retries, the verified ESP32 floating-point parser link fix, 90-second main-loop task watchdog, and the 12-hour preventive reboot.
 
-The October 22 V7 update adds ordered 3-attempt/30-second CC01 requests (WATER READ first, then READ), stage-adaptive hourly or 15-minute polling above 0.75 ft, pause/resume controls in the protected Moab Watersheds dashboard, and authorized remote DM controls. Explicit CC01 HOBO unavailable and ultrasonic TIMEOUT replies now upload distinct diagnostics without fabricating sensor observations. A HOBO unavailable reply terminates that cycle immediately. Old V7 image remains a rollback until the dated October 22 build is verified.
+The October 22 V7 update adds ordered 3-attempt/30-second CC01 requests (WATER READ first, then READ), stage-adaptive hourly or 15-minute polling above 0.75 ft, pause/resume controls in the protected Moab Watersheds dashboard, and authorized remote DM controls. Explicit CC01 HOBO unavailable and ultrasonic TIMEOUT replies now upload distinct diagnostics without fabricating sensor observations. A HOBO unavailable reply terminates that cycle immediately. The dated October 22 build passed the compatibility tests and ESP32-S3 build; the October 20 image remains available as a rollback.
 
 The new progress supervisor runs inside the ESP32 main loop and tracks **real radio RX and hardware TX_DONE interrupts**, gateway worker progress, HTTPS POST attempts, Wi-Fi status and successful cloud uploads. It schedules recovery for a stopped worker (2 minutes), no RX *and* no completed TX despite DM requests (60 minutes), no RX with successful TX (guarded radio reinitialization at 90 minutes, reboot after 3 hours), stuck HTTP upload queue (10 minutes without POST attempts), prolonged negative HTTPS transport failures (60 minutes), and prolonged Wi-Fi loss (60 minutes). It caps consecutive **health-triggered** reboots at two until the gateway demonstrates successful RX and cloud upload during one hour of uptime. Existing scheduled Meshtastic reboots remain unchanged.
 
