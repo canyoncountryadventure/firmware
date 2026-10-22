@@ -104,6 +104,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
     if (saved.begin("cca_cc01", true)) {
         cc01WaterEnabled = saved.getBool("water", true);
         cc01HoboEnabled = saved.getBool("hobo", true);
+        cc01FastMode = saved.getBool("fast", false);
         cc01AdminNode = saved.getUInt("admin", 0);
         cc01ConfigVersion = saved.getUInt("version", 0);
         saved.end();
@@ -405,7 +406,8 @@ bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp
         cc01HaveStage = true;
         cc01LastStageFt = job.stageMm / 304.8f;
         cc01LastStageMs = millis();
-        cc01FastMode = cc01LastStageFt > 0.75f;
+        const bool fast = cc01LastStageFt > 0.75f;
+        if (fast != cc01FastMode) { cc01FastMode = fast; persistCc01Settings(); }
     }
     if (!uploadQueue.enqueue(job, 0)) {
         LOG_WARN("CCA clean gateway: queue full; dropped water-distance packet from 0x%08lx",
@@ -694,11 +696,9 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
 
 String HoboHttpGatewayModule::statusJson()
 {
-    const char *state =
-        cc01WaterPending && cc01HoboPending ?
-        (cc01HoboSent ? "waiting_both" : (cc01ReadReady ? "spacing_before_read" : "waiting_water")) :
-        cc01WaterPending ? "waiting_water" :
-        cc01HoboPending ? (cc01HoboSent ? "waiting_hobo" : "spacing_before_read") : "idle";
+    const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
+                        cc01Phase == Cc01Phase::Hobo ? "waiting_hobo" :
+                        cc01Phase == Cc01Phase::Done ? "done" : "idle";
     String body = "{\"firmware_fix\":\"v7-health-recovery-2026-10-20\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;

@@ -43,6 +43,7 @@ void HoboHttpGatewayModule::persistCc01Settings()
 {
     Preferences prefs;
     if (prefs.begin("cca_cc01", false)) {
+        prefs.putBool("fast", cc01FastMode);
         prefs.putBool("water", cc01WaterEnabled);
         prefs.putBool("hobo", cc01HoboEnabled);
         prefs.putUInt("admin", cc01AdminNode);
@@ -161,7 +162,8 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
             ++cc01Queued;
             cc01HaveStage = true;
             cc01LastStageFt = water.stageFeet; cc01LastStageMs = millis();
-            cc01FastMode = water.stageFeet > 0.75f;
+            const bool fast = water.stageFeet > 0.75f;
+            if (fast != cc01FastMode) { cc01FastMode = fast; persistCc01Settings(); }
             if (cc01Phase == Cc01Phase::Water && cc01WaterPending) {
                 cc01WaterPending = false;
                 cc01Phase = cc01HoboPending && cc01HoboEnabled ? Cc01Phase::Hobo : Cc01Phase::Done;
