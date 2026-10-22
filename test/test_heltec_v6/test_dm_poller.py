@@ -1,172 +1,93 @@
-"""Compile the real poller against host fakes and replay CC01 replies in every state."""
+"""Compile actual CC01 polling methods against host fakes and verify bounded behavior."""
 from pathlib import Path
-import re
-import subprocess
-import tempfile
-
-root = Path(__file__).resolve().parents[2]
-header = (root / 'src/modules/HoboHttpGatewayModule.h').read_text()
-body = header[header.index('class HoboHttpGatewayModule'):header.index('extern HoboHttpGatewayModule')]
-body = re.sub(r'class HoboHttpGatewayModule\s*:.*?\{', 'class HoboHttpGatewayModule {', body, count=1, flags=re.S)
-body = body.replace('private:', 'public:').replace('protected:', 'public:')
-body = body.replace('HoboHttpGatewayModule();', 'HoboHttpGatewayModule() : uploadQueue(32) {}\n    void setIntervalFromNow(unsigned long) {}')
-body = body.replace(' override', '')
-source = (root / 'src/modules/CcaCc01DmPoller.cpp').read_text()
-source = re.sub(r'^#include "(?:HoboHttpGatewayModule.h|MeshService.h|Router.h|NodeDB.h|main.h)"\n', '', source, flags=re.M)
-source = source.replace('#include "mesh/Throttle.h"', '#include "src/mesh/Throttle.h"')
-source = source.replace('#include "CcaCc01DmParser.h"', '#include "src/modules/CcaCc01DmParser.h"')
-fixture = r'''
+import re, subprocess, tempfile
+root=Path(__file__).resolve().parents[2]
+header=(root/'src/modules/HoboHttpGatewayModule.h').read_text()
+body=header[header.index('class HoboHttpGatewayModule'):header.index('extern HoboHttpGatewayModule')]
+body=re.sub(r'class HoboHttpGatewayModule\s*:.*?\{','class HoboHttpGatewayModule {',body,count=1,flags=re.S)
+body=body.replace('private:','public:').replace('protected:','public:').replace(' override','')
+body=body.replace('HoboHttpGatewayModule();','HoboHttpGatewayModule():uploadQueue(32){}\n void setIntervalFromNow(unsigned long){}')
+body=body.replace('    bool isDuplicate(', '    std::vector<std::string> requests;\n    std::vector<std::string> failures;\n    bool isDuplicate(')
+src=(root/'src/modules/CcaCc01DmPoller.cpp').read_text()
+def extract(name):
+    m=re.search(r'(?m)^(?:bool|void) HoboHttpGatewayModule::'+name+r'\([^\n]*\)\s*\{',src)
+    assert m,name
+    depth=0
+    for i in range(m.end()-1,len(src)):
+        if src[i]=='{':depth+=1
+        if src[i]=='}':
+            depth-=1
+            if not depth:return src[m.start():i+1]
+    raise AssertionError(name)
+preamble=r"""
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
+#include <cmath>
+#include <cstdio>
+#include <cctype>
 #include <string>
 #include <vector>
-#include <cstring>
+#include <algorithm>
 #include <cassert>
-#include <cmath>
-using String = std::string;
 enum class ProcessMessage { CONTINUE };
-#define ARCH_ESP32 1
-#define HAS_WIFI 1
-#define HOBO_HTTP_GATEWAY_ENABLED 1
-void logLine(const char *, ...) {}
-#define LOG_INFO(...) logLine(__VA_ARGS__)
-#define LOG_WARN(...) logLine(__VA_ARGS__)
-uint32_t clockMs = 0;
-uint32_t millis() { return clockMs; }
-#include "src/mesh/Throttle.h"
-bool Throttle::isWithinTimespanMs(uint32_t last, uint32_t interval) { return uint32_t(clockMs-last) < interval; }
-template <class T> struct TypedQueue {
-    std::vector<T> jobs;
-    bool full = false;
-    TypedQueue(int) {}
-    bool enqueue(T job, int) { if (full) return false; jobs.push_back(job); return true; }
-    unsigned numUsed() { return jobs.size(); }
+#define LOG_INFO(...) do {} while(0)
+#define LOG_WARN(...) do {} while(0)
+uint32_t fakeTime=0;
+uint32_t millis(){return fakeTime;}
+struct String:std::string {
+ using std::string::string;
+ void toUpperCase(){std::transform(begin(),end(),begin(),[](unsigned char c){return std::toupper(c);});}
+ int indexOf(const char *p) const {auto i=find(p);return i==npos?-1:static_cast<int>(i);}
+ bool startsWith(const char*p)const{return rfind(p,0)==0;}
 };
-struct meshtastic_MeshPacket {
-    uint32_t id = 1, to = 0, from = 1695962694UL;
-    unsigned channel = 0, priority = 0;
-    bool want_ack = false;
-    struct { struct { uint8_t bytes[241] = {}; size_t size = 0; } payload;
-        int portnum = 0; bool want_response = false; } decoded;
+template<class T>struct TypedQueue{
+ std::vector<T> jobs;bool full=false;TypedQueue(int){}
+ bool enqueue(T job,int){if(full)return false;jobs.push_back(job);return true;}
+ unsigned numUsed(){return jobs.size();}
 };
-constexpr int meshtastic_PortNum_TEXT_MESSAGE_APP = 1;
-constexpr int meshtastic_MeshPacket_Priority_RELIABLE = 1;
-constexpr int RX_SRC_LOCAL = 1;
-struct NodeDB { uint32_t getNodeNum() { return 2740603892UL; } } db;
-NodeDB *nodeDB = &db;
-struct Router { meshtastic_MeshPacket *allocForSending() { return new meshtastic_MeshPacket; } } routerInstance;
-Router *router = &routerInstance;
-struct MeshService { void sendToMesh(meshtastic_MeshPacket *p, int, bool) { delete p; } } serviceInstance;
-MeshService *service = &serviceInstance;
-'''
-checks = r'''
-void HoboHttpGatewayModule::fillCommon(UploadJob &job, const meshtastic_MeshPacket &mp) {
-    job.packetId = mp.id; job.from = mp.from;
+struct meshtastic_MeshPacket{
+ uint32_t from=1695962694,to=2740603892,id=1;
+ struct{struct{uint8_t bytes[241]={};size_t size=0;}payload;}decoded;
+};
+#include "src/modules/CcaCc01DmParser.h"
+"""
+impl=r"""
+void HoboHttpGatewayModule::fillCommon(UploadJob&j,const meshtastic_MeshPacket&m){j.packetId=m.id;j.from=m.from;}
+bool HoboHttpGatewayModule::sendCc01Dm(const char*cmd){cc01Requests++;requests.emplace_back(cmd);return true;}
+void HoboHttpGatewayModule::queueCc01SensorStatus(const meshtastic_MeshPacket&,const char*s,const char*r){failures.push_back(std::string(s)+":"+r);}
+meshtastic_MeshPacket packet(const char*s){meshtastic_MeshPacket p;p.decoded.payload.size=strlen(s);memcpy(p.decoded.payload.bytes,s,strlen(s));return p;}
+int main(){
+ auto water=packet("WATER READ\nRaw: 8.865 ft (2702mm)\nStage: 0.577 ft (17.6 cm)\nSamples:10 Spread:1mm");
+ auto hobo=packet("MX2001\nLogger: E3:1A:98:DC:FB:C2\nBLE: -76 dBm\nLevel: 0.54 ft\nTemp: 49.4 F");
+ HoboHttpGatewayModule g;fakeTime=120000;g.pollCc01();
+ assert(g.cc01WaterAttempts==1&&g.requests.back()=="WATER READ");
+ fakeTime=149999;g.pollCc01();assert(g.requests.size()==1);
+ fakeTime=150000;g.pollCc01();assert(g.cc01WaterAttempts==2);
+ fakeTime=180000;g.pollCc01();assert(g.cc01WaterAttempts==3);
+ fakeTime=210000;g.pollCc01();assert(g.cc01Phase==HoboHttpGatewayModule::Cc01Phase::Hobo);
+ fakeTime=210001;g.pollCc01();assert(g.requests.back()=="READ");
+ fakeTime=240001;g.pollCc01();fakeTime=270001;g.pollCc01();fakeTime=300001;g.pollCc01();
+ assert(g.cc01HoboAttempts==3&&g.requests.size()==6);
+ HoboHttpGatewayModule good;fakeTime=120000;good.pollCc01();good.handleCc01Reply(water);
+ fakeTime=123000;good.pollCc01();assert(good.requests.back()=="READ");
+ good.handleCc01Reply(hobo);assert(good.cc01Phase==HoboHttpGatewayModule::Cc01Phase::Done);
+ HoboHttpGatewayModule down;fakeTime=120000;down.pollCc01();down.handleCc01Reply(water);
+ fakeTime=123000;down.pollCc01();down.handleCc01Reply(packet("HOBO unavailable"));
+ assert(down.failures.back()=="hobo:ble_unavailable"&&down.cc01Phase==HoboHttpGatewayModule::Cc01Phase::Done);
+ HoboHttpGatewayModule failed;fakeTime=120000;failed.pollCc01();failed.handleCc01Reply(packet("READ failed: TIMEOUT"));
+ assert(failed.failures.back()=="water:timeout"&&failed.cc01WaterPending);
+ HoboHttpGatewayModule paused;paused.cc01WaterEnabled=false;fakeTime=120000;paused.pollCc01();
+ assert(paused.requests.back()=="READ");
+ HoboHttpGatewayModule fast;fast.cc01FastMode=true;fakeTime=120000;fast.pollCc01();
+ fakeTime=120000+15*60000;fast.pollCc01();assert(fast.cc01WaterAttempts==1);
 }
-meshtastic_MeshPacket reply(const char *text) {
-    meshtastic_MeshPacket p; p.to = 2740603892UL;
-    p.decoded.payload.size = strlen(text);
-    memcpy(p.decoded.payload.bytes, text, p.decoded.payload.size);
-    return p;
-}
-int main() {
-    using G = HoboHttpGatewayModule;
-    const auto water = reply("WATER READ\nRaw: 8.865 ft (2702mm)\nStage: 0.577 ft (17.6 cm)\nSamples:10 Spread:1mm");
-    const auto hobo = reply("MX2001\nLogger: E3:1A:98:DC:FB:C2\nBLE: -76 dBm\nLevel: 0.54 ft\nTemp: 49.4 F");
-
-    // Parsed replies are useful at any time, even outside scheduled polling.
-    G manual; manual.handleCc01Reply(water); manual.handleCc01Reply(hobo);
-    assert(manual.uploadQueue.jobs.size() == 2 && manual.cc01Queued == 2);
-    assert(manual.uploadQueue.jobs[0].type == G::JobType::WATER_DISTANCE);
-    assert(manual.uploadQueue.jobs[0].distanceMm == 2702);
-    assert(manual.uploadQueue.jobs[0].stageMm == 176);
-    assert(manual.uploadQueue.jobs[1].type == G::JobType::MX2001);
-    assert(fabs(manual.uploadQueue.jobs[1].waterLevelFt - .54f) < .001f);
-    assert(fabs(manual.uploadQueue.jobs[1].temperatureF - 49.4f) < .001f);
-
-    // No send before two minutes. Initial WATER times out and retries,
-    // then the first READ runs after radio spacing, not after WATER success.
-    G g; clockMs = 119999; g.pollCc01(); assert(g.cc01Requests == 0);
-    clockMs = 120000; g.pollCc01();
-    assert(g.cc01Requests == 1 && g.cc01WaterPending && g.cc01HoboPending);
-    assert(g.cc01WaterSent && !g.cc01HoboSent);
-    clockMs = 239999; g.pollCc01(); assert(g.cc01Requests == 1);
-    clockMs = 240000; g.pollCc01();
-    assert(g.cc01Requests == 2 && g.cc01WaterRetries == 1);
-    clockMs = 242999; g.pollCc01(); assert(g.cc01Requests == 2);
-    clockMs = 243000; g.pollCc01();
-    assert(g.cc01Requests == 3 && g.cc01HoboSent);
-    clockMs = 360000; g.pollCc01();
-    assert(g.cc01Requests == 4 && g.cc01WaterRetries == 2);
-    clockMs = 362999; g.pollCc01(); assert(g.cc01HoboRetries == 0);
-    clockMs = 363000; g.pollCc01();
-    assert(g.cc01Requests == 5 && g.cc01HoboRetries == 1);
-
-    // Invalid format, including "unavailable", satisfies neither request.
-    g.handleCc01Reply(reply("HOBO unavailable"));
-    g.handleCc01Reply(reply("WATER READ\nRaw: 8.865 ft (2702mm)\nStage: NOT CALIBRATED\nSamples:10"));
-    assert(g.cc01Rejected == 2 && g.cc01WaterPending && g.cc01HoboPending);
-
-    // A valid HOBO stops only HOBO retries; WATER continues until valid.
-    g.handleCc01Reply(hobo);
-    assert(!g.cc01HoboPending && g.cc01WaterPending);
-    clockMs = 480000; g.pollCc01();
-    assert(g.cc01Requests == 6 && g.cc01WaterRetries == 3 && g.cc01HoboRetries == 1);
-    g.handleCc01Reply(water);
-    assert(!g.cc01WaterPending && !g.cc01HoboPending && g.cc01Queued == 2);
-    const auto n = g.cc01Requests;
-    clockMs = 600000; g.pollCc01(); assert(g.cc01Requests == n);
-
-    // Opposite success order: WATER stops, READ continues independently.
-    G opposite; clockMs = 120000; opposite.pollCc01();
-    clockMs = 120100; opposite.handleCc01Reply(water);
-    assert(!opposite.cc01WaterPending && opposite.cc01HoboPending);
-    clockMs = 123099; opposite.pollCc01(); assert(opposite.cc01Requests == 1);
-    clockMs = 123100; opposite.pollCc01();
-    assert(opposite.cc01Requests == 2 && opposite.cc01HoboSent);
-    clockMs = 243100; opposite.pollCc01();
-    assert(opposite.cc01Requests == 3 && opposite.cc01HoboRetries == 1);
-    assert(opposite.cc01WaterRetries == 0 && !opposite.cc01WaterPending);
-
-    // Full upload queue never counts as success for either sensor.
-    G full; clockMs = 120000; full.pollCc01();
-    full.uploadQueue.full = true;
-    full.handleCc01Reply(water); full.handleCc01Reply(hobo);
-    assert(full.cc01QueueFull == 2 && full.cc01WaterPending && full.cc01HoboPending);
-    full.uploadQueue.full = false;
-    full.handleCc01Reply(hobo);
-    assert(!full.cc01HoboPending && full.cc01WaterPending);
-    full.handleCc01Reply(water);
-    assert(!full.cc01WaterPending && full.cc01Queued == 2);
-
-    // The 30-minute cycle re-arms successful types, but does not reset
-    // outstanding retries or suppress the opposite type.
-    G newCycle; clockMs = 120000; newCycle.pollCc01();
-    clockMs = 120100; newCycle.handleCc01Reply(hobo);
-    clockMs = 120200; newCycle.handleCc01Reply(water);
-    assert(!newCycle.cc01HoboPending && !newCycle.cc01WaterPending);
-    clockMs = 120000 + G::CC01_POLL_INTERVAL_MS;
-    newCycle.pollCc01();
-    assert(newCycle.cc01WaterPending && newCycle.cc01HoboPending &&
-           newCycle.cc01Requests == 2 && !newCycle.cc01HoboSent);
-
-    G pendingCycle; clockMs = 120000; pendingCycle.pollCc01();
-    clockMs = 120100; pendingCycle.handleCc01Reply(hobo);
-    clockMs = 120000 + G::CC01_POLL_INTERVAL_MS;
-    pendingCycle.pollCc01();
-    // WATER was still missing. Its request timer remains at the last retry;
-    // the new HOBO cycle is re-armed rather than lost.
-    assert(pendingCycle.cc01WaterPending && pendingCycle.cc01HoboPending &&
-           pendingCycle.cc01WaterRetries == 1 && pendingCycle.cc01Requests == 2);
-    return 0;
-}
-'''
-
-with tempfile.TemporaryDirectory() as directory:
-    path = Path(directory)
-    cpp = path / 'poller.cpp'
-    cpp.write_text(fixture + body + source + checks)
-    exe = path / 'poller'
-    subprocess.run(['g++', '-std=c++17', '-Wall', '-Wextra', '-Werror', '-I', str(root), str(cpp), '-o', str(exe)], check=True)
-    subprocess.run([str(exe)], check=True)
-print('PASS: actual CC01 poller accepts valid manual/late/out-of-order replies, rejects invalid readings, preserves schedule and reports queue failure')
+"""
+code=preamble+body+'\n'+impl+'\n'+extract('pollCc01')+'\n'+extract('handleCc01Reply')
+# Move main() after method definitions, otherwise methods are only declared but linking is fine.
+with tempfile.TemporaryDirectory() as folder:
+ f=Path(folder)/'test.cpp';f.write_text(code)
+ exe=Path(folder)/'test'
+ subprocess.run(['g++','-std=c++17','-Wall','-Wextra','-Werror','-I',str(root),str(f),'-o',str(exe)],check=True)
+ subprocess.run([str(exe)],check=True)
+print('PASS: V7 ordered poll, 3 x 30s retries, explicit failure, pause, 15-minute mode')
