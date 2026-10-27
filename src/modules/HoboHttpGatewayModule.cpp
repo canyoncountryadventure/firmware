@@ -30,6 +30,7 @@ constexpr uint32_t WINGATE_SOIL_NODE = 2004386937UL; // !77788479
 constexpr uint32_t CLIFF_SENSOR_NODE = 3388602087UL; // !c9f9f6e7
 constexpr uint32_t CC01_NODE = 1695962694UL; // !65165646
 constexpr uint32_t CC02_NODE = 2425602407UL; // !9093c167
+constexpr uint32_t MILL_CREEK_NODE = 1683604927UL; // !6459c5bf
 
 uint16_t readLE16(const uint8_t *p)
 {
@@ -154,7 +155,7 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     if (from != HIDDEN_VALLEY_NODE && from != REVIVED_NODE && from != FISHLAKE_NODE &&
         from != SWELL_NODE && from != HELTEC_HOME_NODE && from != MOAB_NODE &&
         from != PACK_CREEK_NODE && from != WINGATE_SOIL_NODE && from != CLIFF_SENSOR_NODE &&
-        from != CC01_NODE && from != CC02_NODE)
+        from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE)
         return false;
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     if (!nodeDB->isFavorite(from))
@@ -699,7 +700,7 @@ String HoboHttpGatewayModule::statusJson()
     const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
                         cc01Phase == Cc01Phase::Hobo ? "waiting_hobo" :
                         cc01Phase == Cc01Phase::Done ? "done" : "idle";
-    String body = "{\"firmware_fix\":\"v7-health-recovery-2026-10-20\"";
+    String body = "{\"firmware_fix\":\"v7-mill-creek-2026-10-26\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
