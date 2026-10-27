@@ -1,13 +1,18 @@
-# Heltec Gateway V7 | Recovery + Adaptive Polling Firmware | 2026-10-22
+# Heltec Gateway V7 | Recovery + Adaptive Polling + Mill Creek Firmware | 2026-10-26
 
 Production source: [Heltec-Gateway-v7](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v7).
 Safe rollback: [Heltec-Gateway-v6](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6).
 
 Target: **Heltec WiFi LoRa 32 V4 OLED**, ESP32-S3, PlatformIO \`heltec-v4\`.
 
-Verified application image: `Heltec-Gateway-v7-10-22-26.bin`  
-Source commit: `076dd4d0d36f20af06dc3ffa4a89662ff9e7ceec`  
-SHA-256: `6960c143d8c8c1a78ad37e2d75368a4590d93873aa1a62f54382436a66a1504e`
+Verified application image: `Heltec-Gateway-v7-10-26-26.bin`  
+Source commit: `b929e70c2404b9c47205f7aa3a8d5fd10e7c16fe`  
+SHA-256: `c638796a00b28c5ad39e887383ca69f72cf40a217246d7ccbd36d29c5d6db697`
+
+## October 26 Mill Creek update
+- Authorizes Mill Creek at Power Dam (`!6459c5bf`, decimal `1683604927`) for automatic MX2001 stage/temperature and device/battery telemetry.
+- Leaves CC01 scheduled DM polling, recovery logic, mesh configuration and all existing stations unchanged.
+- Expected `/json/gateway` marker: `v7-mill-creek-2026-10-26`.
 
 ## What changed from V6
 - The pre-existing 90-second task watchdog and scheduled 12-hour main-loop reboot remain.
