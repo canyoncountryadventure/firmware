@@ -31,6 +31,7 @@ constexpr uint32_t CLIFF_SENSOR_NODE = 3388602087UL; // !c9f9f6e7
 constexpr uint32_t CC01_NODE = 1695962694UL; // !65165646
 constexpr uint32_t CC02_NODE = 2425602407UL; // !9093c167
 constexpr uint32_t MILL_CREEK_NODE = 1683604927UL; // !6459c5bf
+constexpr uint32_t SEED_RELAY_1_NODE = 647393146UL; // !26966f7a
 
 uint16_t readLE16(const uint8_t *p)
 {
@@ -155,7 +156,8 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     if (from != HIDDEN_VALLEY_NODE && from != REVIVED_NODE && from != FISHLAKE_NODE &&
         from != SWELL_NODE && from != HELTEC_HOME_NODE && from != MOAB_NODE &&
         from != PACK_CREEK_NODE && from != WINGATE_SOIL_NODE && from != CLIFF_SENSOR_NODE &&
-        from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE)
+        from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE &&
+        from != SEED_RELAY_1_NODE)
         return false;
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     if (!nodeDB->isFavorite(from))
