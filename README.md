@@ -4,14 +4,14 @@
 
 ## Verified V7 release downloads
 
-- [**Download dated V7 application BIN (Wi-Fi OTA)**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-22-26.bin)
-- [**Download dated V7 firmware ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-22-26.zip)
+- [**Download dated V7 application BIN (Wi-Fi OTA)**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-26-26.bin)
+- [**Download dated V7 firmware ZIP**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/Heltec-Gateway-v7-10-26-26.zip)
 - [**SHA-256 hashes, exact source commit and build log**](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/BUILD.txt)
 - [**V7 build and full test run (passed)**](https://github.com/canyoncountryadventure/firmware/actions/runs/39797239447)
 - [**V7 recovery details and limitations**](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v7/downloads/Heltec-Gateway-v7/README.md)
 - [**V6 rollback branch (unchanged)**](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v6)
 
-**Source proven by CI:** `076dd4d0d36f20af06dc3ffa4a89662ff9e7ceec`. Binary SHA-256: `6960c143d8c8c1a78ad37e2d75368a4590d93873aa1a62f54382436a66a1504e`.
+**Source proven by CI:** `b929e70c2404b9c47205f7aa3a8d5fd10e7c16fe`. Binary SHA-256: `c638796a00b28c5ad39e887383ca69f72cf40a217246d7ccbd36d29c5d6db697`.
 
 ## What V7 changes
 
