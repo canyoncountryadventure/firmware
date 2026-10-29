@@ -75,7 +75,7 @@
     },
     {
       "path": "variants/nrf52840/rak4631/platformio.ini",
-      "sha256": "793a6e4e503e7c785e2035fd337d3f2d3117a6dc3b86c9266ac252ac7e88384f"
+      "sha256": "1e923bea3d391c24c60be9f0c09758f313a64e2d4e38484673f5e99890c1c63a"
     },
     {
       "path": "platformio.ini",
