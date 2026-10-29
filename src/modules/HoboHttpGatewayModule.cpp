@@ -25,13 +25,14 @@ constexpr uint32_t FISHLAKE_NODE = 1577197109UL;
 constexpr uint32_t SWELL_NODE = 1949224949UL;
 constexpr uint32_t HELTEC_HOME_NODE = 2740603892UL;
 constexpr uint32_t MOAB_NODE = 2650172798UL;
-constexpr uint32_t PACK_CREEK_NODE = 4241345683UL; // !fccdcc93
+constexpr uint32_t MINI_ME_NODE = 4241345683UL; // !fccdcc93, Mini Me (formerly SMLA)
 constexpr uint32_t WINGATE_SOIL_NODE = 2004386937UL; // !77788479
 constexpr uint32_t CLIFF_SENSOR_NODE = 3388602087UL; // !c9f9f6e7
 constexpr uint32_t CC01_NODE = 1695962694UL; // !65165646
 constexpr uint32_t CC02_NODE = 2425602407UL; // !9093c167
 constexpr uint32_t MILL_CREEK_NODE = 1683604927UL; // !6459c5bf
 constexpr uint32_t SEED_RELAY_1_NODE = 647393146UL; // !26966f7a
+constexpr uint32_t COTTONWOOD_RELAY_2_NODE = 1222051909UL; // !48d70845, CWR2
 
 uint16_t readLE16(const uint8_t *p)
 {
@@ -155,9 +156,9 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     // IDs only: public station names and sensor labels are assigned by Vercel.
     if (from != HIDDEN_VALLEY_NODE && from != REVIVED_NODE && from != FISHLAKE_NODE &&
         from != SWELL_NODE && from != HELTEC_HOME_NODE && from != MOAB_NODE &&
-        from != PACK_CREEK_NODE && from != WINGATE_SOIL_NODE && from != CLIFF_SENSOR_NODE &&
+        from != MINI_ME_NODE && from != WINGATE_SOIL_NODE && from != CLIFF_SENSOR_NODE &&
         from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE &&
-        from != SEED_RELAY_1_NODE)
+        from != SEED_RELAY_1_NODE && from != COTTONWOOD_RELAY_2_NODE)
         return false;
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     if (!nodeDB->isFavorite(from))
@@ -382,7 +383,7 @@ bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp
 {
     const uint32_t from = getFrom(&mp);
     // Accept distance packets from the configured water-station IDs.
-    if (from != SWELL_NODE && from != PACK_CREEK_NODE && from != CLIFF_SENSOR_NODE && from != CC01_NODE)
+    if (from != SWELL_NODE && from != MINI_ME_NODE && from != CLIFF_SENSOR_NODE && from != CC01_NODE)
         return false;
     // DistanceSensorModule v3 sends a 24-byte DS/version-1 water packet.
     if (mp.decoded.payload.size != 24)
