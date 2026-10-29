@@ -252,7 +252,11 @@ constructor_start = source.index(
 constructor_end = source.index(
     "bool HOBOMX2001MX2201MX2203TelemetryModule::wantPacket", constructor_start
 )
-assert "requestHandshakeWake(millis());" in source[constructor_start:constructor_end]
+# V7 defers the wake request until after its saved HOBO BLE mode is loaded.
+# That lets a water-only station remain entirely out of the HOBO central state
+# machine from boot; enabled stations still claim it in initializeClient().
+assert "requestHandshakeWake(millis());" not in source[constructor_start:constructor_end]
+assert "requestHandshakeWake(now);" in block("void initializeClient()")
 assert "releaseHandshakeWake(true, now);" in source[
     source.index("case UniversalState::WAIT_STATUS") :
     source.index("case UniversalState::READY")
