@@ -4,6 +4,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[2]
 rak = (root / "src/modules/Telemetry/HOBOMX2001MX2201MX2203/HOBOMX2001MX2201MX2203Telemetry.cpp").read_text()
 water = (root / "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.cpp").read_text()
+water_header = (root / "src/modules/Telemetry/DistanceSensor/DistanceSensorModule.h").read_text()
 variant = (root / "variants/nrf52840/rak4631/platformio.ini").read_text()
 recovery = (root / "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecovery.cpp").read_text()
 
@@ -24,6 +25,6 @@ v7_target = variant.split("[env:rak4631_water_unified_v7]", 1)[1]
 assert "V5_DEFAULT_SENSOR_SEN0313" not in v7_target
 assert "WATER SENSOR MB7388" in water
 assert "WATER SENSOR SEN0313" in water
-assert "DFRobotUARTDistanceDriver" in water and "MaxBotixMB7388DistanceDriver" in water
+assert "DFRobotUARTDistanceDriver" in water_header and "MaxBotixMB7388DistanceDriver" in water_header
 
 print("PASS: V7 unified sensor selection and persistent HOBO BLE central-off mode")
