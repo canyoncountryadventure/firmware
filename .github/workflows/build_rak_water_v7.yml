@@ -1,0 +1,70 @@
+name: Build RAK Water Distance + HOBO V7 (unified)
+on:
+  push:
+    branches: [RAK-Water-Distance-HOBO-v7]
+    paths:
+      - "src/**"
+      - "test/test_hobo_v5/**"
+      - "test/test_hobo_v6/**"
+      - "test/test_hobo_v7/**"
+      - "variants/**"
+      - "boards/**"
+      - "bin/**"
+      - "platformio.ini"
+      - "userPrefs.jsonc"
+      - ".github/workflows/build_rak_water_v7.yml"
+  workflow_dispatch:
+concurrency:
+  group: rak-water-hobo-v7
+  cancel-in-progress: true
+env:
+  PLATFORMIO_SETTING_ENABLE_TELEMETRY: "false"
+permissions:
+  contents: read
+jobs:
+  source-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: |
+          python3 test/test_hobo_v5/test_hobo_v5.py
+          python3 test/test_hobo_v5/test_preservation.py
+          python3 test/test_hobo_v5/test_reset_recovery.py
+          python3 test/test_hobo_v5/test_nonblocking_water.py
+          python3 test/test_hobo_v5/test_water_jobs.py
+          python3 test/test_hobo_v6/test_new_features.py
+          python3 test/test_hobo_v7/test_unified_firmware.py
+  build:
+    needs: source-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: recursive
+      - name: Build unified RAK4631 field image
+        uses: meshtastic/gh-action-firmware@39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
+        with:
+          pio_platform: nrf52840
+          pio_env: rak4631_water_unified_v7
+          pio_target: build
+      - name: Verify and package app-only firmware
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          BUILD_DATE="$(TZ=America/Denver date +%m-%d-%y)"
+          BUILD_TAG="$BUILD_DATE-${GITHUB_SHA:0:7}"
+          uf2_path="$(find release -maxdepth 1 -name 'firmware-rak4631_water_unified_v7-*.uf2' -print -quit)"
+          ota_path="$(find release -maxdepth 1 -name 'firmware-rak4631_water_unified_v7-*-ota.zip' -print -quit)"
+          test -n "$uf2_path"
+          test -n "$ota_path"
+          cp "$uf2_path" "export/field-rak-water-hobo-v7-$BUILD_TAG-unified.uf2"
+          cp "$ota_path" "export/field-rak-water-hobo-v7-$BUILD_TAG-unified-OTA.zip"
+          python3 bin/verify_rak_v7.py "export/field-rak-water-hobo-v7-$BUILD_TAG-unified.uf2" "$GITHUB_SHA"
+          python3 bin/verify_rak_audit_package.py "export/field-rak-water-hobo-v7-$BUILD_TAG-unified.uf2" "export/field-rak-water-hobo-v7-$BUILD_TAG-unified-OTA.zip"
+          (cd export && sha256sum *.uf2 *.zip) > export/SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: RAK-Water-HOBO-V7-unified
+          path: export/*
+          if-no-files-found: error
+          retention-days: 30
