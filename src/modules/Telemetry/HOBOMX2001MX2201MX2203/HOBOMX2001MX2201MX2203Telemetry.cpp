@@ -197,6 +197,17 @@ static constexpr uint8_t HOBO_LED_LEVEL = 160;
 static constexpr float HOBO_LED_CURRENT = 10.0f;
 static constexpr char IDENTITY_FILE_PATH[] = "/prefs/hobo_identity.bin";
 static constexpr char LOCK_FILE_PATH[] = "/prefs/hobo_lock.bin";
+static constexpr char BLE_MODE_FILE_PATH[] = "/prefs/hobo_ble_mode.bin";
+
+struct HoboBleModeRecord {
+    uint8_t magic[4];
+    uint8_t version;
+    uint8_t enabled;
+    uint8_t checksum;
+} __attribute__((packed));
+
+bool hoboBleEnabled = true;
+bool hoboBleModeLoaded = false;
 
 static constexpr uint32_t MX2201_MIN_RAW = 400;
 static constexpr uint32_t MX2201_MAX_RAW = 2400;
@@ -298,6 +309,88 @@ void releaseHandshakeWake(bool successful, uint32_t now)
     } else {
         LOG_WARN("HOBO universal: handshake wake budget expired; sleeping for %lu sec before retry",
                  static_cast<unsigned long>(HANDSHAKE_WAKE_COOLDOWN_MS / 1000UL));
+    }
+}
+
+uint8_t hoboBleModeChecksum(const HoboBleModeRecord &record)
+{
+    const uint8_t *bytes = reinterpret_cast<const uint8_t *>(&record);
+    uint8_t checksum = 0;
+    for (size_t i = 0; i < sizeof(HoboBleModeRecord) - 1; ++i)
+        checksum ^= bytes[i];
+    return checksum;
+}
+
+void loadHoboBleMode()
+{
+    if (hoboBleModeLoaded)
+        return;
+
+    hoboBleModeLoaded = true;
+    hoboBleEnabled = true; // Preserve the V6 behavior until an operator opts out.
+
+    HoboBleModeRecord record = {};
+    size_t count = 0;
+    {
+        concurrency::LockGuard guard(spiLock);
+        File file = FSCom.open(BLE_MODE_FILE_PATH, FILE_O_READ);
+        if (!file)
+            return;
+        count = file.read(reinterpret_cast<uint8_t *>(&record), sizeof(record));
+        file.close();
+    }
+
+    if (count != sizeof(record) || memcmp(record.magic, "HBM1", 4) != 0 || record.version != 1 ||
+        record.enabled > 1 || record.checksum != hoboBleModeChecksum(record)) {
+        LOG_WARN("HOBO BLE: ignoring invalid saved mode");
+        return;
+    }
+
+    hoboBleEnabled = record.enabled != 0;
+    LOG_INFO("HOBO BLE: restored central mode %s", hoboBleEnabled ? "ON" : "OFF");
+}
+
+bool saveHoboBleMode(bool enabled)
+{
+    HoboBleModeRecord record = {{'H', 'B', 'M', '1'}, 1, static_cast<uint8_t>(enabled ? 1 : 0), 0};
+    record.checksum = hoboBleModeChecksum(record);
+
+    size_t written = 0;
+    {
+        concurrency::LockGuard guard(spiLock);
+        FSCom.remove(BLE_MODE_FILE_PATH);
+        File file = FSCom.open(BLE_MODE_FILE_PATH, FILE_O_WRITE);
+        if (!file)
+            return false;
+        written = file.write(reinterpret_cast<const uint8_t *>(&record), sizeof(record));
+        file.flush();
+        file.close();
+    }
+    return written == sizeof(record);
+}
+
+void stopHoboCentral()
+{
+    releaseHandshakeWake(true, millis());
+    if (!initialized)
+        return;
+
+    concurrency::LockGuard guard(&bleLifecycleLock);
+    Bluefruit.Scanner.stop();
+    scanRestartRequested = false;
+    scanRetryDueMs = 0;
+    recoveryPending = false;
+
+    if (connected && connectionHandle != BLE_CONN_HANDLE_INVALID) {
+        if (!Bluefruit.disconnect(connectionHandle))
+            LOG_WARN("HOBO BLE: central disconnect failed while disabling");
+    } else if (connecting) {
+        const uint32_t status = sd_ble_gap_connect_cancel();
+        if (status != NRF_SUCCESS && status != NRF_ERROR_INVALID_STATE)
+            LOG_WARN("HOBO BLE: connect cancel returned %lu", static_cast<unsigned long>(status));
+        connecting = false;
+        connectAttemptStartedMs = 0;
+        connectTimedOut = false;
     }
 }
 
@@ -792,12 +885,17 @@ void triggerBleRecovery(const char *reason);
 
 void resumeScanner()
 {
+    if (!hoboBleEnabled)
+        return;
     if (!Bluefruit.Scanner.resume())
         scanRestartRequested = true;
 }
 
 bool restartScanner(uint32_t now)
 {
+    if (!hoboBleEnabled)
+        return false;
+
     concurrency::LockGuard guard(&bleLifecycleLock);
     if (connecting || connected || recoveryPending || Bluefruit.Central.connected())
         return false;
@@ -834,7 +932,7 @@ void bleEventCallback(ble_evt_t *event)
 
 void scanCallback(ble_gap_evt_adv_report_t *report)
 {
-    if (report == nullptr)
+    if (!hoboBleEnabled || report == nullptr)
         return;
 
     concurrency::LockGuard guard(&bleLifecycleLock);
@@ -1057,6 +1155,9 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
 
 void triggerBleRecovery(const char *reason)
 {
+    if (!hoboBleEnabled)
+        return;
+
     requestHoboLedPattern(HoboLedPattern::FAILURE_RED);
     concurrency::LockGuard guard(&bleLifecycleLock);
     if (bleRecoveryCycles < UINT8_MAX)
@@ -1086,6 +1187,9 @@ void triggerBleRecovery(const char *reason)
 
 void initializeClient()
 {
+    if (!hoboBleEnabled)
+        return;
+
     LOG_INFO("HOBO universal bridge: MX2001 + MX2201 + MX2203");
 
     loadLoggerLock();
@@ -1170,10 +1274,8 @@ const uint8_t *meta8Command(size_t &length)
 HOBOMX2001MX2201MX2203TelemetryModule::HOBOMX2001MX2201MX2203TelemetryModule()
     : SinglePortModule("HOBOMX2001MX2201MX2203", meshtastic_PortNum_PRIVATE_APP), concurrency::OSThread("HOBOMX2001MX2201MX2203")
 {
-    // Claim wake during module creation, before the first idle-loop sleep. USB
-    // serial was already doing this from boot; waiting until runOnce() left a
-    // 15-second battery-mode gap before the original wake request.
-    requestHandshakeWake(millis());
+    // The saved HOBO BLE mode is loaded after the filesystem is available in
+    // runOnce(). Do not claim the high-current handshake wake before that.
     isPromiscuous = true;
     setIntervalFromNow(500);
 }
@@ -1211,9 +1313,46 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
         ++hubText;
     for (char *p = hubText; *p; ++p)
         *p = static_cast<char>(toupper(static_cast<unsigned char>(*p)));
+    if (!hoboBleModeLoaded)
+        loadHoboBleMode();
+
+    if (strcmp(hubText, "HOBO BLE") == 0 || strcmp(hubText, "HOBO BLE STATUS") == 0 ||
+        strcmp(hubText, "BLE STATUS") == 0) {
+        sendTextReply(mp.from, mp.channel,
+                      hoboBleEnabled ? "HOBO BLE: ON. Central scanner and HOBO links are enabled."
+                                     : "HOBO BLE: OFF. Central scanner and HOBO links are stopped.");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (strcmp(hubText, "HOBO BLE OFF") == 0 || strcmp(hubText, "BLE OFF") == 0) {
+        if (!saveHoboBleMode(false)) {
+            sendTextReply(mp.from, mp.channel, "HOBO BLE OFF failed: mode was not saved");
+            return ProcessMessage::CONTINUE;
+        }
+        hoboBleEnabled = false;
+        stopHoboCentral();
+        sendTextReply(mp.from, mp.channel,
+                      "HOBO BLE OFF saved: central scanning, connections and retries stopped; LoRa water telemetry remains on.");
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (strcmp(hubText, "HOBO BLE ON") == 0 || strcmp(hubText, "BLE ON") == 0) {
+        if (!saveHoboBleMode(true)) {
+            sendTextReply(mp.from, mp.channel, "HOBO BLE ON failed: mode was not saved");
+            return ProcessMessage::CONTINUE;
+        }
+        hoboBleEnabled = true;
+        if (initialized)
+            restartScanner(millis());
+        sendTextReply(mp.from, mp.channel, "HOBO BLE ON saved: central scan/reconnect enabled.");
+        return ProcessMessage::CONTINUE;
+    }
+
     if (strcmp(hubText, "HOBO RESTART") == 0) {
-        // Use the existing central-link recovery state machine. Never reset
-        // LoRa or clear the saved logger lock, channels, or calibration.
+        if (!hoboBleEnabled) {
+            sendTextReply(mp.from, mp.channel, "HOBO RESTART ignored: HOBO BLE is OFF. Send HOBO BLE ON first.");
+            return ProcessMessage::CONTINUE;
+        }
         triggerBleRecovery("operator requested HOBO RESTART");
         sendTextReply(mp.from, mp.channel, "HOBO RESTART: BLE central reconnect queued; saved logger lock retained");
         return ProcessMessage::CONTINUE;
@@ -1543,6 +1682,11 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 
     if (now < 15000)
         return 500;
+
+    if (!hoboBleModeLoaded)
+        loadHoboBleMode();
+    if (!hoboBleEnabled)
+        return 30000;
 
     if (!initialized) {
         initializeClient();
