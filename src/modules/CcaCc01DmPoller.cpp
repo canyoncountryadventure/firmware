@@ -4,6 +4,7 @@
 #include "MeshService.h"
 #include "Router.h"
 #include "NodeDB.h"
+#include "mesh/Throttle.h"
 #include "main.h"
 #include "gps/RTC.h"
 #include <Preferences.h>
@@ -15,6 +16,18 @@
 #include <cstring>
 namespace {
 constexpr uint32_t CC01_POLL_NODE = 1695962694UL;
+constexpr uint32_t MATHESON_POLL_NODE = 2004386937UL;
+
+bool validPollIntervalMinutes(uint32_t minutes)
+{
+    switch (minutes) {
+    case 5: case 10: case 15: case 20: case 30: case 60: case 120:
+    case 180: case 360: case 720: case 1440:
+        return true;
+    default:
+        return false;
+    }
+}
 }
 bool HoboHttpGatewayModule::sendCc01Text(uint32_t to, const char *command)
 {
@@ -32,6 +45,7 @@ bool HoboHttpGatewayModule::sendCc01Text(uint32_t to, const char *command)
     packet->want_ack = true;
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     if (to == CC01_POLL_NODE) ++cc01Requests;
+    if (to == MATHESON_POLL_NODE) ++mathesonRequests;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
     return true; // Queued, not proof of RF reception.
 }
@@ -48,15 +62,19 @@ void HoboHttpGatewayModule::persistCc01Settings()
         prefs.putBool("hobo", cc01HoboEnabled);
         prefs.putUInt("admin", cc01AdminNode);
         prefs.putUInt("version", cc01ConfigVersion);
+        prefs.putUShort("cc01_interval", cc01IntervalOverrideMinutes);
+        prefs.putUShort("matheson_interval", mathesonIntervalMinutes);
         prefs.end();
     }
 }
 void HoboHttpGatewayModule::pollCc01()
 {
     const uint32_t now = millis();
-    const uint32_t interval = cc01FastMode ? CC01_FAST_INTERVAL_MS : CC01_NORMAL_INTERVAL_MS;
+    const uint32_t interval = cc01IntervalOverrideMinutes ?
+        static_cast<uint32_t>(cc01IntervalOverrideMinutes) * 60UL * 1000UL :
+        (cc01FastMode ? CC01_FAST_INTERVAL_MS : CC01_NORMAL_INTERVAL_MS);
     const bool due = !cc01PollStarted ? now >= 120000UL :
-                     static_cast<uint32_t>(now - cc01LastPollMs) >= interval;
+                     !Throttle::isWithinTimespanMs(cc01LastPollMs, interval);
     if (due) {
         cc01PollStarted = true;
         cc01LastPollMs = now;
@@ -79,10 +97,10 @@ void HoboHttpGatewayModule::pollCc01()
         cc01Phase = Cc01Phase::Done;
     }
     if (cc01Phase == Cc01Phase::Done) return;
-    if (cc01HasDmSent && static_cast<uint32_t>(now-cc01LastDmSendMs)<CC01_DM_SPACING_MS) return;
+    if (cc01HasDmSent && Throttle::isWithinTimespanMs(cc01LastDmSendMs, CC01_DM_SPACING_MS)) return;
     if (cc01Phase == Cc01Phase::Water) {
         if (cc01WaterAttempts > 0 &&
-            static_cast<uint32_t>(now-cc01WaterRequestMs)<CC01_REPLY_TIMEOUT_MS) return;
+            Throttle::isWithinTimespanMs(cc01WaterRequestMs, CC01_REPLY_TIMEOUT_MS)) return;
         if (cc01WaterAttempts >= CC01_ATTEMPT_LIMIT) {
             cc01WaterPending = false;
             cc01Phase = cc01HoboPending && cc01HoboEnabled ? Cc01Phase::Hobo : Cc01Phase::Done;
@@ -97,7 +115,7 @@ void HoboHttpGatewayModule::pollCc01()
         return;
     }
     if (cc01HoboAttempts > 0 &&
-        static_cast<uint32_t>(now-cc01HoboRequestMs)<CC01_REPLY_TIMEOUT_MS) return;
+        Throttle::isWithinTimespanMs(cc01HoboRequestMs, CC01_REPLY_TIMEOUT_MS)) return;
     if (cc01HoboAttempts >= CC01_ATTEMPT_LIMIT) {
         cc01HoboPending = false; cc01Phase = Cc01Phase::Done;
         return;
@@ -107,6 +125,44 @@ void HoboHttpGatewayModule::pollCc01()
         if (cc01HoboAttempts > 1) ++cc01HoboRetries;
         cc01HoboRequestMs = now;
         cc01LastDmSendMs = now; cc01HasDmSent = true;
+    }
+}
+
+void HoboHttpGatewayModule::pollMatheson()
+{
+    if (!cc01PollStarted || cc01Phase != Cc01Phase::Done)
+        return;
+
+    const uint32_t now = millis();
+    const uint32_t interval = static_cast<uint32_t>(mathesonIntervalMinutes) * 60UL * 1000UL;
+    const bool due = !mathesonPollStarted ||
+        !Throttle::isWithinTimespanMs(mathesonLastPollMs, interval);
+    if (due) {
+        mathesonPollStarted = true;
+        mathesonLastPollMs = now;
+        mathesonHoboPending = true;
+        mathesonHoboAttempts = 0;
+        mathesonPhase = MathesonPhase::Hobo;
+        LOG_INFO("CCA Matheson cycle: interval=%u min after CC01", mathesonIntervalMinutes);
+    }
+
+    if (mathesonPhase != MathesonPhase::Hobo || !mathesonHoboPending)
+        return;
+    if (cc01HasDmSent && Throttle::isWithinTimespanMs(cc01LastDmSendMs, CC01_DM_SPACING_MS))
+        return;
+    if (mathesonHoboAttempts > 0 &&
+        Throttle::isWithinTimespanMs(mathesonHoboRequestMs, MATHESON_REPLY_TIMEOUT_MS))
+        return;
+    if (mathesonHoboAttempts >= MATHESON_ATTEMPT_LIMIT) {
+        mathesonHoboPending = false;
+        mathesonPhase = MathesonPhase::Done;
+        return;
+    }
+    if (sendCc01Text(MATHESON_POLL_NODE, "READ")) {
+        ++mathesonHoboAttempts;
+        mathesonHoboRequestMs = now;
+        cc01LastDmSendMs = now;
+        cc01HasDmSent = true;
     }
 }
 void HoboHttpGatewayModule::queueCc01SensorStatus(const meshtastic_MeshPacket &mp, const char *sensor, const char *reason)
@@ -192,6 +248,44 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
         LOG_WARN("CCA CC01 reply rejected: %u bytes", static_cast<unsigned>(n));
     }
 }
+
+void HoboHttpGatewayModule::handleMathesonReply(const meshtastic_MeshPacket &mp)
+{
+    ++mathesonReplies;
+    mathesonLastReplyMs = millis();
+    const size_t n = mp.decoded.payload.size;
+    if (!n || n >= 240) { ++mathesonRejected; return; }
+    char reply[241] = {};
+    memcpy(reply, mp.decoded.payload.bytes, n);
+    String normalized(reply); normalized.toUpperCase();
+    if (normalized.indexOf("HOBO UNAVAILABLE") >= 0) {
+        if (mathesonPhase == MathesonPhase::Hobo && mathesonHoboPending) {
+            queueCc01SensorStatus(mp, "hobo", "ble_unavailable");
+            mathesonHoboPending = false;
+            mathesonPhase = MathesonPhase::Done;
+        }
+        return;
+    }
+    cca_cc01_dm::HoboReading hobo;
+    if (!cca_cc01_dm::parseHoboRead(reply, hobo)) { ++mathesonRejected; return; }
+
+    UploadJob job = {};
+    job.type = JobType::MX2001;
+    fillCommon(job, mp);
+    job.dmPollResult = true;
+    job.waterLevelFt = hobo.levelFeet;
+    job.temperatureF = hobo.temperatureF;
+    job.temperatureC = (hobo.temperatureF - 32.0f) * (5.0f / 9.0f);
+    job.bleRssi = static_cast<int8_t>(hobo.bleRssi);
+    snprintf(job.loggerMac, sizeof(job.loggerMac), "%s", hobo.mac);
+    snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
+    if (!uploadQueue.enqueue(job, 0)) { ++cc01QueueFull; return; }
+    ++mathesonParsed;
+    ++mathesonQueued;
+    mathesonHoboPending = false;
+    mathesonPhase = MathesonPhase::Done;
+    setIntervalFromNow(0);
+}
 void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
 {
     if (!cc01AdminNode || getFrom(&mp)!=cc01AdminNode) return;
@@ -205,14 +299,34 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
     else if (text=="RESUME HOBO") cc01HoboEnabled=true;
     else if (text=="PAUSE SENSOR") cc01WaterEnabled=false;
     else if (text=="RESUME SENSOR") cc01WaterEnabled=true;
-    else if (text=="POLL STATUS") { /* query only */ }
-    else known=false;
+    else if (text=="POLL COTTONWOOD AUTO" || text=="POLL CC01 AUTO") {
+        cc01IntervalOverrideMinutes=0;
+    } else if (text=="POLL STATUS") { /* query only */ }
+    else {
+        char target[16] = {};
+        unsigned long minutes = 0;
+        if (sscanf(text.c_str(), "POLL %15s %lu", target, &minutes) == 2 &&
+            validPollIntervalMinutes(minutes)) {
+            String node(target); node.toUpperCase();
+            if (node == "COTTONWOOD" || node == "CC01")
+                cc01IntervalOverrideMinutes = static_cast<uint16_t>(minutes);
+            else if (node == "MATHESON")
+                mathesonIntervalMinutes = static_cast<uint16_t>(minutes);
+            else
+                known = false;
+        } else {
+            known = false;
+        }
+    }
     if (!known) return;
     if (text!="POLL STATUS") persistCc01Settings();
-    String result = String("CC01 polling: sensor ") + (cc01WaterEnabled?"ON":"PAUSED") +
+    String result = String("Polling: Cottonwood ") +
+                    (cc01IntervalOverrideMinutes ? String(cc01IntervalOverrideMinutes) : String(cc01FastMode ? 15 : 60)) +
+                    " min" + (cc01IntervalOverrideMinutes ? " fixed" : " auto") +
+                    ", Matheson " + String(mathesonIntervalMinutes) + " min; sensor " +
+                    (cc01WaterEnabled?"ON":"PAUSED") +
                     ", HOBO " + (cc01HoboEnabled?"ON":"PAUSED") +
-                    ", interval " + (cc01FastMode?"15":"60") +
-                    "min, config v" + String(cc01ConfigVersion);
+                    ", config v" + String(cc01ConfigVersion);
     sendCc01Text(getFrom(&mp),result.c_str());
 }
 void HoboHttpGatewayModule::refreshCc01CloudControl()

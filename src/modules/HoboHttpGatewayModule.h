@@ -48,7 +48,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint32_t healthCycles() const { return healthLoopCycles; }
     uint32_t healthHttpAttempts() const { return healthPostAttempts; }
     uint32_t healthHttpAccepted() const { return uploadedJobs; }
-    uint32_t healthDmRequests() const { return cc01Requests; }
+    uint32_t healthDmRequests() const { return cc01Requests + mathesonRequests; }
     uint32_t healthQueueUsed() { return uploadQueue.numUsed(); }
     int healthLastHttpStatus() const { return lastHttpStatus; }
 
@@ -146,6 +146,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     // Ordered CC01 sensor cycle: water first, HOBO second, each at most 3 attempts.
     // All times are monotonic millis; a sensor fault never schedules a reboot.
     enum class Cc01Phase : uint8_t { Idle, Water, Hobo, Done };
+    enum class MathesonPhase : uint8_t { Idle, Hobo, Done };
     Cc01Phase cc01Phase = Cc01Phase::Idle;
     bool cc01PollStarted = false;
     bool cc01WaterPending = false;
@@ -164,6 +165,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint32_t cc01HoboRequestMs = 0;
     uint32_t cc01LastDmSendMs = 0;
     uint32_t cc01NextConfigMs = 0;
+    uint16_t cc01IntervalOverrideMinutes = 0;
     uint8_t cc01WaterAttempts = 0;
     uint8_t cc01HoboAttempts = 0;
     static constexpr uint32_t CC01_NORMAL_INTERVAL_MS = 60UL * 60UL * 1000UL;
@@ -172,6 +174,16 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     static constexpr uint32_t CC01_DM_SPACING_MS = 3000UL;
     static constexpr uint8_t CC01_ATTEMPT_LIMIT = 3;
     static constexpr uint8_t CC01_LONGFAST_CHANNEL = 1;
+
+    MathesonPhase mathesonPhase = MathesonPhase::Idle;
+    bool mathesonPollStarted = false;
+    bool mathesonHoboPending = false;
+    uint16_t mathesonIntervalMinutes = 60;
+    uint32_t mathesonLastPollMs = 0;
+    uint32_t mathesonHoboRequestMs = 0;
+    uint8_t mathesonHoboAttempts = 0;
+    static constexpr uint32_t MATHESON_REPLY_TIMEOUT_MS = 30UL * 1000UL;
+    static constexpr uint8_t MATHESON_ATTEMPT_LIMIT = 3;
 
     uint32_t cc01WaterRetries = 0;
     uint32_t cc01HoboRetries = 0;
@@ -191,14 +203,22 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     int cc01LastHttpStatus = 0;
     uint32_t cc01LastUploadPacket = 0;
     uint32_t cc01LastUploadMs = 0;
+    uint32_t mathesonRequests = 0;
+    uint32_t mathesonReplies = 0;
+    uint32_t mathesonParsed = 0;
+    uint32_t mathesonQueued = 0;
+    uint32_t mathesonRejected = 0;
+    uint32_t mathesonLastReplyMs = 0;
     int lastHttpStatus = 0;
     uint32_t uploadedJobs = 0;
     uint32_t healthLoopCycles = 0;
     uint32_t healthPostAttempts = 0;
 
     void pollCc01();
+    void pollMatheson();
     bool sendCc01Dm(const char *command);
     void handleCc01Reply(const meshtastic_MeshPacket &mp);
+    void handleMathesonReply(const meshtastic_MeshPacket &mp);
     void handleCc01ControlDm(const meshtastic_MeshPacket &mp);
     void refreshCc01CloudControl();
     void persistCc01Settings();

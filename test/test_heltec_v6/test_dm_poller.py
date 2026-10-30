@@ -35,8 +35,14 @@ enum class ProcessMessage { CONTINUE };
 #define LOG_WARN(...) do {} while(0)
 uint32_t fakeTime=0;
 uint32_t millis(){return fakeTime;}
+struct Throttle { static bool isWithinTimespanMs(uint32_t then,uint32_t interval){return uint32_t(fakeTime-then)<interval;} };
 struct String:std::string {
  using std::string::string;
+ String(unsigned long value):std::string(std::to_string(value)){}
+ String(unsigned int value):std::string(std::to_string(value)){}
+ String(int value):std::string(std::to_string(value)){}
+ String(const std::string& value):std::string(value){}
+ void trim(){}
  void toUpperCase(){std::transform(begin(),end(),begin(),[](unsigned char c){return std::toupper(c);});}
  int indexOf(const char *p) const {auto i=find(p);return i==npos?-1:static_cast<int>(i);}
  bool startsWith(const char*p)const{return rfind(p,0)==0;}
@@ -54,8 +60,12 @@ struct meshtastic_MeshPacket{
 """
 impl=r"""
 void HoboHttpGatewayModule::fillCommon(UploadJob&j,const meshtastic_MeshPacket&m){j.packetId=m.id;j.from=m.from;}
+constexpr uint32_t MATHESON_POLL_NODE=2004386937UL;
+uint32_t getFrom(const meshtastic_MeshPacket*p){return p->from;}
+bool validPollIntervalMinutes(uint32_t m){return m==5||m==10||m==15||m==20||m==30||m==60||m==120||m==180||m==360||m==720||m==1440;}
 void HoboHttpGatewayModule::persistCc01Settings(){}
-bool HoboHttpGatewayModule::sendCc01Dm(const char*cmd){cc01Requests++;requests.emplace_back(cmd);return true;}
+bool HoboHttpGatewayModule::sendCc01Text(uint32_t to,const char*cmd){if(to==1695962694UL)++cc01Requests;if(to==2004386937UL)++mathesonRequests;requests.emplace_back(cmd);return true;}
+bool HoboHttpGatewayModule::sendCc01Dm(const char*cmd){return sendCc01Text(1695962694UL,cmd);}
 void HoboHttpGatewayModule::queueCc01SensorStatus(const meshtastic_MeshPacket&,const char*s,const char*r){failures.push_back(std::string(s)+":"+r);}
 meshtastic_MeshPacket packet(const char*s){meshtastic_MeshPacket p;p.decoded.payload.size=strlen(s);memcpy(p.decoded.payload.bytes,s,strlen(s));return p;}
 int main(){
@@ -73,6 +83,14 @@ int main(){
  HoboHttpGatewayModule good;fakeTime=120000;good.pollCc01();good.handleCc01Reply(water);
  fakeTime=123000;good.pollCc01();assert(good.requests.back()=="READ");
  good.handleCc01Reply(hobo);assert(good.cc01Phase==HoboHttpGatewayModule::Cc01Phase::Done);
+ good.pollMatheson();assert(good.mathesonRequests==0);
+ fakeTime=126000;good.pollMatheson();assert(good.mathesonRequests==1&&good.requests.back()=="READ");
+ auto matheson=hobo;matheson.from=MATHESON_POLL_NODE;good.handleMathesonReply(matheson);
+ assert(good.mathesonQueued==1&&good.mathesonPhase==HoboHttpGatewayModule::MathesonPhase::Done);
+ fakeTime+=60*60000;good.pollMatheson();assert(good.mathesonRequests==2&&good.requests.back()=="READ");
+ HoboHttpGatewayModule control;control.cc01AdminNode=99;auto admin=packet("POLL MATHESON 30");admin.from=99;control.handleCc01ControlDm(admin);
+ assert(control.mathesonIntervalMinutes==30);admin=packet("POLL COTTONWOOD 20");admin.from=99;control.handleCc01ControlDm(admin);
+ assert(control.cc01IntervalOverrideMinutes==20);admin=packet("POLL COTTONWOOD AUTO");admin.from=99;control.handleCc01ControlDm(admin);assert(control.cc01IntervalOverrideMinutes==0);
  HoboHttpGatewayModule down;fakeTime=120000;down.pollCc01();down.handleCc01Reply(water);
  fakeTime=123000;down.pollCc01();down.handleCc01Reply(packet("HOBO unavailable"));
  assert(down.failures.back()=="hobo:ble_unavailable"&&down.cc01Phase==HoboHttpGatewayModule::Cc01Phase::Done);
@@ -84,11 +102,11 @@ int main(){
  fakeTime=120000+15*60000;fast.pollCc01();assert(fast.cc01WaterAttempts==1);
 }
 """
-code=preamble+body+'\n'+impl+'\n'+extract('pollCc01')+'\n'+extract('handleCc01Reply')
+code=preamble+body+'\n'+impl+'\n'+extract('pollCc01')+'\n'+extract('pollMatheson')+'\n'+extract('handleCc01Reply')+'\n'+extract('handleMathesonReply')+'\n'+extract('handleCc01ControlDm')
 # Move main() after method definitions, otherwise methods are only declared but linking is fine.
 with tempfile.TemporaryDirectory() as folder:
  f=Path(folder)/'test.cpp';f.write_text(code)
  exe=Path(folder)/'test'
  subprocess.run(['g++','-std=c++17','-Wall','-Wextra','-Werror','-I',str(root),str(f),'-o',str(exe)],check=True)
  subprocess.run([str(exe)],check=True)
-print('PASS: V7 ordered poll, 3 x 30s retries, explicit failure, pause, 15-minute mode')
+print('PASS: V7 ordered Cottonwood poll, Matheson follows after CC01, bounded retries, pause, and 15-minute mode')

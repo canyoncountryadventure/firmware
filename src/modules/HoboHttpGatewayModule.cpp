@@ -26,7 +26,7 @@ constexpr uint32_t SWELL_NODE = 1949224949UL;
 constexpr uint32_t HELTEC_HOME_NODE = 2740603892UL;
 constexpr uint32_t MOAB_NODE = 2650172798UL;
 constexpr uint32_t MINI_ME_NODE = 4241345683UL; // !fccdcc93, Mini Me (formerly SMLA)
-constexpr uint32_t WINGATE_SOIL_NODE = 2004386937UL; // !77788479
+constexpr uint32_t MATHESON_NODE = 2004386937UL; // !77788479, U18 groundwater
 constexpr uint32_t CLIFF_SENSOR_NODE = 3388602087UL; // !c9f9f6e7
 constexpr uint32_t CC01_NODE = 1695962694UL; // !65165646
 constexpr uint32_t CC02_NODE = 2425602407UL; // !9093c167
@@ -110,6 +110,8 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         cc01FastMode = saved.getBool("fast", false);
         cc01AdminNode = saved.getUInt("admin", 0);
         cc01ConfigVersion = saved.getUInt("version", 0);
+        cc01IntervalOverrideMinutes = saved.getUShort("cc01_interval", 0);
+        mathesonIntervalMinutes = saved.getUShort("matheson_interval", 60);
         saved.end();
     }
     setInterval(1000);
@@ -131,6 +133,8 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
         if (nodeDB == nullptr)
             return false;
         const bool addressedToUs = getFrom(p) == CC01_NODE && p->to == nodeDB->getNodeNum();
+        const bool mathesonReply = getFrom(p) == MATHESON_NODE && p->to == nodeDB->getNodeNum() &&
+            (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL);
         if (cc01AdminNode != 0 && getFrom(p) == cc01AdminNode && p->to == nodeDB->getNodeNum() &&
             (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL))
             return true;
@@ -141,7 +145,7 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
             LOG_WARN("CCA CC01 DM poll: ignored reply on unexpected channel %u, PKI=%u",
                      static_cast<unsigned>(p->channel), static_cast<unsigned>(p->pki_encrypted));
         }
-        return accepted;
+        return accepted || mathesonReply;
     }
     if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
         p->decoded.portnum != meshtastic_PortNum_TELEMETRY_APP)
@@ -156,7 +160,7 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
     // IDs only: public station names and sensor labels are assigned by Vercel.
     if (from != HIDDEN_VALLEY_NODE && from != REVIVED_NODE && from != FISHLAKE_NODE &&
         from != SWELL_NODE && from != HELTEC_HOME_NODE && from != MOAB_NODE &&
-        from != MINI_ME_NODE && from != WINGATE_SOIL_NODE && from != CLIFF_SENSOR_NODE &&
+        from != MINI_ME_NODE && from != MATHESON_NODE && from != CLIFF_SENSOR_NODE &&
         from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE &&
         from != SEED_RELAY_1_NODE && from != COTTONWOOD_RELAY_2_NODE)
         return false;
@@ -351,7 +355,7 @@ bool HoboHttpGatewayModule::enqueueMoisturePir(const meshtastic_MeshPacket &mp)
 
 bool HoboHttpGatewayModule::enqueueSoil(const meshtastic_MeshPacket &mp)
 {
-    if (getFrom(&mp) != 2004386937UL) // Wingate Moisture node ID
+    if (getFrom(&mp) != MATHESON_NODE)
         return false;
     // RAK SEN0308 v3 emits SM/version-1: percentage, ADC10 and LE16 sequence.
     // It also emits a standard moisture-only telemetry packet; forwarding this
@@ -492,6 +496,7 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
     }
     if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
         if (getFrom(&mp) == CC01_NODE) handleCc01Reply(mp);
+        else if (getFrom(&mp) == MATHESON_NODE) handleMathesonReply(mp);
         else if (cc01AdminNode != 0 && getFrom(&mp) == cc01AdminNode) handleCc01ControlDm(mp);
         return ProcessMessage::CONTINUE;
     }
@@ -703,7 +708,7 @@ String HoboHttpGatewayModule::statusJson()
     const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
                         cc01Phase == Cc01Phase::Hobo ? "waiting_hobo" :
                         cc01Phase == Cc01Phase::Done ? "done" : "idle";
-    String body = "{\"firmware_fix\":\"v7-mill-creek-2026-10-26\"";
+    String body = "{\"firmware_fix\":\"v7-matheson-poll-2026-10-30\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -734,6 +739,7 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"water_enabled\":" + String(cc01WaterEnabled ? "true":"false");
     body += ",\"hobo_enabled\":" + String(cc01HoboEnabled ? "true":"false");
     body += ",\"fast_mode\":" + String(cc01FastMode ? "true":"false");
+    body += ",\"interval_override_minutes\":" + String(cc01IntervalOverrideMinutes);
     body += ",\"latest_stage_ft\":" + (cc01HaveStage ? String(cc01LastStageFt,3) : "null");
     body += ",\"config_version\":" + String(cc01ConfigVersion);
     body += ",\"replies\":" + String(cc01Replies);
@@ -751,6 +757,16 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"last_http_status\":" + String(cc01LastHttpStatus);
     body += ",\"last_upload_packet\":" + String(cc01LastUploadPacket);
     body += ",\"last_upload_ms\":" + String(cc01LastUploadMs);
+    body += "},\"matheson\":{\"poll_state\":" + jsonQuoted(
+        mathesonPhase == MathesonPhase::Hobo ? "waiting_hobo" :
+        mathesonPhase == MathesonPhase::Done ? "done" : "idle");
+    body += ",\"interval_minutes\":" + String(mathesonIntervalMinutes);
+    body += ",\"requests\":" + String(mathesonRequests);
+    body += ",\"replies\":" + String(mathesonReplies);
+    body += ",\"parsed\":" + String(mathesonParsed);
+    body += ",\"queued\":" + String(mathesonQueued);
+    body += ",\"rejected_format\":" + String(mathesonRejected);
+    body += ",\"last_reply_ms\":" + String(mathesonLastReplyMs);
     body += "}}";
     return body;
 }
@@ -761,6 +777,7 @@ int32_t HoboHttpGatewayModule::runOnce()
     // Polling is LoRa, not Wi-Fi. Keep CC01 WATER READ and READ active even
     // during a Wi-Fi outage; replies queue until upload resumes.
     pollCc01();
+    pollMatheson();
     refreshCc01CloudControl();
 
     if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0)

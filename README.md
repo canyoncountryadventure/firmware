@@ -21,6 +21,8 @@ The October 22 V7 update adds ordered 3-attempt/30-second CC01 requests (WATER R
 
 The October 26 V7 update authorizes Mill Creek at Power Dam (`!6459c5bf`, decimal `1683604927`) for automatic MX2001 and device/battery telemetry. It does not add scheduled DMs to Mill Creek; the existing CC01 polling behavior is unchanged.
 
+The October 30 V7 update polls Matheson Groundwater (`!77788479`, decimal `2004386937`) with `READ` once per hour immediately after the Cottonwood cycle completes. Cottonwood remains WATER READ then READ, with up to three attempts at 30-second gaps; Matheson then has up to three `READ` attempts at the same gap. The control radio can persist fixed intervals: `POLL COTTONWOOD <minutes>`, `POLL MATHESON <minutes>`, or `POLL COTTONWOOD AUTO` to restore Cottonwood's stage-adaptive 15/60-minute schedule. Accepted intervals are 5, 10, 15, 20, 30, 60, 120, 180, 360, 720 and 1440 minutes.
+
 The new progress supervisor runs inside the ESP32 main loop and tracks **real radio RX and hardware TX_DONE interrupts**, gateway worker progress, HTTPS POST attempts, Wi-Fi status and successful cloud uploads. It schedules recovery for a stopped worker (2 minutes), no RX *and* no completed TX despite DM requests (60 minutes), no RX with successful TX (guarded radio reinitialization at 90 minutes, reboot after 3 hours), stuck HTTP upload queue (10 minutes without POST attempts), prolonged negative HTTPS transport failures (60 minutes), and prolonged Wi-Fi loss (60 minutes). It caps consecutive **health-triggered** reboots at two until the gateway demonstrates successful RX and cloud upload during one hour of uptime. Existing scheduled Meshtastic reboots remain unchanged.
 
 **No unconditional 3-hour reboot.** Missing radio traffic can also mean all field nodes are unreachable, not necessarily that Heltec failed. The software health supervisor cannot replace an *external* hardware watchdog for complete SoC/power lockups. Restarts can discard unsent in-RAM telemetry.
@@ -31,7 +33,7 @@ V7 moves scheduled Cottonwood RF DMs ahead of the Wi-Fi-connected check. Thus re
 
 Use the **non-factory** `Heltec-Gateway-v7-10-26-26.bin` for the existing Meshtastic Wi-Fi Unified OTA workflow. Preserve NVS, encryption keys, channel settings, node identity and OTA partitions. The ZIP may contain factory/full-flash images which are **not** the normal Wi-Fi OTA target.
 
-After the upgrade, check `http://192.168.1.147/json/gateway` (or the device's current LAN IP). Expected marker: `v7-mill-creek-2026-10-26`. Verify Mill Creek automatic readings, existing automatic readings and CC01 DM-triggered readings reach Neon and that the supervisor's recovery counters remain sensible.
+After the upgrade, check `http://192.168.1.147/json/gateway` (or the device's current LAN IP). Expected marker: `v7-matheson-poll-2026-10-30`. Verify the `cc01` and `matheson` counters, Mill Creek automatic readings, existing automatic readings, and CC01/Matheson DM-triggered readings reach Neon.
 
 ---
 
