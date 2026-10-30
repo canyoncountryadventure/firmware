@@ -17,6 +17,8 @@
 namespace {
 constexpr uint32_t CC01_POLL_NODE = 1695962694UL;
 constexpr uint32_t MATHESON_POLL_NODE = 2004386937UL;
+constexpr uint32_t MILL_CREEK_POLL_NODE = 1683604927UL;
+constexpr uint32_t PACK_CREEK_POLL_NODE = 1949224949UL;
 
 bool validPollIntervalMinutes(uint32_t minutes)
 {
@@ -27,6 +29,43 @@ bool validPollIntervalMinutes(uint32_t minutes)
     default:
         return false;
     }
+}
+uint32_t pollNodeForName(const String &name)
+{
+    if (name == "COTTONWOOD" || name == "COTTONWOOD CREEK" || name == "CC01") return CC01_POLL_NODE;
+    if (name == "MATHESON" || name == "MATHESON GROUNDWATER") return MATHESON_POLL_NODE;
+    if (name == "MILL CREEK" || name == "MILL") return MILL_CREEK_POLL_NODE;
+    if (name == "PACK CREEK" || name == "PACK") return PACK_CREEK_POLL_NODE;
+
+    const char *number = name.c_str();
+    int base = 10;
+    if (*number == '!') {
+        ++number;
+        base = 16;
+    } else if (number[0] == '0' && number[1] == 'X') {
+        number += 2;
+        base = 16;
+    }
+    if (!*number) return 0;
+    char *end = nullptr;
+    const unsigned long parsed = strtoul(number, &end, base);
+    return end != number && *end == '\0' && parsed != 0 && parsed <= UINT32_MAX
+        ? static_cast<uint32_t>(parsed) : 0;
+}
+
+String popPollToken(String &value)
+{
+    value.trim();
+    const int split = value.lastIndexOf(' ');
+    if (split < 0) {
+        String token = value;
+        value = "";
+        return token;
+    }
+    String token = value.substring(split + 1);
+    value = value.substring(0, split);
+    value.trim();
+    return token;
 }
 }
 bool HoboHttpGatewayModule::sendCc01Text(uint32_t to, const char *command)
@@ -46,6 +85,8 @@ bool HoboHttpGatewayModule::sendCc01Text(uint32_t to, const char *command)
     packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
     if (to == CC01_POLL_NODE) ++cc01Requests;
     if (to == MATHESON_POLL_NODE) ++mathesonRequests;
+    if (configuredPollActive >= 0 &&
+        to == configuredPolls[configuredPollActive].node) ++configuredPollRequests;
     service->sendToMesh(packet, RX_SRC_LOCAL, true);
     return true; // Queued, not proof of RF reception.
 }
@@ -64,6 +105,15 @@ void HoboHttpGatewayModule::persistCc01Settings()
         prefs.putUInt("version", cc01ConfigVersion);
         prefs.putUShort("cc01_interval", cc01IntervalOverrideMinutes);
         prefs.putUShort("matheson_interval", mathesonIntervalMinutes);
+        for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
+            char key[18] = {};
+            snprintf(key, sizeof(key), "poll%u_node", i);
+            prefs.putUInt(key, configuredPolls[i].node);
+            snprintf(key, sizeof(key), "poll%u_interval", i);
+            prefs.putUShort(key, configuredPolls[i].intervalMinutes);
+            snprintf(key, sizeof(key), "poll%u_mode", i);
+            prefs.putUChar(key, static_cast<uint8_t>(configuredPolls[i].mode));
+        }
         prefs.end();
     }
 }
@@ -161,6 +211,68 @@ void HoboHttpGatewayModule::pollMatheson()
     if (sendCc01Text(MATHESON_POLL_NODE, "READ")) {
         ++mathesonHoboAttempts;
         mathesonHoboRequestMs = now;
+        cc01LastDmSendMs = now;
+        cc01HasDmSent = true;
+    }
+}
+bool HoboHttpGatewayModule::isConfiguredPollReply(uint32_t from) const
+{
+    return configuredPollActive >= 0 && configuredPollActive < CONFIGURED_POLL_SLOTS &&
+        configuredPolls[configuredPollActive].node == from &&
+        configuredPolls[configuredPollActive].phase != ConfiguredPollPhase::Done;
+}
+
+void HoboHttpGatewayModule::pollConfiguredStations()
+{
+    // Cottonwood is always first; Matheson has the next LoRa window. This
+    // generic table begins only after both station-specific cycles finish.
+    if (!cc01PollStarted || cc01Phase != Cc01Phase::Done || mathesonPhase != MathesonPhase::Done)
+        return;
+
+    const uint32_t now = millis();
+    if (configuredPollActive < 0) {
+        for (uint8_t i = 0; i < CONFIGURED_POLL_SLOTS; ++i) {
+            ConfiguredPoll &candidate = configuredPolls[i];
+            if (!candidate.node || (!candidate.oneShot && !candidate.intervalMinutes))
+                continue;
+            const uint32_t interval = static_cast<uint32_t>(candidate.intervalMinutes) * 60UL * 1000UL;
+            if (candidate.oneShot || !candidate.started ||
+                !Throttle::isWithinTimespanMs(candidate.lastPollMs, interval)) {
+                candidate.started = true;
+                candidate.lastPollMs = now;
+                candidate.attempts = 0;
+                candidate.phase = candidate.mode == ConfiguredPollMode::Water ||
+                    candidate.mode == ConfiguredPollMode::Both ? ConfiguredPollPhase::Water : ConfiguredPollPhase::Read;
+                configuredPollActive = static_cast<int8_t>(i);
+                LOG_INFO("CCA configured poll: node 0x%08lx mode=%u", static_cast<unsigned long>(candidate.node),
+                         static_cast<unsigned>(candidate.mode));
+                break;
+            }
+        }
+    }
+    if (configuredPollActive < 0) return;
+
+    ConfiguredPoll &poll = configuredPolls[configuredPollActive];
+    if (poll.phase == ConfiguredPollPhase::Done) {
+        if (poll.oneShot) poll = ConfiguredPoll{};
+        configuredPollActive = -1;
+        return;
+    }
+    if (cc01HasDmSent && Throttle::isWithinTimespanMs(cc01LastDmSendMs, CC01_DM_SPACING_MS)) return;
+    if (poll.attempts > 0 && Throttle::isWithinTimespanMs(poll.requestMs, CC01_REPLY_TIMEOUT_MS)) return;
+    if (poll.attempts >= CC01_ATTEMPT_LIMIT) {
+        if (poll.phase == ConfiguredPollPhase::Water && poll.mode == ConfiguredPollMode::Both) {
+            poll.phase = ConfiguredPollPhase::Read;
+            poll.attempts = 0;
+        } else {
+            poll.phase = ConfiguredPollPhase::Done;
+        }
+        return;
+    }
+    const char *command = poll.phase == ConfiguredPollPhase::Water ? "WATER READ" : "READ";
+    if (sendCc01Text(poll.node, command)) {
+        ++poll.attempts;
+        poll.requestMs = now;
         cc01LastDmSendMs = now;
         cc01HasDmSent = true;
     }
@@ -286,47 +398,176 @@ void HoboHttpGatewayModule::handleMathesonReply(const meshtastic_MeshPacket &mp)
     mathesonPhase = MathesonPhase::Done;
     setIntervalFromNow(0);
 }
+void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacket &mp)
+{
+    if (!isConfiguredPollReply(getFrom(&mp))) return;
+    ++configuredPollReplies;
+    const size_t n = mp.decoded.payload.size;
+    if (!n || n >= 240) { ++configuredPollRejected; return; }
+    char reply[241] = {};
+    memcpy(reply, mp.decoded.payload.bytes, n);
+    ConfiguredPoll &poll = configuredPolls[configuredPollActive];
+    String normalized(reply); normalized.toUpperCase();
+    if (normalized.indexOf("HOBO UNAVAILABLE") >= 0) {
+        queueCc01SensorStatus(mp, "hobo", "ble_unavailable");
+        poll.phase = ConfiguredPollPhase::Done;
+        return;
+    }
+    if (normalized.startsWith("READ FAILED:")) {
+        // Preserve the retry timer and wait for the bounded re-request.
+        return;
+    }
+
+    cca_cc01_dm::WaterReading water;
+    cca_cc01_dm::HoboReading hobo;
+    UploadJob job = {};
+    if (cca_cc01_dm::parseWaterRead(reply, water)) {
+        job.type = JobType::WATER_DISTANCE;
+        fillCommon(job, mp);
+        job.dmPollResult = true;
+        job.distanceValid = true;
+        job.stageCalibrated = true;
+        job.distanceSensorType = 5;
+        job.distanceMm = water.distanceMm;
+        job.stageMm = static_cast<int32_t>(lroundf(water.stageFeet * 304.8f));
+        if (poll.phase == ConfiguredPollPhase::Water && poll.mode == ConfiguredPollMode::Both) {
+            poll.phase = ConfiguredPollPhase::Read;
+            poll.attempts = 0;
+        } else {
+            poll.phase = ConfiguredPollPhase::Done;
+        }
+    } else if (cca_cc01_dm::parseHoboRead(reply, hobo)) {
+        job.type = JobType::MX2001;
+        fillCommon(job, mp);
+        job.dmPollResult = true;
+        job.waterLevelFt = hobo.levelFeet;
+        job.temperatureF = hobo.temperatureF;
+        job.temperatureC = (hobo.temperatureF - 32.0f) * (5.0f / 9.0f);
+        job.bleRssi = static_cast<int8_t>(hobo.bleRssi);
+        snprintf(job.loggerMac, sizeof(job.loggerMac), "%s", hobo.mac);
+        snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
+        poll.phase = ConfiguredPollPhase::Done;
+    } else {
+        ++configuredPollRejected;
+        LOG_WARN("CCA configured poll reply rejected: node=0x%08lx bytes=%u",
+                 static_cast<unsigned long>(getFrom(&mp)), static_cast<unsigned>(n));
+        return;
+    }
+    if (!uploadQueue.enqueue(job, 0)) { ++cc01QueueFull; return; }
+    ++configuredPollParsed;
+    ++configuredPollQueued;
+    setIntervalFromNow(0);
+}
 void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
 {
     if (!cc01AdminNode || getFrom(&mp)!=cc01AdminNode) return;
     const size_t n=mp.decoded.payload.size;
-    if (!n || n>80) return;
-    char command[81]={};
+    if (!n || n>120) return;
+    char command[121]={};
     memcpy(command,mp.decoded.payload.bytes,n);
     String text(command); text.trim(); text.toUpperCase();
-    bool known=true;
+    bool known=true, changed=false;
+    String action;
     if (text=="PAUSE HOBO") cc01HoboEnabled=false;
     else if (text=="RESUME HOBO") cc01HoboEnabled=true;
     else if (text=="PAUSE SENSOR") cc01WaterEnabled=false;
     else if (text=="RESUME SENSOR") cc01WaterEnabled=true;
     else if (text=="POLL COTTONWOOD AUTO" || text=="POLL CC01 AUTO") {
         cc01IntervalOverrideMinutes=0;
+        changed=true;
     } else if (text=="POLL STATUS") { /* query only */ }
     else {
-        char target[16] = {};
-        unsigned long minutes = 0;
-        if (sscanf(text.c_str(), "POLL %15s %lu", target, &minutes) == 2 &&
-            validPollIntervalMinutes(minutes)) {
-            String node(target); node.toUpperCase();
-            if (node == "COTTONWOOD" || node == "CC01")
-                cc01IntervalOverrideMinutes = static_cast<uint16_t>(minutes);
-            else if (node == "MATHESON")
-                mathesonIntervalMinutes = static_cast<uint16_t>(minutes);
-            else
-                known = false;
+        if (!text.startsWith("POLL ")) {
+            known=false;
         } else {
-            known = false;
+            String request=text.substring(5); request.trim();
+            String working=request;
+            String last=popPollToken(working);
+            ConfiguredPollMode mode=ConfiguredPollMode::Read;
+            bool explicitMode=false;
+            if (last=="READ" || last=="WATER" || last=="BOTH") {
+                explicitMode=true;
+                mode=last=="WATER" ? ConfiguredPollMode::Water :
+                    last=="BOTH" ? ConfiguredPollMode::Both : ConfiguredPollMode::Read;
+                last=popPollToken(working);
+            }
+            const bool disable=last=="OFF";
+            char *end=nullptr;
+            const unsigned long minutes=strtoul(last.c_str(),&end,10);
+            const bool recurring=!disable && end!=last.c_str() && *end=='\0' && validPollIntervalMinutes(minutes);
+            String target=disable || recurring ? working :
+                (explicitMode ? working + " " + last : request);
+            target.trim();
+            const uint32_t node=pollNodeForName(target);
+            if (!node) {
+                known=false;
+            } else if (node==CC01_POLL_NODE) {
+                if (!recurring) known=false;
+                else { cc01IntervalOverrideMinutes=static_cast<uint16_t>(minutes); changed=true; }
+            } else if (node==MATHESON_POLL_NODE) {
+                if (!recurring) known=false;
+                else { mathesonIntervalMinutes=static_cast<uint16_t>(minutes); changed=true; }
+            } else if (disable) {
+                bool found=false;
+                for (uint8_t i=0;i<CONFIGURED_POLL_PERSISTENT_SLOTS;++i) {
+                    if (configuredPolls[i].node==node) {
+                        configuredPolls[i]=ConfiguredPoll{};
+                        if (configuredPollActive==static_cast<int8_t>(i)) configuredPollActive=-1;
+                        found=true;
+                    }
+                }
+                known=found;
+                changed=found;
+                action=found ? "disabled" : "was not scheduled";
+            } else if (!recurring) {
+                if (configuredPollActive>=0) {
+                    known=false;
+                    action="busy; wait for current poll";
+                } else {
+                    ConfiguredPoll &manual=configuredPolls[CONFIGURED_POLL_PERSISTENT_SLOTS];
+                    manual=ConfiguredPoll{};
+                    manual.node=node;
+                    manual.mode=mode;
+                    manual.oneShot=true;
+                    action="one-time " + String(mode==ConfiguredPollMode::Water ? "WATER READ" :
+                        mode==ConfiguredPollMode::Both ? "WATER READ then READ" : "READ") + " queued";
+                }
+            } else {
+                int8_t slot=-1;
+                for (uint8_t i=0;i<CONFIGURED_POLL_PERSISTENT_SLOTS;++i)
+                    if (configuredPolls[i].node==node) { slot=static_cast<int8_t>(i); break; }
+                if (slot<0) for (uint8_t i=0;i<CONFIGURED_POLL_PERSISTENT_SLOTS;++i)
+                    if (!configuredPolls[i].node) { slot=static_cast<int8_t>(i); break; }
+                if (slot<0) {
+                    known=false;
+                    action="table full; disable one with POLL <name> OFF";
+                } else {
+                    ConfiguredPoll &entry=configuredPolls[slot];
+                    entry=ConfiguredPoll{};
+                    entry.node=node;
+                    entry.intervalMinutes=static_cast<uint16_t>(minutes);
+                    entry.mode=mode;
+                    action="every " + String(minutes) + " min " +
+                        String(mode==ConfiguredPollMode::Water ? "WATER READ" :
+                        mode==ConfiguredPollMode::Both ? "WATER+READ" : "READ");
+                    changed=true;
+                }
+            }
         }
     }
-    if (!known) return;
-    if (text!="POLL STATUS") persistCc01Settings();
+    if (!known) {
+        if (!action.length()) action="syntax: POLL <name|node> [minutes] [READ|WATER|BOTH]";
+        sendCc01Text(getFrom(&mp), (String("Poll not changed: ")+action).c_str());
+        return;
+    }
+    if (text!="POLL STATUS" && (changed || text.startsWith("PAUSE") || text.startsWith("RESUME"))) persistCc01Settings();
     String result = String("Polling: Cottonwood ") +
                     (cc01IntervalOverrideMinutes ? String(cc01IntervalOverrideMinutes) : String(cc01FastMode ? 15 : 60)) +
                     " min" + (cc01IntervalOverrideMinutes ? " fixed" : " auto") +
                     ", Matheson " + String(mathesonIntervalMinutes) + " min; sensor " +
                     (cc01WaterEnabled?"ON":"PAUSED") +
                     ", HOBO " + (cc01HoboEnabled?"ON":"PAUSED") +
-                    ", config v" + String(cc01ConfigVersion);
+                    ", custom " + action + ", config v" + String(cc01ConfigVersion);
     sendCc01Text(getFrom(&mp),result.c_str());
 }
 void HoboHttpGatewayModule::refreshCc01CloudControl()

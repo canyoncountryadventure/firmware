@@ -112,6 +112,17 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         cc01ConfigVersion = saved.getUInt("version", 0);
         cc01IntervalOverrideMinutes = saved.getUShort("cc01_interval", 0);
         mathesonIntervalMinutes = saved.getUShort("matheson_interval", 60);
+        for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
+            char key[18] = {};
+            snprintf(key, sizeof(key), "poll%u_node", i);
+            configuredPolls[i].node = saved.getUInt(key, 0);
+            snprintf(key, sizeof(key), "poll%u_interval", i);
+            configuredPolls[i].intervalMinutes = saved.getUShort(key, 0);
+            snprintf(key, sizeof(key), "poll%u_mode", i);
+            const uint8_t mode = saved.getUChar(key, 0);
+            configuredPolls[i].mode = mode <= static_cast<uint8_t>(ConfiguredPollMode::Both)
+                ? static_cast<ConfiguredPollMode>(mode) : ConfiguredPollMode::Read;
+        }
         saved.end();
     }
     setInterval(1000);
@@ -135,6 +146,8 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
         const bool addressedToUs = getFrom(p) == CC01_NODE && p->to == nodeDB->getNodeNum();
         const bool mathesonReply = getFrom(p) == MATHESON_NODE && p->to == nodeDB->getNodeNum() &&
             (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL);
+        const bool configuredReply = isConfiguredPollReply(getFrom(p)) && p->to == nodeDB->getNodeNum() &&
+            (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL);
         if (cc01AdminNode != 0 && getFrom(p) == cc01AdminNode && p->to == nodeDB->getNodeNum() &&
             (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL))
             return true;
@@ -145,7 +158,7 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
             LOG_WARN("CCA CC01 DM poll: ignored reply on unexpected channel %u, PKI=%u",
                      static_cast<unsigned>(p->channel), static_cast<unsigned>(p->pki_encrypted));
         }
-        return accepted || mathesonReply;
+        return accepted || mathesonReply || configuredReply;
     }
     if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
         p->decoded.portnum != meshtastic_PortNum_TELEMETRY_APP)
@@ -497,6 +510,7 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
     if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
         if (getFrom(&mp) == CC01_NODE) handleCc01Reply(mp);
         else if (getFrom(&mp) == MATHESON_NODE) handleMathesonReply(mp);
+        else if (isConfiguredPollReply(getFrom(&mp))) handleConfiguredPollReply(mp);
         else if (cc01AdminNode != 0 && getFrom(&mp) == cc01AdminNode) handleCc01ControlDm(mp);
         return ProcessMessage::CONTINUE;
     }
@@ -767,6 +781,20 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"queued\":" + String(mathesonQueued);
     body += ",\"rejected_format\":" + String(mathesonRejected);
     body += ",\"last_reply_ms\":" + String(mathesonLastReplyMs);
+    body += "},\"configured_polls\":{\"active\":" + String(configuredPollActive);
+    body += ",\"requests\":" + String(configuredPollRequests);
+    body += ",\"replies\":" + String(configuredPollReplies);
+    body += ",\"parsed\":" + String(configuredPollParsed);
+    body += ",\"queued\":" + String(configuredPollQueued);
+    body += ",\"rejected_format\":" + String(configuredPollRejected);
+    body += ",\"slots\":[";
+    for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
+        if (i) body += ',';
+        body += "{\"node\":" + String(configuredPolls[i].node);
+        body += ",\"interval_minutes\":" + String(configuredPolls[i].intervalMinutes);
+        body += ",\"mode\":" + String(static_cast<uint8_t>(configuredPolls[i].mode)) + "}";
+    }
+    body += ']';
     body += "}}";
     return body;
 }
@@ -778,6 +806,7 @@ int32_t HoboHttpGatewayModule::runOnce()
     // during a Wi-Fi outage; replies queue until upload resumes.
     pollCc01();
     pollMatheson();
+    pollConfiguredStations();
     refreshCc01CloudControl();
 
     if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0)

@@ -48,7 +48,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint32_t healthCycles() const { return healthLoopCycles; }
     uint32_t healthHttpAttempts() const { return healthPostAttempts; }
     uint32_t healthHttpAccepted() const { return uploadedJobs; }
-    uint32_t healthDmRequests() const { return cc01Requests + mathesonRequests; }
+    uint32_t healthDmRequests() const { return cc01Requests + mathesonRequests + configuredPollRequests; }
     uint32_t healthQueueUsed() { return uploadQueue.numUsed(); }
     int healthLastHttpStatus() const { return lastHttpStatus; }
 
@@ -147,6 +147,21 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     // All times are monotonic millis; a sensor fault never schedules a reboot.
     enum class Cc01Phase : uint8_t { Idle, Water, Hobo, Done };
     enum class MathesonPhase : uint8_t { Idle, Hobo, Done };
+    // A small persistent table is intentionally used instead of an unbounded
+    // command queue: it keeps the gateway's RAM and LoRa duty cycle bounded.
+    enum class ConfiguredPollMode : uint8_t { Read = 0, Water = 1, Both = 2 };
+    enum class ConfiguredPollPhase : uint8_t { Idle, Water, Read, Done };
+    struct ConfiguredPoll {
+        uint32_t node = 0;
+        uint32_t lastPollMs = 0;
+        uint32_t requestMs = 0;
+        uint16_t intervalMinutes = 0;
+        uint8_t attempts = 0;
+        ConfiguredPollMode mode = ConfiguredPollMode::Read;
+        ConfiguredPollPhase phase = ConfiguredPollPhase::Idle;
+        bool started = false;
+        bool oneShot = false;
+    };
     Cc01Phase cc01Phase = Cc01Phase::Idle;
     bool cc01PollStarted = false;
     bool cc01WaterPending = false;
@@ -185,6 +200,17 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     static constexpr uint32_t MATHESON_REPLY_TIMEOUT_MS = 30UL * 1000UL;
     static constexpr uint8_t MATHESON_ATTEMPT_LIMIT = 3;
 
+    // Four recurring targets, plus a non-persistent fifth slot for a manual
+    // `POLL <name>` command. The scheduler sends to only one target at a time.
+    static constexpr uint8_t CONFIGURED_POLL_PERSISTENT_SLOTS = 4;
+    static constexpr uint8_t CONFIGURED_POLL_SLOTS = CONFIGURED_POLL_PERSISTENT_SLOTS + 1;
+    ConfiguredPoll configuredPolls[CONFIGURED_POLL_SLOTS] = {};
+    int8_t configuredPollActive = -1;
+    uint32_t configuredPollRequests = 0;
+    uint32_t configuredPollReplies = 0;
+    uint32_t configuredPollParsed = 0;
+    uint32_t configuredPollQueued = 0;
+    uint32_t configuredPollRejected = 0;
     uint32_t cc01WaterRetries = 0;
     uint32_t cc01HoboRetries = 0;
     uint32_t cc01Requests = 0;
@@ -216,12 +242,15 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 
     void pollCc01();
     void pollMatheson();
+    void pollConfiguredStations();
     bool sendCc01Dm(const char *command);
     void handleCc01Reply(const meshtastic_MeshPacket &mp);
     void handleMathesonReply(const meshtastic_MeshPacket &mp);
+    void handleConfiguredPollReply(const meshtastic_MeshPacket &mp);
     void handleCc01ControlDm(const meshtastic_MeshPacket &mp);
     void refreshCc01CloudControl();
     void persistCc01Settings();
+    bool isConfiguredPollReply(uint32_t from) const;
     void queueCc01SensorStatus(const meshtastic_MeshPacket &mp, const char *sensor, const char *reason);
     bool sendCc01Text(uint32_t to, const char *command);
 
