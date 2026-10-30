@@ -11,6 +11,6 @@ assert "COTTONWOOD_RELAY_2_NODE = 1222051909UL; // !48d70845" in source
 assert "from != SEED_RELAY_1_NODE && from != COTTONWOOD_RELAY_2_NODE" in source
 assert "from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE &&" in source
 assert "from != SEED_RELAY_1_NODE" in source
-assert "v7-mill-creek-2026-10-26" in source
+assert "v7-matheson-poll-2026-10-30" in source
 
 print("PASS: V7 gateway allowlist identifies Mini Me and forwards Cottonwood Relay 2, Seed Relay 1 and Mill Creek")
