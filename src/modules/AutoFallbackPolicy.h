@@ -19,6 +19,7 @@ struct Watch {
 class Policy {
 public:
     static constexpr uint32_t MISSING_AUTO_MS = 60UL * 60UL * 1000UL;
+    static constexpr uint32_t FAST_MISSING_AUTO_MS = 15UL * 60UL * 1000UL;
     // One stream per independent data source. MX2001 READ contains BOTH
     // water level and temperature, so it has a single combined watchdog.
     static constexpr size_t WATCH_COUNT = 11;
@@ -45,6 +46,16 @@ public:
     }};
 
     static constexpr uint16_t ALL_MASK = (1U << WATCH_COUNT) - 1U;
+
+    // Fast stations monitor each independent stage/temperature stream every 15m.
+    // All other monitored stations use 60m. This controls gateway fallback
+    // requests, not the sampling interval programmed into the field logger.
+    static constexpr uint32_t thresholdMs(uint32_t node) {
+        return node == 1949224949UL || // Pack Creek: ultrasonic + HOBO
+               node == 1683604927UL || // Mill Creek: MX2001
+               node == 1695962694UL    // South Cottonwood: MB7388
+            ? FAST_MISSING_AUTO_MS : MISSING_AUTO_MS;
+    }
 
     bool isKnownNode(uint32_t node) const {
         for (const auto &watch : watches)
@@ -94,11 +105,13 @@ public:
     }
 
     bool due(size_t index, uint32_t now) const {
-        if (!isEnabled(index) || now < MISSING_AUTO_MS) return false;
+        if (!isEnabled(index)) return false;
         const auto &watch = watches[index];
-        if (static_cast<uint32_t>(now - watch.lastAutoMs) < MISSING_AUTO_MS) return false;
+        const uint32_t threshold = thresholdMs(watch.node);
+        if (now < threshold || static_cast<uint32_t>(now - watch.lastAutoMs) < threshold) return false;
+        // Bound repeat rescue cycles to the node's own auto-reporting deadline.
         return !watch.attempted ||
-               static_cast<uint32_t>(now - watch.lastAttemptMs) >= MISSING_AUTO_MS;
+               static_cast<uint32_t>(now - watch.lastAttemptMs) >= threshold;
     }
 
     void attemptedAt(size_t index, uint32_t now) {

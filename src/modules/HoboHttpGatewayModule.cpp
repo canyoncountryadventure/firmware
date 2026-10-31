@@ -824,7 +824,7 @@ String HoboHttpGatewayModule::statusJson()
         body += ",\"mode\":" + String(static_cast<uint8_t>(configuredPolls[i].mode)) + "}";
     }
     body += ']';
-    body += "},\"auto_fallback\":{\"missing_minutes\":60,\"enabled\":" +
+    body += "},\"auto_fallback\":{\"missing_minutes\":60,\"fast_missing_minutes\":15,\"enabled\":" +
         String(autoFallback.enabled ? "true" : "false");
     body += ",\"paused_mask\":" + String(autoFallback.pausedMask);
     body += ",\"queued\":" + String(autoFallbackQueued);
@@ -835,6 +835,7 @@ String HoboHttpGatewayModule::statusJson()
         if (i) body += ',';
         body += "{\"node\":" + String(w.node) + ",\"kind\":" + String(static_cast<uint8_t>(w.kind));
         body += ",\"enabled\":" + String(autoFallback.isEnabled(i) ? "true" : "false");
+        body += ",\"threshold_minutes\":" + String(cca_auto_fallback::Policy::thresholdMs(w.node) / 60000UL);
         body += ",\"last_auto_ms\":" + String(w.lastAutoMs);
         body += ",\"last_request_ms\":" + (w.attempted ? String(w.lastAttemptMs) : "null");
         body += '}';
@@ -846,7 +847,8 @@ String HoboHttpGatewayModule::statusJson()
 int32_t HoboHttpGatewayModule::runOnce()
 {
     ++healthLoopCycles;
-    // V8: only rescue missing automatic stage/temperature after one hour.
+    // V8: rescue missing automatic stage/temperature after 15m (Pack,
+    // Mill, South Cottonwood) or 60m (all other watched stations).
     // No unconditional Cottonwood or Matheson polling. LoRa still works
     // without Wi-Fi; captured DM replies queue for later upload.
     pollMissingAutomatic();

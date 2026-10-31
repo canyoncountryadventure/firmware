@@ -27,6 +27,10 @@ assert "cc01NextConfigMs=now+120000UL" in poller or "cc01NextConfigMs = now + 12
 assert "const uint8_t i = order == 0 ? AUTO_FALLBACK_POLL_SLOT : order - 1;" in poller
 assert "REPLY_TIMEOUT_MS = 30000UL" in policy
 assert "MISSING_AUTO_MS = 60UL * 60UL * 1000UL" in policy
+assert "FAST_MISSING_AUTO_MS = 15UL * 60UL * 1000UL" in policy
+assert "thresholdMs(watch.node)" in policy
+for station in ("1949224949UL", "1683604927UL", "1695962694UL"):
+    assert station in policy
 assert "CONFIGURED_POLL_SLOTS = CONFIGURED_POLL_PERSISTENT_SLOTS + 2" in header
 assert "v8_fallback" in gateway
 assert "getFrom(&mp) == PACK_CREEK_POLL_NODE ? 3 : 0" in poller
@@ -42,4 +46,4 @@ assert 'text.startsWith("AUTO DM ")' in poller
 assert 'operation == "ONLY"' in poller
 assert 'AUTO DM STATUS' in poller
 assert 'autoFallback.nodeEnabled(fallback.node)' in poller
-assert 'if (!isEnabled(index) || now < MISSING_AUTO_MS)' in policy
+assert 'if (!isEnabled(index)) return false;' in policy

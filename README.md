@@ -22,7 +22,7 @@
 
 ## V8: missing-automatic-telemetry rescue
 
-Heltec **does not** proactively poll Cottonwood or Matheson on a fixed schedule anymore. It listens for each station's own, correctly decoded automatic stage and temperature packets. If an expected stream goes missing for **60 minutes**, it issues an encrypted sensor DM just after the deadline, as soon as the single LoRa request queue is free. Normal automatic packets reset that particular sensor's clock; battery-only and invalid stage packets do not. DM rescue replies are stored as `heltec_dm`, but do **not** reset the automatic telemetry clock. If auto stays missing, the next rescue cycle cannot begin for another 60 minutes. Maximum **three attempts**, 30 seconds between attempts, one node at a time, shared 3-second packet spacing. No infinite retries or unconditional reboots.
+Heltec **does not** proactively poll Cottonwood or Matheson on a fixed schedule anymore. It listens for each station's own, correctly decoded automatic stage and temperature packets. **Pack Creek, Mill Creek, and South Cottonwood have 15-minute missing-AUTO thresholds; all other watched stations have 60-minute thresholds.** When a stream misses its deadline, Heltec requests only that sensor by encrypted DM once the LoRa request queue is free. Valid automatic packets reset their own sensor's freshness clock; battery-only and invalid stage packets do not. DM rescue replies are stored as `heltec_dm`, but do **not** reset the automatic telemetry clock. If AUTO stays missing, the next rescue cycle is held for that station's full 15- or 60-minute interval. Maximum **three attempts** per rescue cycle, separated by 30 seconds, one node at a time and shared 3-second packet spacing. No infinite retries or unconditional reboots. These are **gateway fallback thresholds**, not changes to a field logger's transmission cadence.
 
 - **Pack Creek** `!742ecff5`: missing ultrasonic stage → `WATER READ`; missing HOBO MX2001 stage/temperature → `READ`, separately.
 - **South Cottonwood** `!65165646`: missing MB7388 stage → `WATER READ`. **No HOBO sensor; no HOBO DM.**
@@ -31,6 +31,8 @@ Heltec **does not** proactively poll Cottonwood or Matheson on a fixed schedule 
 - **Cottonwood Relay 2 and Spare RAK**: battery-only, no stage or temperature fallback. **Moab (Heltec's local BLE sensor)** isn't a remote DM destination.
 
 Pack Creek SEN0313 DM stage is tagged as sensor type 3 (not MB7388 type 5). Sensor errors from other stations are never falsely recorded as South Cottonwood maintenance events.
+
+The 15-minute threshold applies independently to **both Pack Creek sensor streams** (SEN0313 stage and MX2001 stage/temperature), Mill Creek's MX2001, and South Cottonwood's MB7388. All other watched streams, including Matheson, remain at 60 minutes. `AUTO DM OFF`, `ON`, `ONLY`, and per-station pause commands retain precedence over these timings.
 
 The remote node **must implement** its matching `READ` or `WATER READ` command for rescue to work; ordinary Meshtastic environment telemetry by itself doesn't guarantee that. V8 parses MX2001, MX2201 and MX2203 replies; no synthetic sensor values are generated. Automatic telemetry and battery packets still upload normally. Owner-authorized manual `POLL ...` commands remain available, but V7 recurring poll schedules are cleared once on V8 migration to prevent unnecessary DMs. V7 unconditional Cottonwood/Matheson polling is retired, even if an old interval override is saved.
 

@@ -571,7 +571,7 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
                 return;
             }
             String reply = String("Auto DM ") + (autoFallback.enabled ? "ON" : "OFF") +
-                           " (hourly missing-auto only).";
+                           " (Pack/Mill/CC01 15m, others 60m).";
             if (node) {
                 reply += " !" + String(node, HEX) + " " +
                          (autoFallback.nodeEnabled(node) ? "ON" : "OFF");
@@ -727,7 +727,7 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         return;
     }
     if (text!="POLL STATUS" && (changed || text.startsWith("PAUSE") || text.startsWith("RESUME"))) persistCc01Settings();
-    String result = String("V8 auto fallback after 60m; legacy Cottonwood ") +
+    String result = String("V8 auto DM 15m Pack/Mill/CC01, 60m others; legacy Cottonwood ") +
                     (cc01IntervalOverrideMinutes ? String(cc01IntervalOverrideMinutes) : String(cc01FastMode ? 15 : 60)) +
                     " min" + (cc01IntervalOverrideMinutes ? " fixed" : " auto") +
                     ", Matheson " + String(mathesonIntervalMinutes) + " min; sensor " +
