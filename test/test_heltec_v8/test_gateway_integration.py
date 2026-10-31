@@ -29,4 +29,7 @@ assert "REPLY_TIMEOUT_MS = 30000UL" in policy
 assert "MISSING_AUTO_MS = 60UL * 60UL * 1000UL" in policy
 assert "CONFIGURED_POLL_SLOTS = CONFIGURED_POLL_PERSISTENT_SLOTS + 2" in header
 assert "v8_fallback" in gateway
+assert "getFrom(&mp) == PACK_CREEK_POLL_NODE ? 3 : 0" in poller
+assert "if (getFrom(&mp) == CC01_POLL_NODE)" in poller
+assert "temperatureOnly ? JobType::ENVIRONMENT : JobType::MX2001" in poller
 print("PASS: V8 gateway only rescues stale sensor streams; LoRa, NVS, parser and gateway wire paths retained")

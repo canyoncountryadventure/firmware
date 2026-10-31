@@ -448,7 +448,10 @@ void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacke
     ConfiguredPoll &poll = configuredPolls[configuredPollActive];
     String normalized(reply); normalized.toUpperCase();
     if (normalized.indexOf("HOBO UNAVAILABLE") >= 0) {
-        queueCc01SensorStatus(mp, "hobo", "ble_unavailable");
+        // The legacy sensor-event endpoint is Cottonwood-specific. Never
+        // attribute another station's missing HOBO to South Cottonwood.
+        if (getFrom(&mp) == CC01_POLL_NODE)
+            queueCc01SensorStatus(mp, "hobo", "ble_unavailable");
         poll.phase = ConfiguredPollPhase::Done;
         return;
     }
@@ -469,7 +472,8 @@ void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacke
         job.dmPollResult = true;
         job.distanceValid = true;
         job.stageCalibrated = true;
-        job.distanceSensorType = 5;
+        job.distanceSensorType = getFrom(&mp) == CC01_POLL_NODE ? 5 :
+            getFrom(&mp) == PACK_CREEK_POLL_NODE ? 3 : 0;
         job.distanceMm = water.distanceMm;
         job.stageMm = static_cast<int32_t>(lroundf(water.stageFeet * 304.8f));
         if (poll.phase == ConfiguredPollPhase::Water && poll.mode == ConfiguredPollMode::Both) {
@@ -479,7 +483,19 @@ void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacke
             poll.phase = ConfiguredPollPhase::Done;
         }
     } else if (poll.phase == ConfiguredPollPhase::Read && cca_cc01_dm::parseHoboRead(reply, hobo)) {
-        job.type = JobType::MX2001;
+        // A temperature-only station can carry an MX2001 despite having no
+        // groundwater stage configured on its station dashboard. Preserve
+        // its rescue temperature as environmental telemetry in that case.
+        bool temperatureOnly = false;
+        if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT) {
+            for (const auto &watch : autoFallback.watches) {
+                if (watch.node == getFrom(&mp) && watch.kind == cca_auto_fallback::Kind::Temperature) {
+                    temperatureOnly = true;
+                    break;
+                }
+            }
+        }
+        job.type = temperatureOnly ? JobType::ENVIRONMENT : JobType::MX2001;
         fillCommon(job, mp);
         job.dmPollResult = true;
         job.waterLevelFt = hobo.levelFeet;

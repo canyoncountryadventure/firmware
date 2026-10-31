@@ -12,6 +12,8 @@ Heltec **does not** proactively poll Cottonwood or Matheson on a fixed schedule 
 - **Cottonwood Relay, Hidden Valley, Fishlake Hightop, Seed Relay 1, Thousand Lake Mountain and Mini Me**: missing automatic environmental temperature → `READ` for a compatible HOBO MX2201/MX2203 temperature reader (or MX2001 where present).
 - **Cottonwood Relay 2 and Spare RAK**: battery-only, no stage or temperature fallback. **Moab (Heltec's local BLE sensor)** isn't a remote DM destination.
 
+Pack Creek SEN0313 DM stage is tagged as sensor type 3 (not MB7388 type 5). Sensor errors from other stations are never falsely recorded as South Cottonwood maintenance events.
+
 The remote node **must implement** its matching `READ` or `WATER READ` command for rescue to work; ordinary Meshtastic environment telemetry by itself doesn't guarantee that. V8 parses MX2001, MX2201 and MX2203 replies; no synthetic sensor values are generated. Automatic telemetry and battery packets still upload normally. Owner-authorized manual `POLL ...` commands remain available, but V7 recurring poll schedules are cleared once on V8 migration to prevent unnecessary DMs. V7 unconditional Cottonwood/Matheson polling is retired, even if an old interval override is saved.
 
 The read-only `http://192.168.1.147/json/gateway` diagnostic reports `firmware_fix: v8-missing-auto-fallback-2026-10-30` and `auto_fallback.watched` per-stream timestamps/counters. The V8 source/build branch is [Heltec-Gateway-v8](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v8). Builds are published into `downloads/Heltec-Gateway-v8/` **only after** tests and the ESP32-S3 build pass.
