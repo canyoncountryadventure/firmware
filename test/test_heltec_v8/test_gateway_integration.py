@@ -28,7 +28,7 @@ assert "const uint8_t i = order == 0 ? AUTO_FALLBACK_POLL_SLOT : order - 1;" in 
 assert "REPLY_TIMEOUT_MS = 30000UL" in policy
 assert "MISSING_AUTO_MS = 60UL * 60UL * 1000UL" in policy
 assert "FAST_MISSING_AUTO_MS = 15UL * 60UL * 1000UL" in policy
-assert "thresholdMs(watch.node)" in policy
+assert "static_cast<uint32_t>(intervalMinutes(index)) * 60000UL" in policy
 for station in ("1949224949UL", "1683604927UL", "1695962694UL"):
     assert station in policy
 assert "CONFIGURED_POLL_SLOTS = CONFIGURED_POLL_PERSISTENT_SLOTS + 2" in header
