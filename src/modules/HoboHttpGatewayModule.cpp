@@ -112,11 +112,6 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         cc01ConfigVersion = saved.getUInt("version", 0);
         cc01IntervalOverrideMinutes = saved.getUShort("cc01_interval", 0);
         mathesonIntervalMinutes = saved.getUShort("matheson_interval", 60);
-        mathesonEnabled = saved.getBool("matheson_on", true);
-        lastCloudPollCommandId = saved.getUInt("cloud_poll_id", 0);
-        lastCloudPollCommandOk = saved.getBool("cloud_poll_ok", true);
-        const String lastError = saved.getString("cloud_poll_err", "");
-        snprintf(lastCloudPollError, sizeof(lastCloudPollError), "%s", lastError.c_str());
         for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
             char key[18] = {};
             snprintf(key, sizeof(key), "poll%u_node", i);
