@@ -86,4 +86,36 @@ inline bool parseHoboRead(const char *s, HoboReading &out)
     return true;
 }
 
+
+struct HoboTemperatureReading {
+    float temperatureF = 0;
+    int bleRssi = 0;
+    char mac[18] = {};
+};
+
+// Temperature-only HOBO MX2201/MX2203 READ reply. Never infer a
+// groundwater level from a temperature-only logger.
+inline bool parseHoboTemperatureRead(const char *s, HoboTemperatureReading &out)
+{
+    if (!s || (std::strncmp(s, "MX2201\\nLogger: ", 15) != 0 &&
+               std::strncmp(s, "MX2203\\nLogger: ", 15) != 0))
+        return false;
+    unsigned int mac[6] = {};
+    int rssi = 0;
+    float temperatureF = 0;
+    char suffix[2] = {};
+    const int count = std::sscanf(
+        s, "%*6[^\\n]\\nLogger: %2x:%2x:%2x:%2x:%2x:%2x\\nBLE: %d dBm\\nTemp: %f F%1c",
+        &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5], &rssi, &temperatureF, &suffix[0]);
+    // %1c is an optional model-specific " / <C>" suffix or terminator.
+    if (count < 8 || !std::isfinite(temperatureF) ||
+        temperatureF < -40 || temperatureF > 180 || rssi < -127 || rssi > 20)
+        return false;
+    std::snprintf(out.mac, sizeof(out.mac), "%02X:%02X:%02X:%02X:%02X:%02X",
+                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    out.bleRssi = rssi;
+    out.temperatureF = temperatureF;
+    return true;
+}
+
 } // namespace cca_cc01_dm

@@ -37,6 +37,7 @@
 #include "concurrency/OSThread.h"
 #include "mesh/MeshModule.h"
 #include "mesh/TypedQueue.h"
+#include "AutoFallbackPolicy.h"
 
 #include <cstdint>
 
@@ -203,9 +204,13 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     // Four recurring targets, plus a non-persistent fifth slot for a manual
     // `POLL <name>` command. The scheduler sends to only one target at a time.
     static constexpr uint8_t CONFIGURED_POLL_PERSISTENT_SLOTS = 4;
-    static constexpr uint8_t CONFIGURED_POLL_SLOTS = CONFIGURED_POLL_PERSISTENT_SLOTS + 1;
+    static constexpr uint8_t AUTO_FALLBACK_POLL_SLOT = CONFIGURED_POLL_PERSISTENT_SLOTS + 1;
+    static constexpr uint8_t CONFIGURED_POLL_SLOTS = CONFIGURED_POLL_PERSISTENT_SLOTS + 2;
     ConfiguredPoll configuredPolls[CONFIGURED_POLL_SLOTS] = {};
     int8_t configuredPollActive = -1;
+    cca_auto_fallback::Policy autoFallback;
+    uint32_t autoFallbackQueued = 0;
+    uint32_t autoFallbackReplies = 0;
     uint32_t configuredPollRequests = 0;
     uint32_t configuredPollReplies = 0;
     uint32_t configuredPollParsed = 0;
@@ -243,6 +248,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     void pollCc01();
     void pollMatheson();
     void pollConfiguredStations();
+    void pollMissingAutomatic();
+    void noteAutomaticSensor(uint32_t node, cca_auto_fallback::Kind kind);
     bool sendCc01Dm(const char *command);
     void handleCc01Reply(const meshtastic_MeshPacket &mp);
     void handleMathesonReply(const meshtastic_MeshPacket &mp);
