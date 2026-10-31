@@ -105,6 +105,10 @@ void HoboHttpGatewayModule::persistCc01Settings()
         prefs.putUInt("version", cc01ConfigVersion);
         prefs.putUShort("cc01_interval", cc01IntervalOverrideMinutes);
         prefs.putUShort("matheson_interval", mathesonIntervalMinutes);
+        prefs.putBool("matheson_on", mathesonEnabled);
+        prefs.putUInt("cloud_poll_id", lastCloudPollCommandId);
+        prefs.putBool("cloud_poll_ok", lastCloudPollCommandOk);
+        prefs.putString("cloud_poll_err", lastCloudPollError);
         for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
             char key[18] = {};
             snprintf(key, sizeof(key), "poll%u_node", i);
@@ -180,6 +184,11 @@ void HoboHttpGatewayModule::pollCc01()
 
 void HoboHttpGatewayModule::pollMatheson()
 {
+    if (!mathesonEnabled) {
+        mathesonHoboPending = false;
+        mathesonPhase = MathesonPhase::Done;
+        return;
+    }
     if (!cc01PollStarted || cc01Phase != Cc01Phase::Done)
         return;
 
@@ -570,41 +579,230 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
                     ", custom " + action + ", config v" + String(cc01ConfigVersion);
     sendCc01Text(getFrom(&mp),result.c_str());
 }
+
+bool HoboHttpGatewayModule::applyCloudPollCommand(
+    uint32_t node, const String &operation, uint16_t minutes, const String &mode, String &error)
+{
+    if (!node || (operation != "schedule" && operation != "off" && operation != "once")) {
+        error = "invalid action";
+        return false;
+    }
+    if (operation == "schedule" && !validPollIntervalMinutes(minutes)) {
+        error = "invalid interval";
+        return false;
+    }
+    if (mode != "READ" && mode != "WATER" && mode != "BOTH") {
+        error = "invalid mode";
+        return false;
+    }
+    if (node == CC01_POLL_NODE) {
+        if (operation == "once" || mode != "WATER") {
+            error = "Cottonwood requires WATER schedule or OFF";
+            return false;
+        }
+        cc01WaterEnabled = operation != "off";
+        cc01HoboEnabled = false;
+        cc01WaterPending = false;
+        cc01HoboPending = false;
+        cc01Phase = Cc01Phase::Done;
+        if (operation == "schedule") {
+            cc01IntervalOverrideMinutes = minutes;
+            cc01PollStarted = false;
+        }
+        return true;
+    }
+    if (node == MATHESON_POLL_NODE) {
+        if (operation == "once" || mode != "READ") {
+            error = "Matheson requires READ schedule or OFF";
+            return false;
+        }
+        mathesonEnabled = operation != "off";
+        mathesonHoboPending = false;
+        mathesonPhase = MathesonPhase::Done;
+        if (operation == "schedule") {
+            mathesonIntervalMinutes = minutes;
+            mathesonPollStarted = false;
+            mathesonPhase = MathesonPhase::Idle;
+        }
+        return true;
+    }
+    if (operation == "off") {
+        for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
+            if (configuredPolls[i].node == node) {
+                configuredPolls[i] = ConfiguredPoll{};
+                if (configuredPollActive == static_cast<int8_t>(i)) configuredPollActive = -1;
+            }
+        }
+        return true; // idempotent even if it was already off
+    }
+
+    ConfiguredPollMode requestedMode = mode == "WATER" ? ConfiguredPollMode::Water :
+        mode == "BOTH" ? ConfiguredPollMode::Both : ConfiguredPollMode::Read;
+    if (operation == "once") {
+        const uint8_t slot = CONFIGURED_POLL_PERSISTENT_SLOTS;
+        if (configuredPollActive == static_cast<int8_t>(slot) || configuredPolls[slot].node) {
+            error = "one-shot slot busy";
+            return false;
+        }
+        ConfiguredPoll &job = configuredPolls[slot];
+        job = ConfiguredPoll{};
+        job.node = node;
+        job.mode = requestedMode;
+        job.oneShot = true;
+        return true; // queued, not proof of a successful sensor reading
+    }
+    int8_t slot = -1;
+    for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i)
+        if (configuredPolls[i].node == node) { slot = static_cast<int8_t>(i); break; }
+    if (slot < 0) {
+        for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i)
+            if (!configuredPolls[i].node) { slot = static_cast<int8_t>(i); break; }
+    }
+    if (slot < 0) { error = "four recurring slots already in use"; return false; }
+    ConfiguredPoll &entry = configuredPolls[slot];
+    entry = ConfiguredPoll{};
+    entry.node = node;
+    entry.intervalMinutes = minutes;
+    entry.mode = requestedMode;
+    return true;
+}
+
+// Read a server-generated command object only; never parse arbitrary radio chat
+// or run an unvalidated string as a gateway command.
+static bool cloudStringField(const String &json, const char *field, String &value)
+{
+    const String key = String('"') + field + "\":\"";
+    const int at = json.indexOf(key);
+    if (at < 0) return false;
+    const int start = at + key.length();
+    const int end = json.indexOf('"', start);
+    if (end < 0 || end - start > 32) return false;
+    value = json.substring(start, end);
+    return true;
+}
+static bool cloudIntegerField(const String &json, const char *field, uint32_t &value)
+{
+    const String key = String('"') + field + "\":";
+    const int at = json.indexOf(key);
+    if (at < 0) return false;
+    const char *begin = json.c_str() + at + key.length();
+    if (*begin < '0' || *begin > '9') return false;
+    char *end = nullptr;
+    const unsigned long number = strtoul(begin, &end, 10);
+    if (end == begin || (*end != ',' && *end != '}') || number > UINT32_MAX) return false;
+    value = static_cast<uint32_t>(number);
+    return true;
+}
+
 void HoboHttpGatewayModule::refreshCc01CloudControl()
 {
-    const uint32_t now=millis();
+    const uint32_t now = millis();
     if (!WiFi.isConnected() || !strlen(HOBO_HTTP_GATEWAY_INGEST_KEY)) return;
-    if (cc01NextConfigMs && static_cast<int32_t>(now-cc01NextConfigMs)<0) return;
-    cc01NextConfigMs=now+120000UL;
-    WiFiClientSecure client; client.setInsecure();
-    HTTPClient http; http.setTimeout(4000);
-    if (!http.begin(client,"https://meshtastic-ecru.vercel.app/api/ingest?control=cc01")) return;
-    http.addHeader("X-Ingest-Key",HOBO_HTTP_GATEWAY_INGEST_KEY);
-    const int status=http.GET();
-    if (status==200) {
-        String body=http.getString();
-        const int index=body.indexOf("\"version\":");
-        if (index>=0) {
-            uint32_t version=static_cast<uint32_t>(strtoul(body.c_str()+index+10,nullptr,10));
-            if (version>cc01ConfigVersion) {
-                cc01WaterEnabled=body.indexOf("\"water_enabled\":true")>=0;
-                cc01HoboEnabled=body.indexOf("\"hobo_enabled\":true")>=0;
-                const int p=body.indexOf("\"authorized_admin_node\":");
-                if (p>=0) cc01AdminNode=static_cast<uint32_t>(strtoul(body.c_str()+p+24,nullptr,10));
-                cc01ConfigVersion=version;
+    if (cc01NextConfigMs && static_cast<int32_t>(now - cc01NextConfigMs) < 0) return;
+    cc01NextConfigMs = now + 120000UL;
+
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    http.setTimeout(4000);
+    const char *url = "https://meshtastic-ecru.vercel.app/api/ingest?control=cc01";
+    if (!http.begin(client, url)) return;
+    http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
+    const int status = http.GET();
+    String commandJson;
+    if (status == 200) {
+        const String body = http.getString();
+        const int index = body.indexOf("\"version\":");
+        if (index >= 0) {
+            const uint32_t version = static_cast<uint32_t>(strtoul(body.c_str() + index + 10, nullptr, 10));
+            if (version > cc01ConfigVersion) {
+                cc01WaterEnabled = body.indexOf("\"water_enabled\":true") >= 0;
+                cc01HoboEnabled = body.indexOf("\"hobo_enabled\":true") >= 0;
+                const int p = body.indexOf("\"authorized_admin_node\":");
+                if (p >= 0) cc01AdminNode = static_cast<uint32_t>(strtoul(body.c_str() + p + 24, nullptr, 10));
+                cc01ConfigVersion = version;
                 persistCc01Settings();
-                LOG_INFO("CCA CC01 cloud control applied version %lu",static_cast<unsigned long>(version));
+                LOG_INFO("CCA cloud control version %lu", static_cast<unsigned long>(version));
+            }
+        }
+        const String key = "\"poll_command\":";
+        const int position = body.indexOf(key);
+        if (position >= 0) {
+            const int open = body.indexOf('{', position + key.length());
+            const int next = position + key.length();
+            // If null, don't accidentally parse a later unrelated JSON object.
+            if (open >= 0 && body.substring(next, open).indexOf("null") < 0) {
+                const int close = body.indexOf('}', open);
+                if (close >= 0 && close - open < 350) commandJson = body.substring(open, close + 1);
             }
         }
     }
     http.end();
+
+    uint32_t commandId = 0;
+    uint32_t commandNode = 0;
+    uint32_t minutes = 0;
+    String operation, mode;
+    bool ackNeeded = false;
+    bool commandOk = false;
+    String commandError;
+    if (commandJson.length() &&
+        cloudIntegerField(commandJson, "id", commandId) &&
+        cloudIntegerField(commandJson, "node_num", commandNode) &&
+        cloudStringField(commandJson, "operation", operation) &&
+        cloudStringField(commandJson, "mode", mode)) {
+        ackNeeded = true;
+        // The same pending command can be returned when its acknowledgment
+        // was lost. Don't execute a one-shot twice or change timing after reboot.
+        if (commandId == lastCloudPollCommandId) {
+            commandOk = lastCloudPollCommandOk;
+            commandError = lastCloudPollError;
+        } else if (commandId < lastCloudPollCommandId) {
+            // An earlier unapplied command must not override a newer setting.
+            commandOk = false;
+            commandError = "older command skipped";
+        } else {
+            if (operation == "schedule" &&
+                (!cloudIntegerField(commandJson, "interval_minutes", minutes) || minutes > UINT16_MAX)) {
+                commandOk = false;
+                commandError = "invalid interval";
+            } else {
+                commandOk = applyCloudPollCommand(commandNode, operation,
+                    static_cast<uint16_t>(minutes), mode, commandError);
+            }
+            lastCloudPollCommandId = commandId;
+            lastCloudPollCommandOk = commandOk;
+            snprintf(lastCloudPollError, sizeof(lastCloudPollError), "%s", commandError.c_str());
+            persistCc01Settings();
+            LOG_INFO("CCA cloud poll command %lu node=%lu %s",
+                static_cast<unsigned long>(commandId), static_cast<unsigned long>(commandNode),
+                commandOk ? "scheduled" : "rejected");
+        }
+    }
+
+    if (ackNeeded) {
+        HTTPClient ack;
+        if (ack.begin(client, url)) {
+            ack.setTimeout(4000);
+            ack.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
+            ack.addHeader("Content-Type", "application/json");
+            const String ackJson = String("{\"type\":\"poll_ack\",\"id\":") + String(commandId) +
+                ",\"status\":\"" + (commandOk ? "applied" : "failed") + "\",\"error\":" +
+                String("\"") + (commandOk ? "" : commandError) + "\"}";
+            ack.POST(ackJson);
+            ack.end();
+        }
+    }
+
     HTTPClient report;
-    if (!report.begin(client,"https://meshtastic-ecru.vercel.app/api/ingest?control=cc01")) return;
-    report.addHeader("X-Ingest-Key",HOBO_HTTP_GATEWAY_INGEST_KEY);
-    report.addHeader("Content-Type","application/json");
-    const String json=String("{\"type\":\"report\",\"water_enabled\":") +
-      (cc01WaterEnabled?"true":"false") + ",\"hobo_enabled\":" +
-      (cc01HoboEnabled?"true":"false") + ",\"version\":" + String(cc01ConfigVersion) + "}";
+    if (!report.begin(client, url)) return;
+    report.setTimeout(4000);
+    report.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
+    report.addHeader("Content-Type", "application/json");
+    const String json = String("{\"type\":\"report\",\"water_enabled\":") +
+        (cc01WaterEnabled ? "true" : "false") + ",\"hobo_enabled\":" +
+        (cc01HoboEnabled ? "true" : "false") + ",\"version\":" + String(cc01ConfigVersion) +
+        ",\"poll_cloud_capable\":true}";
     report.POST(json);
     report.end();
 }

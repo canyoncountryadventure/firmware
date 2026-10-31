@@ -175,6 +175,9 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint32_t cc01LastStageMs = 0;
     uint32_t cc01AdminNode = 0;
     uint32_t cc01ConfigVersion = 0;
+    uint32_t lastCloudPollCommandId = 0;
+    bool lastCloudPollCommandOk = true;
+    char lastCloudPollError[60] = {};
     uint32_t cc01LastPollMs = 0;
     uint32_t cc01WaterRequestMs = 0;
     uint32_t cc01HoboRequestMs = 0;
@@ -192,6 +195,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
 
     MathesonPhase mathesonPhase = MathesonPhase::Idle;
     bool mathesonPollStarted = false;
+    bool mathesonEnabled = true;
     bool mathesonHoboPending = false;
     uint16_t mathesonIntervalMinutes = 60;
     uint32_t mathesonLastPollMs = 0;
@@ -249,6 +253,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     void handleConfiguredPollReply(const meshtastic_MeshPacket &mp);
     void handleCc01ControlDm(const meshtastic_MeshPacket &mp);
     void refreshCc01CloudControl();
+    bool applyCloudPollCommand(uint32_t node, const String &operation, uint16_t minutes, const String &mode, String &error);
     void persistCc01Settings();
     bool isConfiguredPollReply(uint32_t from) const;
     void queueCc01SensorStatus(const meshtastic_MeshPacket &mp, const char *sensor, const char *reason);
