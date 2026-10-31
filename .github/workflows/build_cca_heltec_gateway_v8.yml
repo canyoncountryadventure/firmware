@@ -11,8 +11,8 @@ on:
       - 'test/test_heltec_v5/**'
       - 'test/test_heltec_v6/**'
       - 'test/test_heltec_v8/**'
+      - 'test/test_heltec_v7/**'
       - '.github/workflows/build_cca_heltec_gateway_v8.yml'
-      - 'test/test_heltec_v8/**'
       - '.github/workflows/build_firmware.yml'
 concurrency:
   group: heltec-gateway-v8
@@ -32,8 +32,8 @@ jobs:
         run: python3 test/test_heltec_v6/test_dm_poller.py
       - name: Exercise V8 watchdog progress and failure logic
         run: |
-          g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v7/test_recovery_supervisor.cpp -o /tmp/test_gateway_v8
-          /tmp/test_gateway_v8
+          g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v7/test_recovery_supervisor.cpp -o /tmp/test_gateway_recovery_v7
+          /tmp/test_gateway_recovery_v7
       - name: Verify Mill Creek telemetry allowlist
         run: python3 test/test_heltec_v7/test_mill_creek_allowlist.py
       - name: Test V8 per-sensor missing-auto fallback and MX220x replies

@@ -663,6 +663,7 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
     } else {
         body += "\"temperature\":" + String(job.temperatureC, 3);
         body += ",\"temperature_c\":" + String(job.temperatureC, 3);
+        if (job.dmPollResult) body += ",\"source\":\"heltec_dm\"";
         if (job.localBleSensor) {
             body += ",\"logger_model\":" + jsonQuoted(job.loggerModel);
             body += ",\"logger_mac\":" + jsonQuoted(job.loggerMac);
