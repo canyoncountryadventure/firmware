@@ -17,7 +17,7 @@ assert "noteAutomaticSensor(job.from, cca_auto_fallback::Kind::Temperature)" in 
 assert "if (job.stageCalibrated)" in gateway
 assert gateway.index("if (isConfiguredPollReply(getFrom(&mp))) handleConfiguredPollReply(mp);") < gateway.index("else if (getFrom(&mp) == CC01_NODE) handleCc01Reply(mp);")
 assert "if (job.dmPollResult) body += " in gateway
-assert '"\\\"source\\\":\\\"heltec_dm\\\""' in gateway or '"source"' in gateway
+assert "heltec_dm" in gateway
 assert "AUTO_FALLBACK_POLL_SLOT" in poller
 assert "pollMissingAutomatic" in poller
 assert "if (watch.node == CC01_POLL_NODE" in poller
