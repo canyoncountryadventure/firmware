@@ -12,6 +12,35 @@ int main() {
     assert(Policy::thresholdMs(1695962694UL) == 900000); // South Cottonwood
     assert(Policy::thresholdMs(2004386937UL) == 3600000); // Matheson
     assert(Policy::thresholdMs(2425602407UL) == 3600000); // Other stations
+    assert(p.nodeIntervalMinutes(1949224949UL) == 15);
+    assert(p.nodeIntervalMinutes(1683604927UL) == 15);
+    assert(p.nodeIntervalMinutes(1695962694UL) == 15);
+    assert(p.nodeIntervalMinutes(2004386937UL) == 60);
+    assert(!p.setNodeIntervalMinutes(1949224949UL, 4)); // prevent mesh flooding
+    assert(!p.setNodeIntervalMinutes(1949224949UL, 1441));
+    assert(!p.setNodeIntervalMinutes(1222051909UL, 30)); // battery-only relay
+    assert(p.setNodeIntervalMinutes(1949224949UL, 20));
+    assert(p.intervalMinutes(0) == 20 && p.intervalMinutes(1) == 20);
+    assert(!p.due(0, 1199999) && p.due(0, 1200000));
+    p.setNodeIntervalMinutes(1949224949UL, 0); // DEFAULT restores 15-minute interval
+    assert(p.intervalMinutes(0) == 15 && p.intervalMinutes(1) == 15);
+    assert(p.setNodeIntervalMinutes(2004386937UL, 30));
+    assert(!p.due(4, 1799999) && p.due(4, 1800000));
+    assert(p.nodeHasIntervalOverride(2004386937UL));
+    p.setNodeIntervalMinutes(2004386937UL, 0);
+    assert(!p.nodeHasIntervalOverride(2004386937UL));
+    assert(p.intervalMinutes(4) == 60);
+    p.setAllIntervalMinutes(45);
+    for (size_t i = 0; i < p.watches.size(); ++i) assert(p.intervalMinutes(i) == 45);
+    p.setAllIntervalMinutes(0);
+    assert(p.intervalMinutes(0) == 15 && p.intervalMinutes(4) == 60);
+    // Pausing fallback does not erase the interval selection.
+    p.setNodeIntervalMinutes(1683604927UL, 90);
+    p.setNodeEnabled(1683604927UL, false);
+    assert(p.nodeIntervalMinutes(1683604927UL) == 90);
+    p.setNodeEnabled(1683604927UL, true);
+    assert(p.intervalMinutes(3) == 90);
+    p.setNodeIntervalMinutes(1683604927UL, 0);
     for (size_t i = 0; i < p.watches.size(); ++i) {
         const uint32_t threshold = Policy::thresholdMs(p.watches[i].node);
         assert(!p.due(i, threshold - 1));

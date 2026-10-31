@@ -107,6 +107,8 @@ void HoboHttpGatewayModule::persistCc01Settings()
         prefs.putUShort("matheson_interval", mathesonIntervalMinutes);
         prefs.putBool("auto_dm_on", autoFallback.enabled);
         prefs.putUShort("auto_dm_mask", autoFallback.pausedMask);
+        prefs.putBytes("auto_dm_int", autoFallback.intervalOverridesMinutes.data(),
+                       sizeof(autoFallback.intervalOverridesMinutes));
         for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
             char key[18] = {};
             snprintf(key, sizeof(key), "poll%u_node", i);
@@ -561,6 +563,48 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         bool valid = true;
         bool persist = false;
         uint32_t node = 0;
+        if (operation == "INTERVAL") {
+            // AUTO DM INTERVAL <station|ALL> <5..1440|DEFAULT>
+            // This is a missing-AUTO watchdog deadline, not the remote
+            // sensor's actual sampling/reporting interval.
+            String minutesText = popPollToken(target);
+            const bool reset = minutesText == "DEFAULT" || minutesText == "AUTO";
+            char *end = nullptr;
+            const char *number = minutesText.c_str();
+            const unsigned long n = *number >= '0' && *number <= '9'
+                ? strtoul(number, &end, 10) : 0;
+            const bool numeric = !reset && end && end != number &&
+                *end == '\0' && n <= 1440 &&
+                cca_auto_fallback::Policy::validIntervalMinutes(static_cast<uint16_t>(n));
+            if (target.isEmpty() || (!reset && !numeric)) {
+                sendCc01Text(getFrom(&mp),
+                    "Use AUTO DM INTERVAL <station|ALL> <5..1440|DEFAULT>");
+                return;
+            }
+            const uint16_t minutes = reset ? 0 : static_cast<uint16_t>(n);
+            const bool all = target == "ALL";
+            const uint32_t selected = all ? 0 : pollNodeForName(target);
+            if (!all && (!selected || !autoFallback.setNodeIntervalMinutes(selected, minutes))) {
+                sendCc01Text(getFrom(&mp), "AUTO DM INTERVAL: unknown monitored station");
+                return;
+            }
+            if (all) autoFallback.setAllIntervalMinutes(minutes);
+            // Cancel a queued rescue, if any, so the next cycle uses the
+            // requested deadline. Already transmitted DMs cannot be recalled.
+            ConfiguredPoll &rescue = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
+            if (rescue.node && (all || rescue.node == selected)) {
+                rescue = ConfiguredPoll{};
+                if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT)
+                    configuredPollActive = -1;
+            }
+            persistCc01Settings();
+            const String reply = String("Auto DM interval ") +
+                (all ? "ALL" : String("!") + String(selected, HEX)) + ": " +
+                (reset ? "defaults restored" : String(minutes) + " min") +
+                ". AUTO telemetry unchanged.";
+            sendCc01Text(getFrom(&mp), reply.c_str());
+            return;
+        }
         if (!target.isEmpty()) {
             node = pollNodeForName(target);
             valid = node != 0 && autoFallback.isKnownNode(node);
@@ -571,10 +615,12 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
                 return;
             }
             String reply = String("Auto DM ") + (autoFallback.enabled ? "ON" : "OFF") +
-                           " (Pack/Mill/CC01 15m, others 60m).";
+                           " (defaults Pack/Mill/CC01 15m, others 60m).";
             if (node) {
                 reply += " !" + String(node, HEX) + " " +
                          (autoFallback.nodeEnabled(node) ? "ON" : "OFF");
+                reply += " " + String(autoFallback.nodeIntervalMinutes(node)) + "m";
+                reply += autoFallback.nodeHasIntervalOverride(node) ? " custom" : " default";
             } else {
                 reply += " Paused:";
                 bool any = false;

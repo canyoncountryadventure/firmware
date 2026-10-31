@@ -30,6 +30,9 @@ public:
     // Compact enough for the existing ESP32 Preferences namespace (11 bits).
     bool enabled = true;
     uint16_t pausedMask = 0;
+    // 0 = use the site's built-in 15/60-minute default. Each station has
+    // one interval shared by all its watched sensor streams.
+    std::array<uint16_t, WATCH_COUNT> intervalOverridesMinutes = {};
 
     std::array<Watch, WATCH_COUNT> watches = {{
         {1949224949UL, Kind::Water},      // Pack Creek SEN0313 stage
@@ -55,6 +58,45 @@ public:
                node == 1683604927UL || // Mill Creek: MX2001
                node == 1695962694UL    // South Cottonwood: MB7388
             ? FAST_MISSING_AUTO_MS : MISSING_AUTO_MS;
+    }
+
+    static constexpr bool validIntervalMinutes(uint16_t minutes) {
+        return minutes >= 5 && minutes <= 1440;
+    }
+    uint16_t intervalMinutes(size_t index) const {
+        if (index >= watches.size()) return 0;
+        const uint16_t overrideMinutes = intervalOverridesMinutes[index];
+        return validIntervalMinutes(overrideMinutes)
+            ? overrideMinutes : static_cast<uint16_t>(thresholdMs(watches[index].node) / 60000UL);
+    }
+    uint16_t nodeIntervalMinutes(uint32_t node) const {
+        for (size_t i = 0; i < watches.size(); ++i)
+            if (watches[i].node == node) return intervalMinutes(i);
+        return 0;
+    }
+    bool nodeHasIntervalOverride(uint32_t node) const {
+        for (size_t i = 0; i < watches.size(); ++i)
+            if (watches[i].node == node) return validIntervalMinutes(intervalOverridesMinutes[i]);
+        return false;
+    }
+    bool setNodeIntervalMinutes(uint32_t node, uint16_t minutes) {
+        if (minutes != 0 && !validIntervalMinutes(minutes)) return false;
+        bool found = false;
+        for (size_t i = 0; i < watches.size(); ++i) {
+            if (watches[i].node != node) continue;
+            intervalOverridesMinutes[i] = minutes;
+            found = true;
+        }
+        return found;
+    }
+    void setAllIntervalMinutes(uint16_t minutes) {
+        // Used only after validating minutes through the DM parser.
+        if (minutes != 0 && !validIntervalMinutes(minutes)) return;
+        intervalOverridesMinutes.fill(minutes);
+    }
+    void sanitizeIntervals() {
+        for (auto &minutes : intervalOverridesMinutes)
+            if (!validIntervalMinutes(minutes)) minutes = 0;
     }
 
     bool isKnownNode(uint32_t node) const {
@@ -107,7 +149,7 @@ public:
     bool due(size_t index, uint32_t now) const {
         if (!isEnabled(index)) return false;
         const auto &watch = watches[index];
-        const uint32_t threshold = thresholdMs(watch.node);
+        const uint32_t threshold = static_cast<uint32_t>(intervalMinutes(index)) * 60000UL;
         if (now < threshold || static_cast<uint32_t>(now - watch.lastAutoMs) < threshold) return false;
         // Bound repeat rescue cycles to the node's own auto-reporting deadline.
         return !watch.attempted ||

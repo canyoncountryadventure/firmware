@@ -47,3 +47,13 @@ assert 'operation == "ONLY"' in poller
 assert 'AUTO DM STATUS' in poller
 assert 'autoFallback.nodeEnabled(fallback.node)' in poller
 assert 'if (!isEnabled(index)) return false;' in policy
+
+assert 'autoFallback.intervalOverridesMinutes.data()' in gateway
+assert 'getBytesLength("auto_dm_int")' in gateway
+assert 'prefs.putBytes("auto_dm_int"' in poller
+assert 'operation == "INTERVAL"' in poller
+assert 'AUTO DM INTERVAL <station|ALL> <5..1440|DEFAULT>' in poller
+assert 'autoFallback.setNodeIntervalMinutes(selected, minutes)' in poller
+assert 'autoFallback.setAllIntervalMinutes(minutes)' in poller
+assert 'String(autoFallback.nodeIntervalMinutes(node))' in poller
+assert 'intervalMinutes(index)) * 60000UL' in policy

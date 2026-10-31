@@ -116,6 +116,12 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         migrateLegacyPolls = !saved.getBool("v8_fallback", false);
         autoFallback.enabled = saved.getBool("auto_dm_on", true);
         autoFallback.pausedMask = saved.getUShort("auto_dm_mask", 0) & cca_auto_fallback::Policy::ALL_MASK;
+        // One compact, version-tolerant blob for per-stream interval values.
+        if (saved.getBytesLength("auto_dm_int") == sizeof(autoFallback.intervalOverridesMinutes)) {
+            saved.getBytes("auto_dm_int", autoFallback.intervalOverridesMinutes.data(),
+                           sizeof(autoFallback.intervalOverridesMinutes));
+            autoFallback.sanitizeIntervals();
+        }
         for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
             char key[18] = {};
             snprintf(key, sizeof(key), "poll%u_node", i);
@@ -835,7 +841,9 @@ String HoboHttpGatewayModule::statusJson()
         if (i) body += ',';
         body += "{\"node\":" + String(w.node) + ",\"kind\":" + String(static_cast<uint8_t>(w.kind));
         body += ",\"enabled\":" + String(autoFallback.isEnabled(i) ? "true" : "false");
-        body += ",\"threshold_minutes\":" + String(cca_auto_fallback::Policy::thresholdMs(w.node) / 60000UL);
+        body += ",\"threshold_minutes\":" + String(autoFallback.intervalMinutes(i));
+        body += ",\"default_minutes\":" + String(cca_auto_fallback::Policy::thresholdMs(w.node) / 60000UL);
+        body += ",\"custom_interval\":" + String(autoFallback.intervalOverridesMinutes[i] ? "true" : "false");
         body += ",\"last_auto_ms\":" + String(w.lastAutoMs);
         body += ",\"last_request_ms\":" + (w.attempted ? String(w.lastAttemptMs) : "null");
         body += '}';
