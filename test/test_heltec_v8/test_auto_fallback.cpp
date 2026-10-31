@@ -14,7 +14,14 @@ int main() {
     // All-watch and per-station DM pause only stop rescue. Their
     // automatic timestamps still update independently.
     p.pauseAll();
+    assert(p.pausedMask == Policy::ALL_MASK);
     assert(!p.due(0, 3600000));
+    // OFF then ON <node> must NOT accidentally enable every station.
+    assert(p.setNodeEnabled(2004386937UL, true));
+    p.enabled = true;
+    assert(p.nodeEnabled(2004386937UL));
+    assert(!p.nodeEnabled(1949224949UL));
+    p.pauseAll();
     assert(p.receivedAuto(1949224949UL, Kind::Water, 3600000));
     p.enableAll();
     assert(!p.due(0, 3600001));

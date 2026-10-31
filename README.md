@@ -9,7 +9,7 @@
 
 | Direct message to Heltec | Result |
 |---|---|
-| `AUTO DM OFF` | Pause all automatic missing-reading rescue DMs |
+| `AUTO DM OFF` | Pause all automatic missing-reading rescue DMs; individual stations stay OFF until explicitly re-enabled |
 | `AUTO DM ON` | Resume rescue DMs for all monitored stations and clear individual pauses |
 | `AUTO DM OFF MATHESON` | Exclude Matheson from rescue DMs; its normal AUTO transmissions continue |
 | `AUTO DM ON MATHESON` | Re-enable Matheson rescue DMs |

@@ -77,7 +77,7 @@ public:
         enabled = true;
     }
     void enableAll() { pausedMask = 0; enabled = true; }
-    void pauseAll() { enabled = false; }
+    void pauseAll() { pausedMask = ALL_MASK; enabled = false; }
 
     // Never use device/battery telemetry to reset the sensor watchdog.
     // A successful reply to our fallback DM does NOT reset this timestamp;
