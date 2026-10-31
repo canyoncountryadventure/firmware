@@ -11,6 +11,25 @@ int main() {
         assert(!p.due(i, 3599999));
         assert(p.due(i, 3600000)); // first missed hour after boot
     }
+    // All-watch and per-station DM pause only stop rescue. Their
+    // automatic timestamps still update independently.
+    p.pauseAll();
+    assert(!p.due(0, 3600000));
+    assert(p.receivedAuto(1949224949UL, Kind::Water, 3600000));
+    p.enableAll();
+    assert(!p.due(0, 3600001));
+    assert(p.setNodeEnabled(1949224949UL, false));
+    assert(!p.due(0, 7200001) && !p.due(1, 7200001));
+    assert(p.due(2, 7200001)); // South Cottonwood independent
+    assert(p.setNodeEnabled(1949224949UL, true));
+    assert(p.due(0, 7200001));
+    assert(!p.setNodeEnabled(1222051909UL, false)); // battery-only
+    p.setOnlyNode(2004386937UL);
+    assert(!p.due(0, 7200001) && p.due(4, 7200001));
+    p.setNodeEnabled(1683604927UL, true);
+    assert(p.due(3, 7200001));
+    p.enableAll();
+    assert(p.pausedMask == 0 && p.enabled);
     // Fresh Pack Creek ultrasonic telemetry does NOT silence its HOBO watchdog.
     assert(p.receivedAuto(1949224949UL, Kind::Water, 3600001));
     assert(!p.due(0, 3600002));

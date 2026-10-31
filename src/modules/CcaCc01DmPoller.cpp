@@ -105,6 +105,8 @@ void HoboHttpGatewayModule::persistCc01Settings()
         prefs.putUInt("version", cc01ConfigVersion);
         prefs.putUShort("cc01_interval", cc01IntervalOverrideMinutes);
         prefs.putUShort("matheson_interval", mathesonIntervalMinutes);
+        prefs.putBool("auto_dm_on", autoFallback.enabled);
+        prefs.putUShort("auto_dm_mask", autoFallback.pausedMask);
         for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
             char key[18] = {};
             snprintf(key, sizeof(key), "poll%u_node", i);
@@ -224,6 +226,14 @@ bool HoboHttpGatewayModule::isConfiguredPollReply(uint32_t from) const
 
 void HoboHttpGatewayModule::pollConfiguredStations()
 {
+    // A new pause command cancels outstanding rescue retries. Normal
+    // user-requested POLL jobs are deliberately unaffected.
+    ConfiguredPoll &fallback = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
+    if (fallback.node && !autoFallback.nodeEnabled(fallback.node)) {
+        fallback = ConfiguredPoll{};
+        if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT)
+            configuredPollActive = -1;
+    }
     // V8: failed-auto rescue uses the final one-shot slot. Dedicated V7
     // unconditional pollers are retired, so this scheduler stands alone.
     const uint32_t now = millis();
@@ -538,6 +548,92 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
     String text(command); text.trim(); text.toUpperCase();
     bool known=true, changed=false;
     String action;
+    // These commands control ONLY Heltec-initiated missing-auto rescue DMs.
+    // Sensor broadcasts and automatic uploads continue independently.
+    if (text.startsWith("AUTO DM ") || text.startsWith("FALLBACK ")) {
+        const String prefix = text.startsWith("AUTO DM ") ? "AUTO DM " : "FALLBACK ";
+        String request = text.substring(prefix.length());
+        request.trim();
+        const int space = request.indexOf(' ');
+        String operation = space < 0 ? request : request.substring(0, space);
+        String target = space < 0 ? "" : request.substring(space + 1);
+        target.trim();
+        bool valid = true;
+        bool persist = false;
+        uint32_t node = 0;
+        if (!target.isEmpty()) {
+            node = pollNodeForName(target);
+            valid = node != 0 && autoFallback.isKnownNode(node);
+        }
+        if (operation == "STATUS") {
+            if (!target.isEmpty() && !valid) {
+                sendCc01Text(getFrom(&mp), "AUTO DM: unrecognized sensor station");
+                return;
+            }
+            String reply = String("Auto DM ") + (autoFallback.enabled ? "ON" : "OFF") +
+                           " (hourly missing-auto only).";
+            if (node) {
+                reply += " !" + String(node, HEX) + " " +
+                         (autoFallback.nodeEnabled(node) ? "ON" : "OFF");
+            } else {
+                reply += " Paused:";
+                bool any = false;
+                for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
+                    const auto &w = autoFallback.watches[i];
+                    if (autoFallback.isEnabled(i)) continue;
+                    // Show each paused node just once, even Pack Creek.
+                    bool shown = false;
+                    for (size_t j = 0; j < i; ++j)
+                        if (autoFallback.watches[j].node == w.node) shown = true;
+                    if (shown) continue;
+                    reply += " !" + String(w.node, HEX);
+                    any = true;
+                }
+                if (!any) reply += " none";
+            }
+            sendCc01Text(getFrom(&mp), reply.c_str());
+            return;
+        } else if (!valid || (operation != "ON" && operation != "OFF" && operation != "ONLY")) {
+            valid = false;
+        } else if (operation == "ONLY") {
+            if (!node) valid = false;
+            else { autoFallback.setOnlyNode(node); persist = true; }
+        } else if (node) {
+            if (operation == "ON") {
+                autoFallback.setNodeEnabled(node, true);
+                // Explicitly selecting a station also enables global rescue.
+                autoFallback.enabled = true;
+            } else autoFallback.setNodeEnabled(node, false);
+            persist = true;
+        } else if (operation == "ON") {
+            autoFallback.enableAll();
+            persist = true;
+        } else if (operation == "OFF") {
+            autoFallback.pauseAll();
+            persist = true;
+        }
+        if (!valid) {
+            sendCc01Text(getFrom(&mp),
+                "Use AUTO DM ON|OFF [station], AUTO DM ONLY <station>, AUTO DM STATUS");
+            return;
+        }
+        if (persist) {
+            // Prevent another transmission or retry from an already queued
+            // rescue. Auto telemetry remains accepted without interruption.
+            ConfiguredPoll &fallback = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
+            if (fallback.node && !autoFallback.nodeEnabled(fallback.node)) {
+                fallback = ConfiguredPoll{};
+                if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT)
+                    configuredPollActive = -1;
+            }
+            persistCc01Settings();
+        }
+        String reply = String("Auto DM ") + (autoFallback.enabled ? "ON" : "OFF");
+        reply += node ? " !" + String(node, HEX) : " all";
+        reply += ": " + operation + ". AUTO telemetry unchanged.";
+        sendCc01Text(getFrom(&mp), reply.c_str());
+        return;
+    }
     if (text=="PAUSE HOBO") cc01HoboEnabled=false;
     else if (text=="RESUME HOBO") cc01HoboEnabled=true;
     else if (text=="PAUSE SENSOR") cc01WaterEnabled=false;

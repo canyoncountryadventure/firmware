@@ -2,6 +2,24 @@
 
 **October 30, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
 
+
+### Authorized DM controls for rescue polling (V8)
+
+**These only change Heltec's missing-automatic fallback DMs.** Automatic radio transmissions, the gateway's sensor ingestion, temperature/stage measurement, relaying, and manual `POLL ...` DMs are unaffected. Send commands **directly to Heltec** from the authorized control radio (`!c22d7fec`):
+
+| Direct message to Heltec | Result |
+|---|---|
+| `AUTO DM OFF` | Pause all automatic missing-reading rescue DMs |
+| `AUTO DM ON` | Resume rescue DMs for all monitored stations and clear individual pauses |
+| `AUTO DM OFF MATHESON` | Exclude Matheson from rescue DMs; its normal AUTO transmissions continue |
+| `AUTO DM ON MATHESON` | Re-enable Matheson rescue DMs |
+| `AUTO DM ONLY MATHESON` | Permit rescue DMs **only** for Matheson |
+| `AUTO DM ON PACK CREEK` | Add Pack Creek to the allowed rescue group (both stage and HOBO) |
+| `AUTO DM STATUS` | Display global setting and paused stations |
+| `AUTO DM STATUS MATHESON` | Show one station's effective setting |
+
+`FALLBACK` is an accepted alias for `AUTO DM`. Station selectors accept Cottonwood/CC01, Matheson, Mill Creek, Pack Creek, and numeric Meshtastic node IDs such as `!77788479`. For other stations, use their node ID. Invalid or battery-only nodes are rejected. Per-station changes apply to all sensor streams at that node, including Pack Creek's independent ultrasonic and HOBO streams. Changes are saved in Heltec's ESP32 Preferences and survive reboots. Turning off a fallback cancels queued rescue retries for that node; an already transmitted RF request cannot be recalled. **The existing website does not control these settings**, and no additional Neon polling was introduced.
+
 ## V8: missing-automatic-telemetry rescue
 
 Heltec **does not** proactively poll Cottonwood or Matheson on a fixed schedule anymore. It listens for each station's own, correctly decoded automatic stage and temperature packets. If an expected stream goes missing for **60 minutes**, it issues an encrypted sensor DM just after the deadline, as soon as the single LoRa request queue is free. Normal automatic packets reset that particular sensor's clock; battery-only and invalid stage packets do not. DM rescue replies are stored as `heltec_dm`, but do **not** reset the automatic telemetry clock. If auto stays missing, the next rescue cycle cannot begin for another 60 minutes. Maximum **three attempts**, 30 seconds between attempts, one node at a time, shared 3-second packet spacing. No infinite retries or unconditional reboots.

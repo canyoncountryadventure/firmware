@@ -114,6 +114,8 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         cc01IntervalOverrideMinutes = saved.getUShort("cc01_interval", 0);
         mathesonIntervalMinutes = saved.getUShort("matheson_interval", 60);
         migrateLegacyPolls = !saved.getBool("v8_fallback", false);
+        autoFallback.enabled = saved.getBool("auto_dm_on", true);
+        autoFallback.pausedMask = saved.getUShort("auto_dm_mask", 0) & cca_auto_fallback::Policy::ALL_MASK;
         for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
             char key[18] = {};
             snprintf(key, sizeof(key), "poll%u_node", i);
@@ -822,13 +824,17 @@ String HoboHttpGatewayModule::statusJson()
         body += ",\"mode\":" + String(static_cast<uint8_t>(configuredPolls[i].mode)) + "}";
     }
     body += ']';
-    body += "},\"auto_fallback\":{\"missing_minutes\":60,\"queued\":" + String(autoFallbackQueued);
+    body += "},\"auto_fallback\":{\"missing_minutes\":60,\"enabled\":" +
+        String(autoFallback.enabled ? "true" : "false");
+    body += ",\"paused_mask\":" + String(autoFallback.pausedMask);
+    body += ",\"queued\":" + String(autoFallbackQueued);
     body += ",\"replies\":" + String(autoFallbackReplies);
     body += ",\"watched\":[";
     for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
         const auto &w = autoFallback.watches[i];
         if (i) body += ',';
         body += "{\"node\":" + String(w.node) + ",\"kind\":" + String(static_cast<uint8_t>(w.kind));
+        body += ",\"enabled\":" + String(autoFallback.isEnabled(i) ? "true" : "false");
         body += ",\"last_auto_ms\":" + String(w.lastAutoMs);
         body += ",\"last_request_ms\":" + (w.attempted ? String(w.lastAttemptMs) : "null");
         body += '}';

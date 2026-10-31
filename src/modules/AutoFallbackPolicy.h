@@ -25,6 +25,11 @@ public:
     static constexpr uint8_t FALLBACK_RETRIES = 3;
     static constexpr uint32_t REPLY_TIMEOUT_MS = 30000UL;
 
+    // A bit per stream; station ON/OFF affects all streams of the same node.
+    // Compact enough for the existing ESP32 Preferences namespace (11 bits).
+    bool enabled = true;
+    uint16_t pausedMask = 0;
+
     std::array<Watch, WATCH_COUNT> watches = {{
         {1949224949UL, Kind::Water},      // Pack Creek SEN0313 stage
         {1949224949UL, Kind::Mx2001},     // Pack Creek HOBO stage + temp
@@ -38,6 +43,41 @@ public:
         {2650172798UL, Kind::Temperature}, // Thousand Lake Mountain temperature
         {4241345683UL, Kind::Temperature}  // Mini Me temperature
     }};
+
+    static constexpr uint16_t ALL_MASK = (1U << WATCH_COUNT) - 1U;
+
+    bool isKnownNode(uint32_t node) const {
+        for (const auto &watch : watches)
+            if (watch.node == node) return true;
+        return false;
+    }
+    bool isEnabled(size_t index) const {
+        return index < watches.size() && enabled &&
+            (pausedMask & static_cast<uint16_t>(1U << index)) == 0;
+    }
+    bool setNodeEnabled(uint32_t node, bool allow) {
+        bool found = false;
+        for (size_t i = 0; i < watches.size(); ++i) {
+            if (watches[i].node != node) continue;
+            found = true;
+            const uint16_t bit = static_cast<uint16_t>(1U << i);
+            if (allow) pausedMask &= static_cast<uint16_t>(~bit);
+            else pausedMask |= bit;
+        }
+        return found;
+    }
+    bool nodeEnabled(uint32_t node) const {
+        for (size_t i = 0; i < watches.size(); ++i)
+            if (watches[i].node == node && isEnabled(i)) return true;
+        return false;
+    }
+    void setOnlyNode(uint32_t node) {
+        pausedMask = ALL_MASK;
+        setNodeEnabled(node, true);
+        enabled = true;
+    }
+    void enableAll() { pausedMask = 0; enabled = true; }
+    void pauseAll() { enabled = false; }
 
     // Never use device/battery telemetry to reset the sensor watchdog.
     // A successful reply to our fallback DM does NOT reset this timestamp;
@@ -54,7 +94,7 @@ public:
     }
 
     bool due(size_t index, uint32_t now) const {
-        if (index >= watches.size() || now < MISSING_AUTO_MS) return false;
+        if (!isEnabled(index) || now < MISSING_AUTO_MS) return false;
         const auto &watch = watches[index];
         if (static_cast<uint32_t>(now - watch.lastAutoMs) < MISSING_AUTO_MS) return false;
         return !watch.attempted ||

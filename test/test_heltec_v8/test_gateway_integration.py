@@ -33,3 +33,13 @@ assert "getFrom(&mp) == PACK_CREEK_POLL_NODE ? 3 : 0" in poller
 assert "if (getFrom(&mp) == CC01_POLL_NODE)" in poller
 assert "temperatureOnly ? JobType::ENVIRONMENT : JobType::MX2001" in poller
 print("PASS: V8 gateway only rescues stale sensor streams; LoRa, NVS, parser and gateway wire paths retained")
+
+assert 'autoFallback.enabled = saved.getBool("auto_dm_on", true)' in gateway
+assert 'autoFallback.pausedMask = saved.getUShort("auto_dm_mask", 0)' in gateway
+assert 'prefs.putBool("auto_dm_on", autoFallback.enabled)' in poller
+assert 'prefs.putUShort("auto_dm_mask", autoFallback.pausedMask)' in poller
+assert 'text.startsWith("AUTO DM ")' in poller
+assert 'operation == "ONLY"' in poller
+assert 'AUTO DM STATUS' in poller
+assert 'autoFallback.nodeEnabled(fallback.node)' in poller
+assert 'if (!isEnabled(index) || now < MISSING_AUTO_MS)' in policy
