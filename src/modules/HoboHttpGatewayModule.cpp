@@ -104,6 +104,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
     isPromiscuous = true;
     uploadQueue.setReader(this);
     Preferences saved;
+    bool migrateLegacyPolls = false;
     if (saved.begin("cca_cc01", true)) {
         cc01WaterEnabled = saved.getBool("water", true);
         cc01HoboEnabled = saved.getBool("hobo", true);
@@ -112,6 +113,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         cc01ConfigVersion = saved.getUInt("version", 0);
         cc01IntervalOverrideMinutes = saved.getUShort("cc01_interval", 0);
         mathesonIntervalMinutes = saved.getUShort("matheson_interval", 60);
+        migrateLegacyPolls = !saved.getBool("v8_fallback", false);
         for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
             char key[18] = {};
             snprintf(key, sizeof(key), "poll%u_node", i);
@@ -124,6 +126,24 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
                 ? static_cast<ConfiguredPollMode>(mode) : ConfiguredPollMode::Read;
         }
         saved.end();
+    }
+    // V7 recurring manual schedules would defeat V8 auto-only fallback.
+    // Retire them exactly once while keeping all credentials and station data.
+    if (migrateLegacyPolls) {
+        Preferences clean;
+        if (clean.begin("cca_cc01", false)) {
+            for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
+                char key[18] = {};
+                snprintf(key, sizeof(key), "poll%u_node", i);
+                clean.putUInt(key, 0);
+                snprintf(key, sizeof(key), "poll%u_interval", i);
+                clean.putUShort(key, 0);
+            }
+            clean.putBool("v8_fallback", true);
+            clean.end();
+        }
+        for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i)
+            configuredPolls[i] = ConfiguredPoll{};
     }
     setInterval(1000);
     LOG_INFO("CCA clean gateway enabled: immediate independent forwarding -> %s", HOBO_HTTP_GATEWAY_URL);
@@ -336,6 +356,7 @@ bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
                  static_cast<unsigned long>(mp.id));
         return false;
     }
+    noteAutomaticSensor(job.from, cca_auto_fallback::Kind::Mx2001);
     LOG_INFO("CCA clean gateway: queued remote MX2001 from 0x%08lx", static_cast<unsigned long>(job.from));
     setIntervalFromNow(0);
     return true;
@@ -435,6 +456,8 @@ bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp
                  static_cast<unsigned long>(job.from));
         return false;
     }
+    if (job.stageCalibrated)
+        noteAutomaticSensor(job.from, cca_auto_fallback::Kind::Water);
     LOG_INFO("CCA clean gateway: queued water-distance from 0x%08lx stage_valid=%s",
              static_cast<unsigned long>(job.from), job.stageCalibrated ? "YES" : "NO");
     setIntervalFromNow(0);
@@ -461,6 +484,7 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
                  static_cast<unsigned long>(mp.id));
         return false;
     }
+    noteAutomaticSensor(job.from, cca_auto_fallback::Kind::Temperature);
     LOG_INFO("CCA clean gateway: queued temperature %.2f C from 0x%08lx",
              job.temperatureC, static_cast<unsigned long>(job.from));
     setIntervalFromNow(0);
@@ -508,9 +532,11 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
         return ProcessMessage::CONTINUE;
     }
     if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
-        if (getFrom(&mp) == CC01_NODE) handleCc01Reply(mp);
+        // A missed-auto fallback may target CC01 or Matheson too. Match its
+        // active reply first, before the legacy station-specific parser.
+        if (isConfiguredPollReply(getFrom(&mp))) handleConfiguredPollReply(mp);
+        else if (getFrom(&mp) == CC01_NODE) handleCc01Reply(mp);
         else if (getFrom(&mp) == MATHESON_NODE) handleMathesonReply(mp);
-        else if (isConfiguredPollReply(getFrom(&mp))) handleConfiguredPollReply(mp);
         else if (cc01AdminNode != 0 && getFrom(&mp) == cc01AdminNode) handleCc01ControlDm(mp);
         return ProcessMessage::CONTINUE;
     }
@@ -722,7 +748,7 @@ String HoboHttpGatewayModule::statusJson()
     const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
                         cc01Phase == Cc01Phase::Hobo ? "waiting_hobo" :
                         cc01Phase == Cc01Phase::Done ? "done" : "idle";
-    String body = "{\"firmware_fix\":\"v7-matheson-poll-2026-10-30\"";
+    String body = "{\"firmware_fix\":\"v8-missing-auto-fallback-2026-10-30\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -795,17 +821,28 @@ String HoboHttpGatewayModule::statusJson()
         body += ",\"mode\":" + String(static_cast<uint8_t>(configuredPolls[i].mode)) + "}";
     }
     body += ']';
-    body += "}}";
+    body += "},\"auto_fallback\":{\"missing_minutes\":60,\"queued\":" + String(autoFallbackQueued);
+    body += ",\"replies\":" + String(autoFallbackReplies);
+    body += ",\"watched\":[";
+    for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
+        const auto &w = autoFallback.watches[i];
+        if (i) body += ',';
+        body += "{\"node\":" + String(w.node) + ",\"kind\":" + String(static_cast<uint8_t>(w.kind));
+        body += ",\"last_auto_ms\":" + String(w.lastAutoMs);
+        body += ",\"last_request_ms\":" + (w.attempted ? String(w.lastAttemptMs) : "null");
+        body += '}';
+    }
+    body += "]}}";
     return body;
 }
 
 int32_t HoboHttpGatewayModule::runOnce()
 {
     ++healthLoopCycles;
-    // Polling is LoRa, not Wi-Fi. Keep CC01 WATER READ and READ active even
-    // during a Wi-Fi outage; replies queue until upload resumes.
-    pollCc01();
-    pollMatheson();
+    // V8: only rescue missing automatic stage/temperature after one hour.
+    // No unconditional Cottonwood or Matheson polling. LoRa still works
+    // without Wi-Fi; captured DM replies queue for later upload.
+    pollMissingAutomatic();
     pollConfiguredStations();
     refreshCc01CloudControl();
 

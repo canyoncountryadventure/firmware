@@ -1,3 +1,37 @@
+# CCA Heltec Sensor Gateway V8
+
+**October 30, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
+
+## V8: missing-automatic-telemetry rescue
+
+Heltec **does not** proactively poll Cottonwood or Matheson on a fixed schedule anymore. It listens for each station's own, correctly decoded automatic stage and temperature packets. If an expected stream goes missing for **60 minutes**, it issues an encrypted sensor DM just after the deadline, as soon as the single LoRa request queue is free. Normal automatic packets reset that particular sensor's clock; battery-only and invalid stage packets do not. DM rescue replies are stored as `heltec_dm`, but do **not** reset the automatic telemetry clock. If auto stays missing, the next rescue cycle cannot begin for another 60 minutes. Maximum **three attempts**, 30 seconds between attempts, one node at a time, shared 3-second packet spacing. No infinite retries or unconditional reboots.
+
+- **Pack Creek** `!742ecff5`: missing ultrasonic stage → `WATER READ`; missing HOBO MX2001 stage/temperature → `READ`, separately.
+- **South Cottonwood** `!65165646`: missing MB7388 stage → `WATER READ`. **No HOBO sensor; no HOBO DM.**
+- **Mill Creek** `!6459c5bf` and **Matheson Groundwater** `!77788479`: missing MX2001 stage/temperature → one `READ` covering both.
+- **Cottonwood Relay, Hidden Valley, Fishlake Hightop, Seed Relay 1, Thousand Lake Mountain and Mini Me**: missing automatic environmental temperature → `READ` for a compatible HOBO MX2201/MX2203 temperature reader (or MX2001 where present).
+- **Cottonwood Relay 2 and Spare RAK**: battery-only, no stage or temperature fallback. **Moab (Heltec's local BLE sensor)** isn't a remote DM destination.
+
+The remote node **must implement** its matching `READ` or `WATER READ` command for rescue to work; ordinary Meshtastic environment telemetry by itself doesn't guarantee that. V8 parses MX2001, MX2201 and MX2203 replies; no synthetic sensor values are generated. Automatic telemetry and battery packets still upload normally. Owner-authorized manual `POLL ...` commands remain available, but V7 recurring poll schedules are cleared once on V8 migration to prevent unnecessary DMs. V7 unconditional Cottonwood/Matheson polling is retired, even if an old interval override is saved.
+
+The read-only `http://192.168.1.147/json/gateway` diagnostic reports `firmware_fix: v8-missing-auto-fallback-2026-10-30` and `auto_fallback.watched` per-stream timestamps/counters. The V8 source/build branch is [Heltec-Gateway-v8](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v8). Builds are published into `downloads/Heltec-Gateway-v8/` **only after** tests and the ESP32-S3 build pass.
+
+### VS Code PowerShell Wi-Fi OTA (after a verified V8 build)
+
+```powershell
+$ip = "192.168.1.147"
+$fw = "C:\\HeltecUpdate\\Heltec-Gateway-v8-10-30-26.bin"
+Invoke-WebRequest "https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v8/downloads/Heltec-Gateway-v8/Heltec-Gateway-v8-10-30-26.bin" -OutFile $fw
+py -m meshtastic --host $ip --ota-update $fw
+Invoke-RestMethod "http://$ip/json/gateway" | ConvertTo-Json -Depth 6
+```
+
+Only flash the non-factory application BIN. Preserve node identity, NVS, Wi-Fi, LoRa channels, encryption keys, OTA partition and existing recovery watchdog.
+
+---
+
+## Archived Heltec V7 documentation (rollback reference)
+
 # CCA Heltec Sensor Gateway V7
 
 **October 22, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**

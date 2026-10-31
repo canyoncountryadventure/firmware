@@ -224,14 +224,12 @@ bool HoboHttpGatewayModule::isConfiguredPollReply(uint32_t from) const
 
 void HoboHttpGatewayModule::pollConfiguredStations()
 {
-    // Cottonwood is always first; Matheson has the next LoRa window. This
-    // generic table begins only after both station-specific cycles finish.
-    if (!cc01PollStarted || cc01Phase != Cc01Phase::Done || mathesonPhase != MathesonPhase::Done)
-        return;
-
+    // V8: failed-auto rescue uses the final one-shot slot. Dedicated V7
+    // unconditional pollers are retired, so this scheduler stands alone.
     const uint32_t now = millis();
     if (configuredPollActive < 0) {
-        for (uint8_t i = 0; i < CONFIGURED_POLL_SLOTS; ++i) {
+        for (uint8_t order = 0; order < CONFIGURED_POLL_SLOTS; ++order) {
+            const uint8_t i = order == 0 ? AUTO_FALLBACK_POLL_SLOT : order - 1;
             ConfiguredPoll &candidate = configuredPolls[i];
             if (!candidate.node || (!candidate.oneShot && !candidate.intervalMinutes))
                 continue;
@@ -277,6 +275,47 @@ void HoboHttpGatewayModule::pollConfiguredStations()
         cc01HasDmSent = true;
     }
 }
+
+void HoboHttpGatewayModule::noteAutomaticSensor(uint32_t node, cca_auto_fallback::Kind kind)
+{
+    if (!autoFallback.receivedAuto(node, kind, millis())) return;
+    // A recovered automatic packet cancels an unsent fallback for exactly
+    // this sensor, but never disables a different sensor on the same node.
+    ConfiguredPoll &fallback = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
+    const ConfiguredPollMode mode = kind == cca_auto_fallback::Kind::Water ?
+        ConfiguredPollMode::Water : ConfiguredPollMode::Read;
+    if (fallback.node == node && fallback.mode == mode) {
+        fallback = ConfiguredPoll{};
+        if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT) configuredPollActive = -1;
+    }
+}
+void HoboHttpGatewayModule::pollMissingAutomatic()
+{
+    if (configuredPolls[AUTO_FALLBACK_POLL_SLOT].node) return;
+    const uint32_t now = millis();
+    for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
+        const auto &watch = autoFallback.watches[i];
+        if (!autoFallback.due(i, now)) continue;
+        if (watch.node == CC01_POLL_NODE && watch.kind == cca_auto_fallback::Kind::Water &&
+            !cc01WaterEnabled) continue;
+
+        ConfiguredPoll &rescue = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
+        rescue = ConfiguredPoll{};
+        rescue.node = watch.node;
+        rescue.mode = watch.kind == cca_auto_fallback::Kind::Water ?
+            ConfiguredPollMode::Water : ConfiguredPollMode::Read;
+        rescue.oneShot = true;
+        autoFallback.attemptedAt(i, now);
+        ++autoFallbackQueued;
+        LOG_INFO("CCA V8 missing-auto rescue node=0x%08lx kind=%u age=%lu sec",
+                 static_cast<unsigned long>(watch.node),
+                 static_cast<unsigned>(watch.kind),
+                 static_cast<unsigned long>((now - watch.lastAutoMs) / 1000UL));
+        setIntervalFromNow(0);
+        break;
+    }
+}
+
 void HoboHttpGatewayModule::queueCc01SensorStatus(const meshtastic_MeshPacket &mp, const char *sensor, const char *reason)
 {
     UploadJob job = {};
@@ -420,8 +459,11 @@ void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacke
 
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
+    cca_cc01_dm::HoboTemperatureReading hoboTemp;
     UploadJob job = {};
-    if (cca_cc01_dm::parseWaterRead(reply, water)) {
+    const ConfiguredPollPhase originalPhase = poll.phase;
+    const uint8_t originalAttempts = poll.attempts;
+    if (poll.phase == ConfiguredPollPhase::Water && cca_cc01_dm::parseWaterRead(reply, water)) {
         job.type = JobType::WATER_DISTANCE;
         fillCommon(job, mp);
         job.dmPollResult = true;
@@ -436,7 +478,7 @@ void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacke
         } else {
             poll.phase = ConfiguredPollPhase::Done;
         }
-    } else if (cca_cc01_dm::parseHoboRead(reply, hobo)) {
+    } else if (poll.phase == ConfiguredPollPhase::Read && cca_cc01_dm::parseHoboRead(reply, hobo)) {
         job.type = JobType::MX2001;
         fillCommon(job, mp);
         job.dmPollResult = true;
@@ -447,13 +489,25 @@ void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacke
         snprintf(job.loggerMac, sizeof(job.loggerMac), "%s", hobo.mac);
         snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
         poll.phase = ConfiguredPollPhase::Done;
+    } else if (poll.phase == ConfiguredPollPhase::Read && cca_cc01_dm::parseHoboTemperatureRead(reply, hoboTemp)) {
+        job.type = JobType::ENVIRONMENT;
+        fillCommon(job, mp);
+        job.dmPollResult = true;
+        job.temperatureC = (hoboTemp.temperatureF - 32.0f) * (5.0f / 9.0f);
+        poll.phase = ConfiguredPollPhase::Done;
     } else {
         ++configuredPollRejected;
         LOG_WARN("CCA configured poll reply rejected: node=0x%08lx bytes=%u",
                  static_cast<unsigned long>(getFrom(&mp)), static_cast<unsigned>(n));
         return;
     }
-    if (!uploadQueue.enqueue(job, 0)) { ++cc01QueueFull; return; }
+    if (!uploadQueue.enqueue(job, 0)) {
+        poll.phase = originalPhase;
+        poll.attempts = originalAttempts;
+        ++cc01QueueFull;
+        return;
+    }
+    if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT) ++autoFallbackReplies;
     ++configuredPollParsed;
     ++configuredPollQueued;
     setIntervalFromNow(0);
@@ -561,7 +615,7 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         return;
     }
     if (text!="POLL STATUS" && (changed || text.startsWith("PAUSE") || text.startsWith("RESUME"))) persistCc01Settings();
-    String result = String("Polling: Cottonwood ") +
+    String result = String("V8 auto fallback after 60m; legacy Cottonwood ") +
                     (cc01IntervalOverrideMinutes ? String(cc01IntervalOverrideMinutes) : String(cc01FastMode ? 15 : 60)) +
                     " min" + (cc01IntervalOverrideMinutes ? " fixed" : " auto") +
                     ", Matheson " + String(mathesonIntervalMinutes) + " min; sensor " +
