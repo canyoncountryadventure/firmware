@@ -57,3 +57,6 @@ assert 'autoFallback.setNodeIntervalMinutes(selected, minutes)' in poller
 assert 'autoFallback.setAllIntervalMinutes(minutes)' in poller
 assert 'String(autoFallback.nodeIntervalMinutes(node))' in poller
 assert 'intervalMinutes(index)) * 60000UL' in policy
+
+for station in ('"COTTONWOOD RELAY"', '"HIDDEN VALLEY"', '"FISHLAKE HIGHTOP"', '"SEED RELAY"', '"THOUSAND LAKE MOUNTAIN"', '"MINI ME"'):
+    assert station in poller

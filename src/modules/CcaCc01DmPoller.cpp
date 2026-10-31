@@ -36,6 +36,14 @@ uint32_t pollNodeForName(const String &name)
     if (name == "MATHESON" || name == "MATHESON GROUNDWATER") return MATHESON_POLL_NODE;
     if (name == "MILL CREEK" || name == "MILL") return MILL_CREEK_POLL_NODE;
     if (name == "PACK CREEK" || name == "PACK") return PACK_CREEK_POLL_NODE;
+    if (name == "MILL CREEK POWER DAM" || name == "POWER DAM") return MILL_CREEK_POLL_NODE;
+    if (name == "SOUTH COTTONWOOD") return CC01_POLL_NODE;
+    if (name == "COTTONWOOD RELAY" || name == "CC02") return 2425602407UL;
+    if (name == "HIDDEN VALLEY") return 3044869407UL;
+    if (name == "FISHLAKE" || name == "FISHLAKE HIGHTOP") return 1577197109UL;
+    if (name == "SEED RELAY" || name == "SEED RELAY 1" || name == "SEED") return 647393146UL;
+    if (name == "THOUSAND LAKE" || name == "THOUSAND LAKE MOUNTAIN") return 2650172798UL;
+    if (name == "MINI ME") return 4241345683UL;
 
     const char *number = name.c_str();
     int base = 10;
