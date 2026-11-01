@@ -40,6 +40,8 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v8/test_auto_fallback.cpp -o /tmp/test_gateway_v8
           /tmp/test_gateway_v8
+      - name: Test unsolicited manual sensor READ replies
+        run: python3 test/test_heltec_v8/test_manual_dm_reply.py
   build-heltec-v8:
     uses: ./.github/workflows/build_firmware.yml
     secrets: inherit
