@@ -549,6 +549,13 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
     char command[121]={};
     memcpy(command,mp.decoded.payload.bytes,n);
     String text(command); text.trim(); text.toUpperCase();
+    // The message is already a DM: the leading "DM " keyword is optional.
+    if ((text.startsWith("AUTO ") && !text.startsWith("AUTO DM ")) ||
+        (text.length() >= 4 && text.substring(text.length() - 4) == " OFF" &&
+         !text.startsWith("AUTO DM ") && !text.startsWith("FALLBACK ") &&
+         !text.startsWith("POLL "))) {
+        text = "DM " + text;
+    }
     if (text.startsWith("DM ")) {
         String request = text.substring(3);
         request.trim();

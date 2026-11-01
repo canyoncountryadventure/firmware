@@ -9,9 +9,9 @@
 
 | Direct message to Heltec | Result |
 |---|---|
-| `DM AUTO SOUTH COTTONWOOD 15 MIN` | Enable South Cottonwood rescue and request `WATER READ` only after 15 minutes without its automatic stage packet |
-| `DM SOUTH COTTONWOOD OFF` | Stop Heltec rescue DMs to South Cottonwood; it relies only on its automatic transmission |
-| `DM AUTO !65165646 15 MIN` | Same South Cottonwood setting by numeric node ID |
+| `AUTO SOUTH COTTONWOOD 15 MIN` | Enable South Cottonwood rescue and request `WATER READ` only after 15 minutes without its automatic stage packet |
+| `SOUTH COTTONWOOD OFF` | Stop Heltec rescue DMs to South Cottonwood; it relies only on its automatic transmission |
+| `AUTO !65165646 15 MIN` | Same South Cottonwood setting by numeric node ID |
 | `AUTO DM OFF` | Pause all automatic missing-reading rescue DMs; individual stations stay OFF until explicitly re-enabled |
 | `AUTO DM ON` | Resume rescue DMs for all monitored stations and clear individual pauses |
 | `AUTO DM OFF MATHESON` | Exclude Matheson from rescue DMs; its normal AUTO transmissions continue |
@@ -27,7 +27,7 @@
 | `AUTO DM INTERVAL ALL DEFAULT` | Restore all default intervals (15m Pack/Mill/CC01; 60m others) |
 | `AUTO DM INTERVAL ALL 45` | Change all monitored station fallback deadlines to 45 minutes |
 
-`DM AUTO <station|node> <5..1440> MIN` and `DM <station|node> OFF` are the short forms. Station selectors accept Cottonwood/CC01/South Cottonwood, Matheson, Mill Creek/Power Dam, Pack Creek, Cottonwood Relay, Hidden Valley, Fishlake Hightop, Seed Relay, Thousand Lake Mountain, Mini Me, and numeric Meshtastic node IDs such as `!77788479`. The target must be one of the monitored sensor stations; battery-only relays remain excluded because there is no sensor to request. Legacy `AUTO DM` and `FALLBACK` commands remain accepted. All settings persist through reboot.
+`AUTO <station|node> <5..1440> MIN` and `<station|node> OFF` are the short forms. Station selectors accept Cottonwood/CC01/South Cottonwood, Matheson, Mill Creek/Power Dam, Pack Creek, Cottonwood Relay, Hidden Valley, Fishlake Hightop, Seed Relay, Thousand Lake Mountain, Mini Me, and numeric Meshtastic node IDs such as `!77788479`. The target must be one of the monitored sensor stations; battery-only relays remain excluded because there is no sensor to request. Adding an initial `DM ` to either short command is optional; the older `AUTO DM` and `FALLBACK` commands remain accepted. All settings persist through reboot.
 
 ## V8: missing-automatic-telemetry rescue
 

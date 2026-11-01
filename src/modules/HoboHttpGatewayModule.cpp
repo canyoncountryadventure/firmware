@@ -99,7 +99,7 @@ bool gatewayControlPrefix(const meshtastic_MeshPacket *packet)
     if (packet == nullptr || !packet->decoded.payload.size)
         return false;
     static constexpr const char *PREFIXES[] = {
-        "DM ", "AUTO DM ", "FALLBACK ", "POLL ", "PAUSE ", "RESUME "};
+        "DM ", "AUTO ", "AUTO DM ", "FALLBACK ", "POLL ", "PAUSE ", "RESUME "};
     const uint8_t *text = packet->decoded.payload.bytes;
     for (const char *prefix : PREFIXES) {
         const size_t length = strlen(prefix);
@@ -115,7 +115,14 @@ bool gatewayControlPrefix(const meshtastic_MeshPacket *packet)
         if (matches)
             return true;
     }
-    return false;
+    // Bare station-name OFF also counts as a short direct-message control.
+    size_t end = packet->decoded.payload.size;
+    while (end && std::isspace(static_cast<unsigned char>(text[end - 1])))
+        --end;
+    return end >= 4 && text[end - 4] == ' ' &&
+           std::toupper(static_cast<unsigned char>(text[end - 3])) == 'O' &&
+           std::toupper(static_cast<unsigned char>(text[end - 2])) == 'F' &&
+           std::toupper(static_cast<unsigned char>(text[end - 1])) == 'F';
 }
 
 bool isGatewayControlDm(const meshtastic_MeshPacket *packet, uint32_t gateway)
