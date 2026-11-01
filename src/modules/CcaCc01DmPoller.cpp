@@ -22,13 +22,7 @@ constexpr uint32_t PACK_CREEK_POLL_NODE = 1949224949UL;
 
 bool validPollIntervalMinutes(uint32_t minutes)
 {
-    switch (minutes) {
-    case 5: case 10: case 15: case 20: case 30: case 60: case 120:
-    case 180: case 360: case 720: case 1440:
-        return true;
-    default:
-        return false;
-    }
+    return minutes >= 5 && minutes <= 1440;
 }
 uint32_t pollNodeForName(const String &name)
 {
