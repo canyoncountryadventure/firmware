@@ -217,6 +217,9 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint32_t configuredPollParsed = 0;
     uint32_t configuredPollQueued = 0;
     uint32_t configuredPollRejected = 0;
+    uint32_t manualDmReceived = 0;
+    uint32_t manualDmQueued = 0;
+    uint32_t manualDmRejected = 0;
     uint32_t cc01WaterRetries = 0;
     uint32_t cc01HoboRetries = 0;
     uint32_t cc01Requests = 0;
@@ -260,6 +263,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     void handleCc01Reply(const meshtastic_MeshPacket &mp);
     void handleMathesonReply(const meshtastic_MeshPacket &mp);
     void handleConfiguredPollReply(const meshtastic_MeshPacket &mp);
+    void handleManualSensorReply(const meshtastic_MeshPacket &mp);
     void handleCc01ControlDm(const meshtastic_MeshPacket &mp);
     void refreshCc01CloudControl();
     void persistCc01Settings();

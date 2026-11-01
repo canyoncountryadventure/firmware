@@ -72,3 +72,13 @@ assert 'intervalMinutes(index)) * 60000UL' in policy
 
 for station in ('"COTTONWOOD RELAY"', '"HIDDEN VALLEY"', '"FISHLAKE HIGHTOP"', '"SEED RELAY"', '"THOUSAND LAKE MOUNTAIN"', '"MINI ME"'):
     assert station in poller
+
+# A valid unsolicited READ from Mill Creek reaches the parser even without
+# an active fallback poll, and retains the real remote node/packet identity.
+assert "manualSensorReply = autoFallback.isKnownNode(getFrom(p))" in gateway
+assert "handleManualSensorReply(mp)" in gateway
+assert "void HoboHttpGatewayModule::handleManualSensorReply" in poller
+assert "cca_cc01_dm::parseHoboRead(reply, hobo)" in poller
+assert "job.dmPollResult = true; // Label as heltec_dm" in poller
+assert "manual_dm_queued" in gateway
+assert "manualDmQueued" in header

@@ -225,7 +225,14 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
             LOG_WARN("CCA CC01 DM poll: ignored reply on unexpected channel %u, PKI=%u",
                      static_cast<unsigned>(p->channel), static_cast<unsigned>(p->pki_encrypted));
         }
-        return accepted || mathesonReply || configuredReply;
+        // Unsolicited manual READ replies (sent through the Heltec chat UI)
+        // aren't tracked by the internal poll scheduler. Admit known stations
+        // only when the response is addressed to this gateway and on the
+        // expected decoded PKI/LongFast channel. The handler validates payload.
+        const bool manualSensorReply = autoFallback.isKnownNode(getFrom(p)) &&
+            p->to == nodeDB->getNodeNum() &&
+            (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL);
+        return accepted || mathesonReply || configuredReply || manualSensorReply;
     }
     if (p->decoded.portnum != meshtastic_PortNum_PRIVATE_APP &&
         p->decoded.portnum != meshtastic_PortNum_TELEMETRY_APP)
@@ -585,6 +592,7 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
         else if (isConfiguredPollReply(getFrom(&mp))) handleConfiguredPollReply(mp);
         else if (getFrom(&mp) == CC01_NODE) handleCc01Reply(mp);
         else if (getFrom(&mp) == MATHESON_NODE) handleMathesonReply(mp);
+        else if (autoFallback.isKnownNode(getFrom(&mp))) handleManualSensorReply(mp);
         return ProcessMessage::CONTINUE;
     }
 
@@ -836,6 +844,9 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"queue_used\":" + String(uploadQueue.numUsed());
     body += ",\"uploaded_total\":" + String(uploadedJobs);
     body += ",\"last_http_status\":" + String(lastHttpStatus);
+    body += ",\"manual_dm_received\":" + String(manualDmReceived);
+    body += ",\"manual_dm_queued\":" + String(manualDmQueued);
+    body += ",\"manual_dm_rejected\":" + String(manualDmRejected);
     body += ",\"last_http_error\":" + (lastHttpError[0] ? jsonQuoted(lastHttpError) : "null");
     body += ",\"last_http_attempt_ms\":" + String(lastHttpAttemptMs);
     body += ",\"wifi_rssi_dbm\":" + String(WiFi.isConnected() ? WiFi.RSSI() : 0);

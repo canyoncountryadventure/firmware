@@ -542,6 +542,64 @@ void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacke
     ++configuredPollQueued;
     setIntervalFromNow(0);
 }
+
+void HoboHttpGatewayModule::handleManualSensorReply(const meshtastic_MeshPacket &mp)
+{
+    // Manual app-generated READ DMs bypass pollConfiguredStations() and
+    // therefore have no active poll slot. Admit only known monitored sources,
+    // exact addressed-to-gateway DMs, and valid sensor-response formats.
+    if (!nodeDB || mp.to != nodeDB->getNodeNum() ||
+        !(mp.pki_encrypted ? mp.channel == 0 : mp.channel == CC01_LONGFAST_CHANNEL))
+        return;
+    const uint32_t source = getFrom(&mp);
+    bool hasLevel = false, hasWater = false, temperatureOnly = false;
+    for (const auto &watch : autoFallback.watches) {
+        if (watch.node != source) continue;
+        if (watch.kind == cca_auto_fallback::Kind::Mx2001) hasLevel = true;
+        if (watch.kind == cca_auto_fallback::Kind::Water) hasWater = true;
+        if (watch.kind == cca_auto_fallback::Kind::Temperature) temperatureOnly = true;
+    }
+    if (!hasLevel && !hasWater && !temperatureOnly) return;
+    ++manualDmReceived;
+    const size_t size = mp.decoded.payload.size;
+    if (!size || size >= 240) { ++manualDmRejected; return; }
+    char reply[241] = {};
+    memcpy(reply, mp.decoded.payload.bytes, size);
+    cca_cc01_dm::HoboReading hobo;
+    cca_cc01_dm::HoboTemperatureReading temp;
+    cca_cc01_dm::WaterReading water;
+    UploadJob job = {};
+    if ((hasLevel || temperatureOnly) && cca_cc01_dm::parseHoboRead(reply, hobo)) {
+        job.type = hasLevel ? JobType::MX2001 : JobType::ENVIRONMENT;
+        job.waterLevelFt = hobo.levelFeet;
+        job.temperatureF = hobo.temperatureF;
+        job.temperatureC = (hobo.temperatureF - 32.0f) * (5.0f / 9.0f);
+        job.bleRssi = static_cast<int8_t>(hobo.bleRssi);
+        snprintf(job.loggerMac, sizeof(job.loggerMac), "%s", hobo.mac);
+        snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
+    } else if (hasWater && cca_cc01_dm::parseWaterRead(reply, water)) {
+        job.type = JobType::WATER_DISTANCE;
+        job.distanceValid = true;
+        job.stageCalibrated = true;
+        job.distanceSensorType = source == CC01_POLL_NODE ? 5 :
+                                 source == PACK_CREEK_POLL_NODE ? 3 : 0;
+        job.distanceMm = water.distanceMm;
+        job.stageMm = static_cast<int32_t>(lroundf(water.stageFeet * 304.8f));
+    } else if (temperatureOnly && cca_cc01_dm::parseHoboTemperatureRead(reply, temp)) {
+        job.type = JobType::ENVIRONMENT;
+        job.temperatureF = temp.temperatureF;
+        job.temperatureC = (temp.temperatureF - 32.0f) * (5.0f / 9.0f);
+        job.bleRssi = static_cast<int8_t>(temp.bleRssi);
+    } else {
+        ++manualDmRejected; // Includes HOBO unavailable, timeouts, and chat.
+        return;
+    }
+    fillCommon(job, mp); // Original remote node and packet ID for dedupe.
+    job.dmPollResult = true; // Label as heltec_dm; never refresh AUTO clock.
+    if (!uploadQueue.enqueue(job, 0)) { ++cc01QueueFull; return; }
+    ++manualDmQueued;
+    setIntervalFromNow(0);
+}
 void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
 {
     const size_t n=mp.decoded.payload.size;
