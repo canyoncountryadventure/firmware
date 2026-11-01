@@ -45,6 +45,7 @@ assert 'prefs.putUShort("auto_dm_mask", autoFallback.pausedMask)' in poller
 assert 'text.startsWith("AUTO DM ")' in poller
 assert 'text.startsWith("DM ")' in poller
 assert 'text = "DM " + text;' in poller
+assert '!text.startsWith("DM ") && !text.startsWith("AUTO DM ")' in poller
 assert '"AUTO ", "AUTO DM "' in gateway
 assert "Bare station-name OFF" in gateway
 assert 'return minutes >= 5 && minutes <= 1440;' in poller
