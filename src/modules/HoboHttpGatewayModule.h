@@ -138,6 +138,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     static constexpr uint8_t UPLOAD_QUEUE_SIZE = 32;
     static constexpr uint8_t SEEN_PACKET_SLOTS = 64;
     static constexpr uint8_t MAX_RETRIES = 6;
+    static constexpr uint8_t HTTPS_TRANSPORT_RECOVERY_FAILURES = 2;
 
     TypedQueue<UploadJob> uploadQueue;
     SeenPacket seenPackets[SEEN_PACKET_SLOTS] = {};
@@ -241,6 +242,11 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint32_t mathesonRejected = 0;
     uint32_t mathesonLastReplyMs = 0;
     int lastHttpStatus = 0;
+    char lastHttpError[48] = {};
+    uint32_t lastHttpAttemptMs = 0;
+    uint32_t lastWifiRecoveryMs = 0;
+    uint32_t wifiRecoveryCount = 0;
+    uint8_t consecutiveHttpTransportFailures = 0;
     uint32_t uploadedJobs = 0;
     uint32_t healthLoopCycles = 0;
     uint32_t healthPostAttempts = 0;

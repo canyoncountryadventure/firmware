@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <cctype>
 
 namespace
 {
@@ -91,6 +92,38 @@ String jsonQuoted(const char *text)
 uint8_t hopsAway(uint8_t hopStart, uint8_t hopLimit)
 {
     return hopStart >= hopLimit ? hopStart - hopLimit : 0;
+}
+
+bool gatewayControlPrefix(const meshtastic_MeshPacket *packet)
+{
+    if (packet == nullptr || !packet->decoded.payload.size)
+        return false;
+    static constexpr const char *PREFIXES[] = {
+        "DM ", "AUTO DM ", "FALLBACK ", "POLL ", "PAUSE ", "RESUME "};
+    const uint8_t *text = packet->decoded.payload.bytes;
+    for (const char *prefix : PREFIXES) {
+        const size_t length = strlen(prefix);
+        if (packet->decoded.payload.size < length)
+            continue;
+        bool matches = true;
+        for (size_t i = 0; i < length; ++i) {
+            if (std::toupper(static_cast<unsigned char>(text[i])) != prefix[i]) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches)
+            return true;
+    }
+    return false;
+}
+
+bool isGatewayControlDm(const meshtastic_MeshPacket *packet, uint32_t gateway)
+{
+    return packet != nullptr && packet->to == gateway &&
+           ((packet->pki_encrypted && packet->channel == 0) ||
+            (!packet->pki_encrypted && packet->channel == 1)) &&
+           gatewayControlPrefix(packet);
 }
 } // namespace
 
@@ -176,8 +209,7 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
             (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL);
         const bool configuredReply = isConfiguredPollReply(getFrom(p)) && p->to == nodeDB->getNodeNum() &&
             (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL);
-        if (cc01AdminNode != 0 && getFrom(p) == cc01AdminNode && p->to == nodeDB->getNodeNum() &&
-            (p->pki_encrypted ? p->channel == 0 : p->channel == CC01_LONGFAST_CHANNEL))
+        if (isGatewayControlDm(p, nodeDB->getNodeNum()))
             return true;
         const bool accepted = cca_cc01_dm::isCc01Reply(getFrom(p), p->to, nodeDB->getNodeNum(),
                                                        p->channel, p->pki_encrypted);
@@ -542,10 +574,10 @@ ProcessMessage HoboHttpGatewayModule::handleReceived(const meshtastic_MeshPacket
     if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
         // A missed-auto fallback may target CC01 or Matheson too. Match its
         // active reply first, before the legacy station-specific parser.
-        if (isConfiguredPollReply(getFrom(&mp))) handleConfiguredPollReply(mp);
+        if (isGatewayControlDm(&mp, nodeDB->getNodeNum())) handleCc01ControlDm(mp);
+        else if (isConfiguredPollReply(getFrom(&mp))) handleConfiguredPollReply(mp);
         else if (getFrom(&mp) == CC01_NODE) handleCc01Reply(mp);
         else if (getFrom(&mp) == MATHESON_NODE) handleMathesonReply(mp);
-        else if (cc01AdminNode != 0 && getFrom(&mp) == cc01AdminNode) handleCc01ControlDm(mp);
         return ProcessMessage::CONTINUE;
     }
 
@@ -711,7 +743,8 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     WiFiClientSecure client;
     client.setInsecure();
     HTTPClient http;
-    http.setTimeout(4000);
+    client.setTimeout(12000);
+    http.setTimeout(12000);
     if (!http.begin(client, job.type == JobType::SENSOR_STATUS ?
                     "https://meshtastic-ecru.vercel.app/api/ingest?control=cc01" : HOBO_HTTP_GATEWAY_URL)) {
         LOG_WARN("CCA clean gateway: could not initialize HTTPS request");
@@ -726,6 +759,7 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     ++healthPostAttempts;
     const int status = http.POST(body);
     lastHttpStatus = status;
+    lastHttpAttemptMs = millis();
     if (job.dmPollResult) {
         ++cc01UploadAttempts;
         cc01LastHttpStatus = status;
@@ -733,6 +767,8 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
         cc01LastUploadMs = millis();
     }
     if (status >= 200 && status < 300) {
+        consecutiveHttpTransportFailures = 0;
+        lastHttpError[0] = '\0';
         ++uploadedJobs;
         if (job.dmPollResult)
             ++cc01Uploaded;
@@ -743,10 +779,26 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     }
 
     if (status > 0) {
+        consecutiveHttpTransportFailures = 0;
+        lastHttpError[0] = '\0';
         const String response = http.getString();
         LOG_WARN("CCA clean gateway: HTTP %d: %.160s", status, response.c_str());
     } else {
-        LOG_WARN("CCA clean gateway: POST failed: %s", http.errorToString(status).c_str());
+        const String error = http.errorToString(status);
+        snprintf(lastHttpError, sizeof(lastHttpError), "%s", error.c_str());
+        if (consecutiveHttpTransportFailures < UINT8_MAX)
+            ++consecutiveHttpTransportFailures;
+        LOG_WARN("CCA clean gateway: POST failed: %s (%u/%u)", error.c_str(),
+                 static_cast<unsigned>(consecutiveHttpTransportFailures),
+                 static_cast<unsigned>(HTTPS_TRANSPORT_RECOVERY_FAILURES));
+        if (consecutiveHttpTransportFailures >= HTTPS_TRANSPORT_RECOVERY_FAILURES) {
+            LOG_WARN("CCA clean gateway: reconnecting WiFi after HTTPS transport failures");
+            WiFi.disconnect(false);
+            WiFi.reconnect();
+            lastWifiRecoveryMs = millis();
+            ++wifiRecoveryCount;
+            consecutiveHttpTransportFailures = 0;
+        }
     }
     http.end();
     return false;
@@ -757,7 +809,7 @@ String HoboHttpGatewayModule::statusJson()
     const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
                         cc01Phase == Cc01Phase::Hobo ? "waiting_hobo" :
                         cc01Phase == Cc01Phase::Done ? "done" : "idle";
-    String body = "{\"firmware_fix\":\"v8-missing-auto-fallback-2026-10-30\"";
+    String body = "{\"firmware_fix\":\"v8-dm-http-recovery-2026-11-01\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -777,6 +829,11 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"queue_used\":" + String(uploadQueue.numUsed());
     body += ",\"uploaded_total\":" + String(uploadedJobs);
     body += ",\"last_http_status\":" + String(lastHttpStatus);
+    body += ",\"last_http_error\":" + (lastHttpError[0] ? jsonQuoted(lastHttpError) : "null");
+    body += ",\"last_http_attempt_ms\":" + String(lastHttpAttemptMs);
+    body += ",\"wifi_rssi_dbm\":" + String(WiFi.isConnected() ? WiFi.RSSI() : 0);
+    body += ",\"wifi_recoveries\":" + String(wifiRecoveryCount);
+    body += ",\"last_wifi_recovery_ms\":" + String(lastWifiRecoveryMs);
     body += ",\"cc01\":{\"poll_state\":" + jsonQuoted(state);
     body += ",\"requests\":" + String(cc01Requests);
     body += ",\"water_pending\":" + String(cc01WaterPending ? "true" : "false");

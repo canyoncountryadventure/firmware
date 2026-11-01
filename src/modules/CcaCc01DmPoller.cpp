@@ -550,12 +550,55 @@ void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacke
 }
 void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
 {
-    if (!cc01AdminNode || getFrom(&mp)!=cc01AdminNode) return;
     const size_t n=mp.decoded.payload.size;
     if (!n || n>120) return;
     char command[121]={};
     memcpy(command,mp.decoded.payload.bytes,n);
     String text(command); text.trim(); text.toUpperCase();
+    if (text.startsWith("DM ")) {
+        String request = text.substring(3);
+        request.trim();
+        String last = popPollToken(request);
+        const bool disable = last == "OFF";
+        uint32_t minutes = 0;
+        if (!disable) {
+            if (last == "MIN" || last == "MINS" || last == "MINUTE" || last == "MINUTES")
+                last = popPollToken(request);
+            char *end = nullptr;
+            minutes = strtoul(last.c_str(), &end, 10);
+            if (end == last.c_str() || *end != '\0' || !validPollIntervalMinutes(minutes) ||
+                !request.startsWith("AUTO ")) {
+                sendCc01Text(getFrom(&mp), "Use DM AUTO <station|node> <5..1440> MIN or DM <station|node> OFF");
+                return;
+            }
+            request = request.substring(5);
+            request.trim();
+        }
+        const uint32_t node = pollNodeForName(request);
+        if (!node || !autoFallback.isKnownNode(node)) {
+            sendCc01Text(getFrom(&mp), "DM target is not a monitored station");
+            return;
+        }
+        if (disable) {
+            autoFallback.setNodeEnabled(node, false);
+        } else {
+            autoFallback.enabled = true;
+            autoFallback.setNodeEnabled(node, true);
+            autoFallback.setNodeIntervalMinutes(node, static_cast<uint16_t>(minutes));
+        }
+        ConfiguredPoll &fallback = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
+        if (fallback.node == node) {
+            fallback = ConfiguredPoll{};
+            if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT)
+                configuredPollActive = -1;
+        }
+        persistCc01Settings();
+        const String reply = disable
+            ? String("DM !") + String(node, HEX) + " OFF: automatic telemetry only."
+            : String("DM !") + String(node, HEX) + " AUTO: rescue after " + String(minutes) + " min.";
+        sendCc01Text(getFrom(&mp), reply.c_str());
+        return;
+    }
     bool known=true, changed=false;
     String action;
     // These commands control ONLY Heltec-initiated missing-auto rescue DMs.

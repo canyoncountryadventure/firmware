@@ -98,6 +98,23 @@ static void authorizedFailureDoesNotCauseReboot() {
         assert(g.update(m(i)+1000,s)==R::None);
     }
 }
+static void httpsTransportFailureRecoversSooner() {
+    CcaGatewaySupervisor g;
+    CcaGatewaySnapshot s;
+    s.wifiConnected=true;
+    g.update(1000,s);
+    for(uint32_t i=1;i<=16;i++){
+        s.gatewayCycles++;
+        s.rxGood++;
+        s.txDoneIrq++;
+        s.dmRequests++;
+        s.httpAttempts++;
+        s.lastHttpStatus=-1;
+        const auto result=g.update(m(i)+1000,s);
+        if(i<16) assert(result==R::None);
+        else assert(result==R::UploadStalled);
+    }
+}
 static void networkDownDoesNotBlockRfPoll() {
     CcaGatewaySupervisor g;
     CcaGatewaySnapshot s;
@@ -128,6 +145,7 @@ int main(){
     healthy(); moduleFreeze(); noRadioActivity(); rxSilenceWithTxWorking();
     freshRxSuppressesThreeHourRecovery(); queueWithoutPost();
     authorizedFailureDoesNotCauseReboot(); networkDownDoesNotBlockRfPoll();
+    httpsTransportFailureRecoversSooner();
     monotonicWrap();
     puts("PASS: V7 gateway watchdog scenarios");
 }

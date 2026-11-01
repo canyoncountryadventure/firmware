@@ -30,6 +30,8 @@ preamble=r"""
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include "src/modules/AutoFallbackPolicy.h"
+constexpr int HEX=16;
 enum class ProcessMessage { CONTINUE };
 #define LOG_INFO(...) do {} while(0)
 #define LOG_WARN(...) do {} while(0)
@@ -39,16 +41,19 @@ struct Throttle { static bool isWithinTimespanMs(uint32_t then,uint32_t interval
 struct String:std::string {
  using std::string::string;
  String(unsigned long value):std::string(std::to_string(value)){}
+ String(unsigned long value,int base):std::string(){char out[32]={};std::snprintf(out,sizeof(out),base==16?"%lx":"%lu",value);assign(out);}
  String(unsigned int value):std::string(std::to_string(value)){}
  String(int value):std::string(std::to_string(value)){}
  String(const std::string& value):std::string(value){}
  void trim(){}
  void toUpperCase(){std::transform(begin(),end(),begin(),[](unsigned char c){return std::toupper(c);});}
  int indexOf(const char *p) const {auto i=find(p);return i==npos?-1:static_cast<int>(i);}
+ int indexOf(char c) const {auto i=find(c);return i==npos?-1:static_cast<int>(i);}
  bool startsWith(const char*p)const{return rfind(p,0)==0;}
  int lastIndexOf(char c) const {auto i=rfind(c);return i==npos?-1:static_cast<int>(i);}
  String substring(size_t start) const{return String(substr(start));}
  String substring(size_t start,size_t end) const{return String(substr(start,end-start));}
+ bool isEmpty() const{return empty();}
 };
 template<class T>struct TypedQueue{
  std::vector<T> jobs;bool full=false;TypedQueue(int){}
@@ -69,7 +74,7 @@ constexpr uint32_t MILL_CREEK_POLL_NODE=1683604927UL;
 constexpr uint32_t PACK_CREEK_POLL_NODE=1949224949UL;
 uint32_t getFrom(const meshtastic_MeshPacket*p){return p->from;}
 bool validPollIntervalMinutes(uint32_t m){return m==5||m==10||m==15||m==20||m==30||m==60||m==120||m==180||m==360||m==720||m==1440;}
-uint32_t pollNodeForName(const String&n){if(n=="CC01"||n=="COTTONWOOD"||n=="COTTONWOOD CREEK")return CC01_POLL_NODE;if(n=="MATHESON")return MATHESON_POLL_NODE;if(n=="MILL CREEK"||n=="MILL")return MILL_CREEK_POLL_NODE;if(n=="PACK CREEK"||n=="PACK")return PACK_CREEK_POLL_NODE;char*e=nullptr;auto v=strtoul(n.c_str(),&e,10);return e!=n.c_str()&&!*e?v:0;}
+uint32_t pollNodeForName(const String&n){if(n=="CC01"||n=="COTTONWOOD"||n=="COTTONWOOD CREEK"||n=="SOUTH COTTONWOOD")return CC01_POLL_NODE;if(n=="MATHESON")return MATHESON_POLL_NODE;if(n=="MILL CREEK"||n=="MILL")return MILL_CREEK_POLL_NODE;if(n=="PACK CREEK"||n=="PACK")return PACK_CREEK_POLL_NODE;char*e=nullptr;auto v=strtoul(n.c_str(),&e,10);return e!=n.c_str()&&!*e?v:0;}
 String popPollToken(String&v){v.trim();int i=v.lastIndexOf(' ');if(i<0){String t=v;v="";return t;}String t=v.substring(i+1);v=v.substring(0,i);v.trim();return t;}
 void HoboHttpGatewayModule::persistCc01Settings(){}
 bool HoboHttpGatewayModule::sendCc01Text(uint32_t to,const char*cmd){if(to==1695962694UL)++cc01Requests;if(to==2004386937UL)++mathesonRequests;requests.emplace_back(cmd);return true;}
@@ -103,6 +108,10 @@ int main(){
  assert(control.cc01IntervalOverrideMinutes==20);admin=packet("POLL COTTONWOOD AUTO");admin.from=99;control.handleCc01ControlDm(admin);assert(control.cc01IntervalOverrideMinutes==0);
  admin=packet("POLL MILL CREEK 60 BOTH");admin.from=99;control.handleCc01ControlDm(admin);assert(control.configuredPolls[0].node==MILL_CREEK_POLL_NODE&&control.configuredPolls[0].intervalMinutes==60&&control.configuredPolls[0].mode==HoboHttpGatewayModule::ConfiguredPollMode::Both);
  admin=packet("POLL 1683604927");admin.from=99;control.handleCc01ControlDm(admin);assert(control.configuredPolls[HoboHttpGatewayModule::CONFIGURED_POLL_PERSISTENT_SLOTS].oneShot);
+ auto anyNode=packet("DM AUTO SOUTH COTTONWOOD 15 MIN");anyNode.from=123456;control.handleCc01ControlDm(anyNode);
+ assert(control.autoFallback.nodeEnabled(CC01_POLL_NODE)&&control.autoFallback.nodeIntervalMinutes(CC01_POLL_NODE)==15);
+ anyNode=packet("DM SOUTH COTTONWOOD OFF");anyNode.from=123456;control.handleCc01ControlDm(anyNode);
+ assert(!control.autoFallback.nodeEnabled(CC01_POLL_NODE));
  HoboHttpGatewayModule down;fakeTime=120000;down.pollCc01();down.handleCc01Reply(water);
  fakeTime=123000;down.pollCc01();down.handleCc01Reply(packet("HOBO unavailable"));
  assert(down.failures.back()=="hobo:ble_unavailable"&&down.cc01Phase==HoboHttpGatewayModule::Cc01Phase::Done);
@@ -121,4 +130,4 @@ with tempfile.TemporaryDirectory() as folder:
  exe=Path(folder)/'test'
  subprocess.run(['g++','-std=c++17','-Wall','-Wextra','-Werror','-I',str(root),str(f),'-o',str(exe)],check=True)
  subprocess.run([str(exe)],check=True)
-print('PASS: V7 ordered Cottonwood/Matheson polling plus bounded, authenticated generic radio polling')
+print('PASS: V7 ordered Cottonwood/Matheson polling plus bounded generic radio polling')

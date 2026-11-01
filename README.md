@@ -1,14 +1,17 @@
 # CCA Heltec Sensor Gateway V8
 
-**October 30, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
+**November 1, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
 
 
-### Authorized DM controls for rescue polling (V8)
+### Simple DM controls for rescue polling (V8)
 
-**These only change Heltec's missing-automatic fallback DMs.** Automatic radio transmissions, the gateway's sensor ingestion, temperature/stage measurement, relaying, and manual `POLL ...` DMs are unaffected. Send commands **directly to Heltec** from the authorized control radio (`!c22d7fec`):
+**These only change Heltec's missing-automatic fallback DMs.** Automatic radio transmissions, the gateway's sensor ingestion, temperature/stage measurement, relaying, and manual `POLL ...` DMs are unaffected. Send a direct message to Heltec from **any node ID** on the gateway's PKI or LongFast channel:
 
 | Direct message to Heltec | Result |
 |---|---|
+| `DM AUTO SOUTH COTTONWOOD 15 MIN` | Enable South Cottonwood rescue and request `WATER READ` only after 15 minutes without its automatic stage packet |
+| `DM SOUTH COTTONWOOD OFF` | Stop Heltec rescue DMs to South Cottonwood; it relies only on its automatic transmission |
+| `DM AUTO !65165646 15 MIN` | Same South Cottonwood setting by numeric node ID |
 | `AUTO DM OFF` | Pause all automatic missing-reading rescue DMs; individual stations stay OFF until explicitly re-enabled |
 | `AUTO DM ON` | Resume rescue DMs for all monitored stations and clear individual pauses |
 | `AUTO DM OFF MATHESON` | Exclude Matheson from rescue DMs; its normal AUTO transmissions continue |
@@ -24,7 +27,7 @@
 | `AUTO DM INTERVAL ALL DEFAULT` | Restore all default intervals (15m Pack/Mill/CC01; 60m others) |
 | `AUTO DM INTERVAL ALL 45` | Change all monitored station fallback deadlines to 45 minutes |
 
-`FALLBACK` is an accepted alias for `AUTO DM`. Station selectors accept Cottonwood/CC01, Matheson, Mill Creek/Power Dam, Pack Creek, Cottonwood Relay, Hidden Valley, Fishlake Hightop, Seed Relay, Thousand Lake Mountain, Mini Me, and numeric Meshtastic node IDs such as `!77788479`. Battery-only relays remain excluded because there is no sensor to request. Invalid or battery-only nodes are rejected. Per-station changes apply to all sensor streams at that node, including Pack Creek's independent ultrasonic and HOBO streams. `AUTO DM INTERVAL <station|ALL> <minutes|DEFAULT>` accepts any whole number of minutes from **5 through 1440**; commands outside this range and unknown stations are rejected. An interval change does **not** automatically unpause any station. `AUTO DM STATUS <station>` reports the effective interval and whether it is a saved override or a default. Interval changes cancel an already queued rescue for the selected node; RF packets already transmitted cannot be recalled. Intervals and pause settings are saved in Heltec's ESP32 Preferences and survive reboots. Turning off a fallback cancels queued rescue retries for that node; an already transmitted RF request cannot be recalled. **The existing website does not control these settings**, and no additional Neon polling was introduced.
+`DM AUTO <station|node> <5..1440> MIN` and `DM <station|node> OFF` are the short forms. Station selectors accept Cottonwood/CC01/South Cottonwood, Matheson, Mill Creek/Power Dam, Pack Creek, Cottonwood Relay, Hidden Valley, Fishlake Hightop, Seed Relay, Thousand Lake Mountain, Mini Me, and numeric Meshtastic node IDs such as `!77788479`. The target must be one of the monitored sensor stations; battery-only relays remain excluded because there is no sensor to request. Legacy `AUTO DM` and `FALLBACK` commands remain accepted. All settings persist through reboot.
 
 ## V8: missing-automatic-telemetry rescue
 
@@ -42,14 +45,14 @@ The 15-minute threshold applies independently to **both Pack Creek sensor stream
 
 The remote node **must implement** its matching `READ` or `WATER READ` command for rescue to work; ordinary Meshtastic environment telemetry by itself doesn't guarantee that. V8 parses MX2001, MX2201 and MX2203 replies; no synthetic sensor values are generated. Automatic telemetry and battery packets still upload normally. Owner-authorized manual `POLL ...` commands remain available, but V7 recurring poll schedules are cleared once on V8 migration to prevent unnecessary DMs. V7 unconditional Cottonwood/Matheson polling is retired, even if an old interval override is saved.
 
-The read-only `http://192.168.1.147/json/gateway` diagnostic reports `firmware_fix: v8-missing-auto-fallback-2026-10-30` and `auto_fallback.watched` per-stream timestamps/counters. The V8 source/build branch is [Heltec-Gateway-v8](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v8). Builds are published into `downloads/Heltec-Gateway-v8/` **only after** tests and the ESP32-S3 build pass.
+The read-only `http://192.168.1.147/json/gateway` diagnostic reports `firmware_fix: v8-dm-http-recovery-2026-11-01`, `auto_fallback.watched` per-stream timestamps/counters, Wi-Fi RSSI, the last HTTPS error and time, and Wi-Fi recovery counts. Two negative HTTPS transport failures force a Wi-Fi reconnect; if HTTPS remains negative for 15 minutes, the health supervisor reboots the gateway. HTTPS timeouts are 12 seconds. The V8 source/build branch is [Heltec-Gateway-v8](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v8). Builds are published into `downloads/Heltec-Gateway-v8/` **only after** tests and the ESP32-S3 build pass.
 
 ### VS Code PowerShell Wi-Fi OTA (after a verified V8 build)
 
 ```powershell
 $ip = "192.168.1.147"
-$fw = "C:\\HeltecUpdate\\Heltec-Gateway-v8-10-30-26.bin"
-Invoke-WebRequest "https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v8/downloads/Heltec-Gateway-v8/Heltec-Gateway-v8-10-30-26.bin" -OutFile $fw
+$fw = "C:\\HeltecUpdate\\Heltec-Gateway-v8-11-01-26.bin"
+Invoke-WebRequest "https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v8/downloads/Heltec-Gateway-v8/Heltec-Gateway-v8-11-01-26.bin" -OutFile $fw
 py -m meshtastic --host $ip --ota-update $fw
 Invoke-RestMethod "http://$ip/json/gateway" | ConvertTo-Json -Depth 6
 ```

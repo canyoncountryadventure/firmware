@@ -43,10 +43,17 @@ assert 'autoFallback.pausedMask = saved.getUShort("auto_dm_mask", 0)' in gateway
 assert 'prefs.putBool("auto_dm_on", autoFallback.enabled)' in poller
 assert 'prefs.putUShort("auto_dm_mask", autoFallback.pausedMask)' in poller
 assert 'text.startsWith("AUTO DM ")' in poller
+assert 'text.startsWith("DM ")' in poller
+assert 'DM AUTO <station|node> <5..1440> MIN' in poller
+assert 'DM target is not a monitored station' in poller
 assert 'operation == "ONLY"' in poller
 assert 'AUTO DM STATUS' in poller
 assert 'autoFallback.nodeEnabled(fallback.node)' in poller
 assert 'if (!isEnabled(index)) return false;' in policy
+assert 'HTTPS_TRANSPORT_RECOVERY_FAILURES = 2' in header
+assert 'WiFi.reconnect();' in gateway
+assert 'last_http_error' in gateway
+assert 'v8-dm-http-recovery-2026-11-01' in gateway
 
 assert 'autoFallback.intervalOverridesMinutes.data()' in gateway
 assert 'getBytesLength("auto_dm_int")' in gateway

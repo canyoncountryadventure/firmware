@@ -33,7 +33,7 @@ class CcaGatewaySupervisor {
     static constexpr uint32_t NO_RF_MS = 60UL * 60UL * 1000UL;
     static constexpr uint32_t RX_SOFT_MS = 90UL * 60UL * 1000UL;
     static constexpr uint32_t RX_HARD_MS = 3UL * 60UL * 60UL * 1000UL;
-    static constexpr uint32_t HTTP_FAILURE_MS = 60UL * 60UL * 1000UL;
+    static constexpr uint32_t HTTP_FAILURE_MS = 15UL * 60UL * 1000UL;
     static constexpr uint32_t WIFI_FAILURE_MS = 60UL * 60UL * 1000UL;
 
     CcaGatewayRecovery update(uint32_t now, const CcaGatewaySnapshot &s)
