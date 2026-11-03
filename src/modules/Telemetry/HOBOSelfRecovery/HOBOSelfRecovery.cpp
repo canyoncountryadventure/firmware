@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "SEEED HOBO SAFE V4";
+static constexpr char FIRMWARE_LABEL[] = "SEEED HOBO SAFE V5";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -97,7 +97,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     if (isCommand(payload, payloadSize, "HELP")) {
         // Split the complete command reference into LoRa-safe messages so no command is truncated.
         sendTextReply(mp.from, mp.channel,
-                      "HELP 1/2 HOBO: HELP | READ | LOGGER | LOCK | UNLOCK | AUTO | STATUS | HEALTH | BLE");
+                      "HELP 1/2 HOBO: READ LOGGER LOCK UNLOCK AUTO STATUS HEALTH BLE | BLE DIAG | HOBO STATUS | HOBO RESTART | AUTO STATUS");
         sendTextReply(mp.from, mp.channel,
                       "HELP 2/2 SYSTEM: POWER | BATTERY | STATS | DIAG | CLEAR DIAG | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | SCAN | RECONNECT | RECOVER | REBOOT | DFU");
         return ProcessMessage::CONTINUE;
