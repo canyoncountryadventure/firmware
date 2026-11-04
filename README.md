@@ -6,6 +6,41 @@
 
 This experimental recovery update addresses unattended HOBO disconnections that persist while the LoRa radio still responds. It does not alter LoRa routing, the gateway, logger sampling interval, or the station's saved configuration.
 
+
+## V5 maintenance hardening (November 3, 2026)
+
+The existing V5 source was updated in place, with **no change to Meshtastic 2.7.26**, logger sampling, the locked HOBO MAC, or BLE Nordic DFU support.
+
+- **Healthy HOBO:** leave the BLE link and STATUS polling alone; normal 30-second STATUS checks continue.
+- **Disconnected:** refresh the passive BLE scanner every five minutes and perform a bounded 30-second 50% scan burst.
+- **15 minutes without successful HOBO STATUS:** perform an automatic BLE-only central-link / scanner-state reset. Clear stale rejected-candidate state. Do not disable the SoftDevice or reboot LoRa.
+- **Persistently unhealthy:** repeat the deeper BLE-only reset at the saved interval (default **120 minutes**), not every 15 minutes. A successful STATUS reply rearms the initial 15-minute health timeout.
+- **Busy reads:** defer a scheduled BLE reset for up to 10 seconds to allow in-flight HOBO reads to complete; a stuck operation cannot block recovery forever.
+- **Full node:** retain the existing 12-hour preventive reboot in Meshtastic's main loop, with up to ten minutes of deterministic per-node staggering and a 15-second send/read grace period. The reboot is not a complete electrical power cut to the external SX1262.
+- **Radio fault:** retain existing guarded SX1262 receive/chip-state recovery and independent NRF hardware watchdog. Do not reset a healthy LoRa transceiver periodically.
+- **Reboot diagnostics:** planned 12-hour and DM-initiated full reboots write an event in the existing retained nRF52 field diagnostic record, accessible via local serial `DIAG`, in addition to the hardware reset reason.
+
+### Remote direct-message commands
+
+```text
+VERSION
+BLE DIAG
+BLE RESET STATUS
+BLE RESET AUTO 120
+BLE RESET AUTO OFF
+HOBO RESTART
+AUTO STATUS
+WATCHDOG
+STATS
+REBOOT
+```
+
+`BLE RESET AUTO 120` sets and persists the repeat interval in minutes (valid 15–720). `BLE RESET AUTO OFF` disables scheduled deeper BLE-only resets, **not** the five-minute scanner refresh, the normal error recovery, watchdog, or 12-hour full reboot. The setting is stored independently from the saved HOBO MAC lock. `BLE RESET STATUS` reports the configured interval and reset counters.
+
+The original V5 downloads are **replaced in place** only after new Seeed and RAK GitHub Actions compilation and publication succeed. Verify the `COMMIT` and SHA-256 in the corresponding `*-BUILD.txt` before flashing; older downloads at the same filename are not the current hardened build.
+
+**Field validation still required:** start with Mill Creek, verify that BLE STATUS and automatic telemetry resume after a disconnect, then assess battery consumption and the 12-hour reset through an entire day. Keep already healthy Pack Creek and Fishlake on their existing firmware.
+
 ## Key audit finding
 
 V4 can report `scanner=SCANNING` for an arbitrarily long time without recognizing the locked HOBO, because the previous recovery watchdog is mainly activated by attempted connections or GATT STATUS/READ failures. The previously documented 12-hour whole-radio restart alone did not reliably restore HOBO operation.
