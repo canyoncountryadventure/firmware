@@ -1173,13 +1173,23 @@ void loop()
     }
 
 #if defined(ARCH_NRF52) && defined(FIELD_RECOVERY_V2)
+    // One owner for whole-node maintenance. The reboot goes through the main
+    // Meshtastic shutdown path, preserving DFU, node settings and logger lock.
+    // Station-specific jitter prevents simultaneous mesh relay outages.
     static const uint32_t fieldBootMs = millis();
+    static const uint32_t fieldRebootStaggerMs =
+        nodeDB ? (((nodeDB->getNodeNum() >> 3) ^ nodeDB->getNodeNum()) % 601UL) * 1000UL : 0UL;
     static bool fieldScheduledRebootArmed = true;
-    if (fieldScheduledRebootArmed && (uint32_t)(millis() - fieldBootMs) >= (12UL * 60UL * 60UL * 1000UL)) {
+    if (fieldScheduledRebootArmed &&
+        (uint32_t)(millis() - fieldBootMs) >= ((12UL * 60UL * 60UL * 1000UL) + fieldRebootStaggerMs)) {
         fieldScheduledRebootArmed = false;
-        LOG_WARN("Field v2: 12-hour preventive reboot due");
-        if (rebootAtMsec == 0)
-            rebootAtMsec = millis() + 5000UL;
+        if (rebootAtMsec == 0) {
+            // Retained diagnostic: subsystem=system, action=planned 12h reboot.
+            nrf52FieldDiagEvent(4, 2, 12);
+            LOG_WARN("Field V5: scheduled 12h reboot (station offset %lus), 15s drain",
+                     static_cast<unsigned long>(fieldRebootStaggerMs / 1000UL));
+            rebootAtMsec = millis() + 15000UL; // Allow ordinary sensor reads and LoRa sends to finish.
+        }
     }
 #endif
 
