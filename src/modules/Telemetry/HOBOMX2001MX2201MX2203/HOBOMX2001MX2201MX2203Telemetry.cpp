@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 
 namespace
 {
@@ -77,6 +78,14 @@ uint32_t connectAttemptStartedMs = 0;
 uint8_t bleRecoveryCycles = 0;
 // V5: monotonic, boot-local BLE evidence. Never erase on reconnect.
 std::atomic<bool> manualBleRestartPending{false};
+// Only the HOBO worker performs resets. DMs modify the interval atomically.
+std::atomic<uint16_t> automaticBleResetMinutes{120};
+uint32_t bleHealthTimerStartMs = 0;
+uint32_t lastAutomaticBleResetMs = 0;
+uint32_t automaticBleResetCount = 0;
+uint32_t totalBleOnlyResetCount = 0;
+uint32_t autoBleResetDeferredSinceMs = 0;
+bool automaticBleResetPreviouslyAttempted = false;
 uint32_t allAdvertisementCount = 0;
 uint32_t matchingAddressCount = 0;
 uint32_t hoboCandidateCount = 0;
@@ -170,10 +179,15 @@ static constexpr uint32_t TRANSIENT_RETRY_MS = 5000;
 // V5: bounded high-duty scan only while the assigned logger is missing.
 static constexpr uint32_t SCAN_REFRESH_MS = 5UL * 60UL * 1000UL;
 static constexpr uint32_t HIGH_DUTY_SCAN_MS = 30UL * 1000UL;
+// First deep reset after 15 minutes with no valid HOBO STATUS, then every
+// configured interval (default 120 min) while still unhealthy.
+static constexpr uint32_t FIRST_DEEP_BLE_RECOVERY_MS = 15UL * 60UL * 1000UL;
+static constexpr uint32_t DEFER_BLE_RESET_WHILE_READ_MS = 10UL * 1000UL;
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
 static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
 static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
 static constexpr char LOCK_FILE_PATH[] = "/prefs/hobo_lock.bin";
+static constexpr char BLE_RECOVERY_FILE_PATH[] = "/prefs/hobo_ble_recovery.bin";
 
 static constexpr uint32_t MX2201_MIN_RAW = 400;
 static constexpr uint32_t MX2201_MAX_RAW = 2400;
@@ -348,6 +362,47 @@ void loadLoggerLock()
     logLockTarget("HOBO universal: restored logger lock:");
 }
 
+// Separate CRC-checked configuration file; never touch the persistent
+// logger lock, Meshtastic preferences or HOBO recording interval.
+bool saveAutomaticBleResetMinutes(uint16_t minutes)
+{
+    uint8_t record[8] = {'H', 'B', 'R', '1', 1,
+                         static_cast<uint8_t>(minutes & 0xff),
+                         static_cast<uint8_t>((minutes >> 8) & 0xff), 0};
+    record[7] = lockChecksum(record, 7);
+
+    concurrency::LockGuard g(spiLock);
+    File file = FSCom.open(BLE_RECOVERY_FILE_PATH, FILE_O_WRITE);
+    if (!file)
+        return false;
+    const size_t written = file.write(record, sizeof(record));
+    file.flush();
+    file.close();
+    return written == sizeof(record);
+}
+
+void loadAutomaticBleResetMinutes()
+{
+    uint8_t record[8] = {};
+    size_t length = 0;
+    {
+        concurrency::LockGuard g(spiLock);
+        File file = FSCom.open(BLE_RECOVERY_FILE_PATH, FILE_O_READ);
+        if (file) {
+            length = file.read(record, sizeof(record));
+            file.close();
+        }
+    }
+    if (length != sizeof(record) || memcmp(record, "HBR1", 4) != 0 || record[4] != 1 ||
+        record[7] != lockChecksum(record, 7))
+        return; // Default: 120 minutes.
+
+    const uint16_t minutes = static_cast<uint16_t>(record[5]) |
+                             (static_cast<uint16_t>(record[6]) << 8);
+    if (minutes == 0 || (minutes >= 15 && minutes <= 720))
+        automaticBleResetMinutes.store(minutes);
+}
+
 const char *loggerTypeName(LoggerType type)
 {
     switch (type) {
@@ -517,6 +572,40 @@ bool isCommand(const uint8_t *bytes, size_t size, const char *expected)
         ++p;
 
     return *p == '\0';
+}
+
+// Recognize BLE RESET AUTO <minutes|OFF> without matching unrelated messages.
+// The caller validates the interval and commits it only after a successful write.
+bool parseBleResetAutoCommand(const uint8_t *bytes, size_t size, char outArg[32])
+{
+    if (!bytes || size == 0 || size >= 64)
+        return false;
+    char text[64] = {};
+    memcpy(text, bytes, size);
+    char *cmd = text;
+    while (*cmd == ' ' || *cmd == '\t' || *cmd == '\r' || *cmd == '\n')
+        ++cmd;
+    if (*cmd == '/')
+        ++cmd;
+    for (char *p = cmd; *p; ++p)
+        *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
+
+    static constexpr char PREFIX[] = "BLE RESET AUTO";
+    const size_t prefixLen = sizeof(PREFIX) - 1;
+    if (strncmp(cmd, PREFIX, prefixLen) != 0)
+        return false;
+    char *arg = cmd + prefixLen;
+    if (*arg != '\0' && *arg != ' ' && *arg != '\t')
+        return false;
+    while (*arg == ' ' || *arg == '\t')
+        ++arg;
+    const size_t argLen = strlen(arg);
+    if (argLen >= 32)
+        return false;
+    memcpy(outArg, arg, argLen + 1);
+    while (argLen > 0 && outArg[strlen(outArg) - 1] == ' ')
+        outArg[strlen(outArg) - 1] = '\0';
+    return true;
 }
 
 void resetMeasurementCapture()
@@ -887,6 +976,8 @@ void initializeClient()
     LOG_INFO("HOBO universal bridge: MX2001 + MX2201 + MX2203");
 
     loadLoggerLock();
+    loadAutomaticBleResetMinutes();
+    bleHealthTimerStartMs = millis();
 
     hoboService.begin();
     hoboCharacteristic.setNotifyCallback(notifyCallback);
@@ -992,6 +1083,55 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
 
+    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "BLE RESET STATUS")) {
+        char reply[155] = {};
+        snprintf(reply, sizeof(reply),
+                 "BLE RESET: %um (OFF=0); first after 15m stale STATUS. Auto resets:%lu total:%lu",
+                 static_cast<unsigned int>(automaticBleResetMinutes.load()),
+                 static_cast<unsigned long>(automaticBleResetCount),
+                 static_cast<unsigned long>(totalBleOnlyResetCount));
+        sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+
+    char recoveryArgument[32] = {};
+    if (parseBleResetAutoCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, recoveryArgument)) {
+        const uint16_t current = automaticBleResetMinutes.load();
+        if (recoveryArgument[0] == '\0') {
+            char reply[130] = {};
+            snprintf(reply, sizeof(reply), "BLE RESET AUTO: %um; first stale reset at 15m; 0=OFF; range 15-720m",
+                     static_cast<unsigned int>(current));
+            sendTextReply(mp.from, mp.channel, reply);
+            return ProcessMessage::CONTINUE;
+        }
+
+        uint16_t requested = 0;
+        bool valid = !strcmp(recoveryArgument, "OFF") || !strcmp(recoveryArgument, "0");
+        if (!valid) {
+            char *end = nullptr;
+            const long parsed = strtol(recoveryArgument, &end, 10);
+            valid = end && *end == '\0' && parsed >= 15 && parsed <= 720;
+            if (valid)
+                requested = static_cast<uint16_t>(parsed);
+        }
+        if (!valid) {
+            sendTextReply(mp.from, mp.channel, "BLE RESET AUTO: use OFF or 15-720 minutes (example: BLE RESET AUTO 120)");
+            return ProcessMessage::CONTINUE;
+        }
+        if (saveAutomaticBleResetMinutes(requested)) {
+            automaticBleResetMinutes.store(requested);
+            char reply[130] = {};
+            if (requested)
+                snprintf(reply, sizeof(reply), "BLE RESET AUTO saved: %u minutes; logger lock unchanged", static_cast<unsigned int>(requested));
+            else
+                snprintf(reply, sizeof(reply), "BLE RESET AUTO OFF saved; logger lock unchanged");
+            sendTextReply(mp.from, mp.channel, reply);
+        } else {
+            sendTextReply(mp.from, mp.channel, "BLE RESET AUTO: flash write failed; prior setting retained");
+        }
+        return ProcessMessage::CONTINUE;
+    }
+
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "HOBO RESTART")) {
         manualBleRestartPending.store(true);
         sendTextReply(mp.from, mp.channel, "HOBO RESTART queued: BLE only; mesh and saved logger lock preserved");
@@ -1015,13 +1155,16 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
                  static_cast<unsigned long>(connectionReadyCount));
         sendTextReply(mp.from, mp.channel, out);
         snprintf(out, sizeof(out),
-                 "BLE 2/2 status_seen:%u age:%lus target_seen:%u age:%lus\nscan_refresh:%lu recov:%u last:%s",
+                 "BLE 2/2 status:%u age:%lus target:%u age:%lus\nscan:%lu recover:%u auto:%lu interval:%um last:%s",
                  lastGoodStatusMs ? 1U : 0U,
                  static_cast<unsigned long>(lastGoodStatusMs ? (now - lastGoodStatusMs) / 1000UL : 0),
                  lastTargetAdvertisementMs ? 1U : 0U,
                  static_cast<unsigned long>(lastTargetAdvertisementMs ? (now - lastTargetAdvertisementMs) / 1000UL : 0),
                  static_cast<unsigned long>(scannerRestartCount),
-                 static_cast<unsigned int>(bleRecoveryCycles), lastBleFailure);
+                 static_cast<unsigned int>(bleRecoveryCycles),
+                 static_cast<unsigned long>(automaticBleResetCount),
+                 static_cast<unsigned int>(automaticBleResetMinutes.load()),
+                 lastBleFailure);
         sendTextReply(mp.from, mp.channel, out);
         return ProcessMessage::CONTINUE;
     }
@@ -1301,20 +1444,63 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         readRequester = 0;
     }
 
-    // Apply requested BLE-only restart on the module thread, not inside the DM callback.
-    if (manualBleRestartPending.exchange(false)) {
-        bleRecoveryCycles = 0; // An operator request is not a failed recovery cycle.
-        noteBleFailure("manual HOBO RESTART");
+    // A good STATUS reply is the health signal, not scanner=SCANNING or
+    // an intact LoRa link. Never disturb an actively healthy logger.
+    const uint16_t resetMinutes = automaticBleResetMinutes.load();
+    const bool unhealthyFor15Min = bleHealthTimerStartMs != 0 &&
+                                   (uint32_t)(now - bleHealthTimerStartMs) >= FIRST_DEEP_BLE_RECOVERY_MS;
+    const bool timedRecoveryDue = resetMinutes != 0 && unhealthyFor15Min &&
+                                  (!automaticBleResetPreviouslyAttempted ||
+                                   (uint32_t)(now - lastAutomaticBleResetMs) >=
+                                       (static_cast<uint32_t>(resetMinutes) * 60000UL));
+    bool autoRecoveryNow = false;
+    if (timedRecoveryDue) {
+        if (autoBleResetDeferredSinceMs == 0)
+            autoBleResetDeferredSinceMs = now;
+        const bool readBusy = readRequestInProgress || readRequestPending ||
+                              universalState == UniversalState::SEND_READ ||
+                              universalState == UniversalState::WAIT_READ;
+        autoRecoveryNow = !readBusy ||
+                          (uint32_t)(now - autoBleResetDeferredSinceMs) >= DEFER_BLE_RESET_WHILE_READ_MS;
+    } else {
+        autoBleResetDeferredSinceMs = 0;
+    }
+
+    // Both DM and automatic resets are executed by this single HOBO worker.
+    const bool manualRecoveryNow = manualBleRestartPending.exchange(false);
+    if (manualRecoveryNow || autoRecoveryNow) {
+        if (autoRecoveryNow && !manualRecoveryNow) {
+            lastAutomaticBleResetMs = now;
+            automaticBleResetPreviouslyAttempted = true;
+            automaticBleResetCount++;
+            nrf52FieldDiagEvent(2, 4, static_cast<uint16_t>(automaticBleResetCount));
+            LOG_WARN("HOBO V5: timed BLE-only reset %lu after %lu seconds without STATUS",
+                     static_cast<unsigned long>(automaticBleResetCount),
+                     static_cast<unsigned long>((now - bleHealthTimerStartMs) / 1000UL));
+        } else {
+            bleHealthTimerStartMs = now; // Grant 15 minutes after an operator intervention.
+            automaticBleResetPreviouslyAttempted = false;
+            lastAutomaticBleResetMs = 0;
+        }
+        autoBleResetDeferredSinceMs = 0;
+        totalBleOnlyResetCount++;
+        bleRecoveryCycles = 0; // Planned recovery must not trip the failure watchdog.
+        noteBleFailure(manualRecoveryNow ? "manual HOBO RESTART" : "15m/periodic BLE reset");
         disconnectedSinceMs = now;
         restoreNormalScan = true;
+        haveRejectedAddr = false;
         if (connected && connectionHandle != BLE_CONN_HANDLE_INVALID) {
-            Bluefruit.disconnect(connectionHandle);
+            Bluefruit.disconnect(connectionHandle); // BLE callback clears GATT state.
         } else if (connecting) {
             (void)sd_ble_gap_connect_cancel();
             connecting = false;
             connectAttemptStartedMs = 0;
+            universalState = UniversalState::IDLE;
+            statusReady = false;
         } else {
-            refreshDisconnectedScanner(false);
+            universalState = UniversalState::IDLE;
+            statusReady = false;
+            refreshDisconnectedScanner(false); // No SoftDevice teardown; LoRa stays up.
         }
         return 500;
     }
@@ -1583,6 +1769,10 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         if (statusReady) {
             statusReady = false;
             lastGoodStatusMs = now;
+            bleHealthTimerStartMs = now;
+            automaticBleResetPreviouslyAttempted = false;
+            lastAutomaticBleResetMs = 0;
+            autoBleResetDeferredSinceMs = 0;
             consecutiveStatusTimeouts = 0;
             consecutiveReadTimeouts = 0;
             bleRecoveryCycles = 0;
