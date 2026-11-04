@@ -97,9 +97,9 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     if (isCommand(payload, payloadSize, "HELP")) {
         // Split the complete command reference into LoRa-safe messages so no command is truncated.
         sendTextReply(mp.from, mp.channel,
-                      "HELP 1/2 HOBO: READ LOGGER LOCK UNLOCK AUTO STATUS HEALTH BLE | BLE DIAG | HOBO STATUS | HOBO RESTART | AUTO STATUS");
+                      "HELP 1/2 HOBO: READ LOGGER LOCK UNLOCK AUTO STATUS HEALTH BLE | BLE DIAG | HOBO RESTART | AUTO STATUS | BLE RESET AUTO 120");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 2/2 SYSTEM: POWER | BATTERY | STATS | DIAG | CLEAR DIAG | NODES | UPTIME | VERSION | WATCHDOG | PING | WAKE | SCAN | RECONNECT | RECOVER | REBOOT | DFU");
+                      "HELP 2/2 SYSTEM: BLE RESET STATUS | POWER BATTERY STATS DIAG CLEAR DIAG NODES UPTIME VERSION WATCHDOG PING WAKE RECOVER REBOOT DFU");
         return ProcessMessage::CONTINUE;
     }
 
@@ -111,7 +111,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     }
 
     if (isCommand(payload, payloadSize, "VERSION")) {
-        snprintf(reply, sizeof(reply), "%s\nHW:%s\nSensors:%s\nHOBO poll:30s | DFU:ON",
+        snprintf(reply, sizeof(reply), "%s\nHW:%s\nSensors:%s\nHOBO:30s | BLE reset:15m/120m | SYS:12h | DFU:ON",
                  FIRMWARE_LABEL, platformName(), "HOBO MX2001/2201/2203");
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
@@ -210,16 +210,19 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
 
     if (isCommand(payload, payloadSize, "SCAN") || isCommand(payload, payloadSize, "RECONNECT")) {
         sendTextReply(mp.from, mp.channel,
-                      "BLE recovery is automatic in V4; scanner/link lifecycle is owned by the HOBO state machine.");
+                      "BLE recovery is automatic in V5; use BLE DIAG or HOBO RESTART; scanning stays HOBO-owned.");
         return ProcessMessage::CONTINUE;
     }
 
     if (isCommand(payload, payloadSize, "RECOVER") || isCommand(payload, payloadSize, "REBOOT")) {
         commandRecoveryCount++;
-        if (rebootAtMsec == 0)
-            rebootAtMsec = millis() + 2000UL;
+        if (rebootAtMsec == 0) {
+            // Retained diagnostic: system / operator-requested reboot.
+            nrf52FieldDiagEvent(4, 3, static_cast<uint16_t>(commandRecoveryCount));
+            rebootAtMsec = millis() + 15000UL;
+        }
         sendTextReply(mp.from, mp.channel,
-                      "RECOVERY: flash-safe whole-node reboot scheduled in 2 sec; settings and logger lock preserved.");
+                      "RECOVERY: whole-node reboot queued in 15 sec; settings and HOBO lock preserved.");
         return ProcessMessage::CONTINUE;
     }
 
