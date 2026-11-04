@@ -1,0 +1,148 @@
+name: Build matched HOBO Safe V5 drone Scouts
+
+on:
+  push:
+    branches: [Remote-Drone-Flashing-v2]
+    paths:
+      - '.github/workflows/build_hobo_safe_v5_drone_scouts.yml'
+      - 'tools/verify_drone_hobo_safe_v5.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hobo-safe-v5-drone-scouts
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Seeed-HOBO-Safe-v5
+            target_branch: Seeed-HOBO-Safe-v5
+            target_env: seeed_xiao_nrf52840_kit
+            target_sha: cfb69bac22b54b8d66a5f268e8c074c2c92e0dc3
+            ota_sha256: 3cc3e59e10f4c5f3af6f89a111c83418d1fb5395df73ccab9d3aef6f33ccc192
+            output_name: Drone-Seeed-HOBO-Safe-v5.uf2
+          - name: RAK-HOBO-Safe-v5
+            target_branch: RAK-HOBO-Safe-v5
+            target_env: rak4631
+            target_sha: 1865ff5bc4d1b1cfdfb9ccebbc2998fd968f1a4c
+            ota_sha256: 764e3cb421161f34868df8a46f233f96023d7506577cde5b673f2bed1eeabd81
+            output_name: Drone-RAK-HOBO-Safe-v5.uf2
+    steps:
+      - name: Checkout proven RAK4631 Scout implementation
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: Remote-Drone-Flashing-v2
+          submodules: recursive
+
+      - name: Install build and compressor tools
+        run: python -m pip install platformio lz4
+
+      - name: Download pinned, published V5 target and verify SHA-256
+        shell: bash
+        env:
+          OTA_HASH: ${{ matrix.ota_sha256 }}
+          TARGET_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            "https://raw.githubusercontent.com/canyoncountryadventure/firmware/9f6866401a31450d615965e19412ae0e87709bae/downloads/${TARGET_NAME}-2026-11-03-OTA.zip" \
+            --output target-ota.zip
+          printf '%s  target-ota.zip\n' "$OTA_HASH" | sha256sum --check
+          python tools/build_drone_embedded_firmware.py target-ota.zip src/experimental/embedded_dfu_image.h
+
+      - name: Build RAK4631 autonomous drone Scout with V5 embedded
+        shell: bash
+        run: |
+          set -euo pipefail
+          pio run -e rak4631_drone_flasher
+
+      - name: Verify exact V5 image and produce drone UF2
+        shell: bash
+        env:
+          OUTPUT_NAME: ${{ matrix.output_name }}
+          TARGET_NAME: ${{ matrix.name }}
+          TARGET_BRANCH: ${{ matrix.target_branch }}
+          TARGET_ENV: ${{ matrix.target_env }}
+          TARGET_SHA: ${{ matrix.target_sha }}
+          OTA_HASH: ${{ matrix.ota_sha256 }}
+        run: |
+          set -euo pipefail
+          SCOUT="$(find .pio/build/rak4631_drone_flasher -maxdepth 1 -type f -name 'firmware-*.uf2' | sort | head -n 1)"
+          test -f "$SCOUT"
+          mkdir -p export
+          cp "$SCOUT" "export/$OUTPUT_NAME"
+          python tools/verify_drone_hobo_safe_v5.py "export/$OUTPUT_NAME" target-ota.zip src/experimental/embedded_dfu_image.h
+          {
+            echo "Scout flasher: $OUTPUT_NAME"
+            echo "Scout board: RAK4631"
+            echo "Embedded target: $TARGET_NAME"
+            echo "Target branch: $TARGET_BRANCH"
+            echo "Target source commit: $TARGET_SHA"
+            echo "Target environment: $TARGET_ENV"
+            echo "Target OTA ZIP SHA-256: $OTA_HASH"
+            echo "Target catalog commit: 9f6866401a31450d615965e19412ae0e87709bae"
+            echo "Drone source branch: Remote-Drone-Flashing-v2"
+            echo "Drone source commit: $GITHUB_SHA"
+            echo "Verified: nRF52840 UF2 + exact LZ4 application + Nordic init packet"
+            echo "Scout UF2 bytes: $(stat -c%s "export/$OUTPUT_NAME")"
+            sha256sum "export/$OUTPUT_NAME"
+          } > "export/$OUTPUT_NAME.txt"
+
+      - name: Upload verified V5 Scout build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hobo-safe-v5-drone-${{ matrix.name }}
+          path: export/*
+          retention-days: 90
+          overwrite: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download both matched V5 Scout images
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: hobo-safe-v5-drone-*
+          merge-multiple: true
+          path: built
+
+      - name: Checkout drone catalog
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: Remote-Drone-Flashing-v2
+          path: publish
+          fetch-depth: 0
+
+      - name: Publish Seeed and RAK V5 Scout UF2 files with matching manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publish
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin Remote-Drone-Flashing-v2
+            git reset --hard origin/Remote-Drone-Flashing-v2
+            mkdir -p downloads
+            cp ../built/Drone-Seeed-HOBO-Safe-v5.uf2 downloads/
+            cp ../built/Drone-Seeed-HOBO-Safe-v5.uf2.txt downloads/
+            cp ../built/Drone-RAK-HOBO-Safe-v5.uf2 downloads/
+            cp ../built/Drone-RAK-HOBO-Safe-v5.uf2.txt downloads/
+            git add downloads/Drone-*-HOBO-Safe-v5.uf2*
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Publish V5 matched Seeed and RAK HOBO drone Scout images"
+            if git push origin HEAD:Remote-Drone-Flashing-v2; then exit 0; fi
+            sleep $((attempt * 3))
+          done
+          echo "Could not publish matching V5 Scouts" >&2
+          exit 1
