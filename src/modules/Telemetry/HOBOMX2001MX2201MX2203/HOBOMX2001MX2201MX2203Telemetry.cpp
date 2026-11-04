@@ -603,8 +603,12 @@ bool parseBleResetAutoCommand(const uint8_t *bytes, size_t size, char outArg[32]
     if (argLen >= 32)
         return false;
     memcpy(outArg, arg, argLen + 1);
-    while (argLen > 0 && outArg[strlen(outArg) - 1] == ' ')
-        outArg[strlen(outArg) - 1] = '\0';
+    size_t remaining = argLen;
+    while (remaining > 0 && (outArg[remaining - 1] == ' ' ||
+                             outArg[remaining - 1] == '\r' ||
+                             outArg[remaining - 1] == '\n' ||
+                             outArg[remaining - 1] == '\t'))
+        outArg[--remaining] = '\0';
     return true;
 }
 
