@@ -32,6 +32,8 @@ jobs:
           python3 test/test_hobo_v5/test_hobo_v5.py
           python3 test/test_hobo_v5/test_preservation.py
           python3 test/test_hobo_v5/test_reset_recovery.py
+          python3 test/test_hobo_v5/test_stale_hobo_recovery.py
+          python3 test/test_hobo_v5/test_standard_hobo_gateway.py
           python3 test/test_hobo_v5/test_nonblocking_water.py
           python3 test/test_hobo_v5/test_water_jobs.py
   build:

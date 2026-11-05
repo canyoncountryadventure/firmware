@@ -1,6 +1,7 @@
 import argparse
 import getpass
 import json
+import math
 import os
 import struct
 import threading
@@ -17,6 +18,11 @@ DEFAULT_CLOUD_URL = "https://meshtastic-ecru.vercel.app/api/ingest"
 CLOUD_URL = DEFAULT_CLOUD_URL
 INGEST_KEY = ""
 GATEWAY_NAME = "Slickrock Hydro / laptop-python-bridge"
+
+# Standard EnvironmentMetrics has no logger-model field. Keep the MX2001
+# interpretation tight so an unrelated environmental distance cannot become a
+# water stage. These are Pack Creek, Mill Creek, and Matheson Groundwater.
+STANDARD_MX2001_NODE_IDS = {1949224949, 1683604927, 2004386937}
 
 _seen_packet_ids = set()
 _seen_packet_order = deque(maxlen=512)
@@ -199,9 +205,51 @@ def handle_environment(packet, interface, decoded):
         return False
 
     node_num = packet.get("from")
+    try:
+        source_node = int(node_num)
+    except (TypeError, ValueError):
+        source_node = 0
     sid = source_id(packet)
     station = source_name(interface, packet)
     observed = telemetry.get("time") or packet.get("rxTime") or int(time.time())
+
+    # V5.1 RAK/Seeed MX2001 nodes place calibrated stage in standard
+    # EnvironmentMetrics.distance (millimetres) beside temperature (°C), which
+    # travels on the same normal telemetry route as device/battery data.
+    distance_mm = env.get("distance")
+    if source_node in STANDARD_MX2001_NODE_IDS and distance_mm is not None:
+        try:
+            distance_mm = float(distance_mm)
+        except (TypeError, ValueError):
+            distance_mm = float("nan")
+        if math.isfinite(distance_mm) and -100000.0 <= distance_mm <= 100000.0:
+            stage_ft = distance_mm / 304.8
+            print()
+            print("=" * 64)
+            print("MX2001 STANDARD TELEMETRY")
+            print(f"Source:      {sid}  {station}")
+            print(f"Level:       {stage_ft:.2f} ft")
+            print(f"Temperature: {temperature:.2f} C / {(temperature * 9.0 / 5.0 + 32.0):.2f} F")
+            print(f"LoRa RSSI:   {packet.get('rxRssi')} dBm")
+            print(f"LoRa SNR:    {packet.get('rxSnr')} dB")
+            print(f"Hops:        {hop_count(packet)}")
+            body = {
+                "type": "mx2001",
+                "timestamp": int(observed),
+                "from": node_num,
+                "station_name": station,
+                "payload": {
+                    "water_level_ft": stage_ft,
+                    "temperature_c": temperature,
+                    "temperature_f": temperature * 9.0 / 5.0 + 32.0,
+                    "logger_model": "MX2001",
+                    "source": "telemetry_app",
+                },
+                "radio": radio_metadata(packet),
+            }
+            upload(body)
+            print("=" * 64)
+            return True
 
     print()
     print("=" * 64)
@@ -321,7 +369,7 @@ def main():
     print(f"Serial radio: {args.port}")
     print(f"Cloud:        {CLOUD_URL}")
     print(f"Gateway:      {GATEWAY_NAME}")
-    print("Accepts:      MX2001 PRIVATE_APP + MX2201/MX2203 environmental + device/battery TELEMETRY_APP")
+    print("Accepts:      legacy MX2001 PRIVATE_APP, V5.1 standard MX2001 telemetry, environmental + device/battery TELEMETRY_APP")
     print("Press Ctrl+C to stop")
     print("=" * 64)
 

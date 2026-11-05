@@ -2,7 +2,7 @@
 
 RAK4631/RAK19007 monitoring firmware for **DFRobot SEN0313/A01NYUB** or **MaxBotix MB7388**, with HOBO **MX2001**, **MX2201** and **MX2203** support.
 
-V5 retains the HOBO/BLE implementation that successfully read the MX2001 on October 15. Water calibration and live measurements now use the median of 10 valid fresh readings after one warm-up. It keeps the full eight-second sensor settling time while returning control to the HOBO/mesh scheduler, uses V3's passive 10% scan, and releases its temporary CPU wake/clock requests after a valid logger STATUS baseline. [Full version audit and rationale](docs/diagnostic-8/V5-FINAL-AUDIT.md).
+V5 retains the HOBO/BLE implementation that successfully read the MX2001 on October 15. Water calibration and live measurements use the median of 10 valid fresh readings after one warm-up. It keeps the full eight-second sensor settling time while returning control to the HOBO/mesh scheduler. Normal HOBO scanning stays passive at 10%; only when the logger link is missing does it use a bounded two-minute active 50% acquisition burst, then return to the normal scan. [Full version audit and rationale](docs/diagnostic-8/V5-FINAL-AUDIT.md).
 
 ## Downloads
 
@@ -36,13 +36,13 @@ The last functional update before success replaced the blocking wait with schedu
 | Sensor power | Pololu ON from IO1/P0.17; full 8 s settling; OFF between jobs |
 | Sensor scheduling | Warm-up returns to scheduler; one sample job owns the rail; busy requests receive a reply |
 | Live / READ / RAW / VERIFY / CAL | Median of 10 valid fresh readings after one warm-up; up to 20 attempts; incomplete bursts fail |
-| BLE acquisition | Passive 200 ms period / 20 ms receive window (10%); no periodic restart of healthy scanning |
+| BLE acquisition | Healthy logger: no scan. Missing logger: active 100 ms period / 50 ms receive window (50%) for 2 min at boot/recovery and every 5 min while missing; otherwise passive 200 ms / 20 ms (10%) |
 | Connection / setup | Existing 30 s connection limit; V3 callback discovery, three bounded attempts per step |
 | Handshake power | CPU wake + HFCLK request from module creation, maximum 120 s; release at first valid STATUS baseline |
-| Failed acquisition | 5 min wake-request cooldown; normal idle sleep permitted while mesh/passive scan continue |
+| Failed acquisition | 30 s wake-request cooldown; normal idle sleep permitted while mesh/scanner continue. A short cooldown avoids retry churn without creating a five-minute blind spot |
 | Healthy HOBO link | Normal idle sleep permitted; STATUS checks every 30 s; automatic TX only on a new logger record |
 | Water interval | Preserve saved interval; fresh-install default one hour |
-| Recovery | Core/radio watchdog and existing 12-hour maintenance reboot; ordinary HOBO errors retry without forced watchdog resets |
+| Recovery | `STATUS`-proven health: stale for 15 min → BLE-only recovery; still stale 5 min later → one watchdog whole-node reset until a valid STATUS returns; staggered 12-hour maintenance reboot |
 | Feedback | Three red flashes on failed setup; three simultaneous RGB flashes on verified handshake |
 
 Ten-sample medians average the two middle distances and round half millimeters upward to the packet’s whole-millimeter resolution. `WATER READ` and `RAW` report the sample count and spread. A burst uses one power-on window and yields between readings; no long sampling loop blocks the HOBO scheduler. Existing calibration, identity, channels, keys, logger lock, and reporting interval are retained by application-only updates.
@@ -58,7 +58,7 @@ Single driver reads still have bounded waits: up to 450 ms for DFRobot UART and 
 - Existing MX2001 stage/temperature, MX2201/MX2203 temperature, logger-pointer synchronization, packet formats, calibration storage, node identity, keys, channels and remote DFU remain.
 - `VERSION` reports the actual firmware build and target environment. The final label is V5, without the superseded HFCLK diagnostic suffix.
 
-The full V1–V5 history, including rejected 50% scanning, bench toggles and watchdog escalation, is in the [final audit](docs/diagnostic-8/V5-FINAL-AUDIT.md). Older branches are unchanged.
+The full V1–V5 history, including rejected 50% scanning and bench toggles, is in the [final audit](docs/diagnostic-8/V5-FINAL-AUDIT.md). The V5.1 stale-STATUS recovery and standard telemetry transport patch is documented in [the V5.1 field note](docs/diagnostic-8/V5_1_HOBO_RECOVERY.md). Older branches are unchanged.
 
 ## Install on the field station
 

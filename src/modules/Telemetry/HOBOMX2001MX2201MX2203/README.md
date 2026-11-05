@@ -55,9 +55,11 @@ HOBO universal AUTO TX confirmed count=7 pointer=0x00001ADD interval=20 sec poin
 
 ### Model-specific automatic output
 
-- **MX2001:** sends the existing 19-byte `PRIVATE_APP` packet containing water level, temperature, logger MAC, sequence, and BLE RSSI. This remains compatible with `tools/mx2001_receiver.py` and the water dashboard ingest path.
+- **MX2001:** sends standard Meshtastic environmental telemetry on `TELEMETRY_APP`, with temperature in °C and water stage in `EnvironmentMetrics.distance` in millimetres. The field is deliberately converted from stage feet (`ft × 304.8`) so it shares the same normal telemetry transport as device/battery telemetry. The CCA gateway recognizes this paired temperature/distance form only from known MX2001 stations and converts it back to water level in feet.
 - **MX2201:** sends standard Meshtastic environmental temperature telemetry on `TELEMETRY_APP`.
 - **MX2203:** sends standard Meshtastic environmental temperature telemetry on `TELEMETRY_APP`.
+
+`TELEMETRY_APP` uses a protobuf oneof, so battery/device metrics and environmental metrics are two packets on the same standard port rather than two metric types inside one protobuf. This replaces automatic MX2001 `PRIVATE_APP` packets; manual `READ` replies still include logger MAC and BLE RSSI for field diagnostics.
 
 HOBO automatic packets use reliable queue priority. Actual RF airtime can still be delayed by normal LoRa channel activity, but the packet is generated and queued immediately after the new logger record is confirmed and read.
 
@@ -251,7 +253,7 @@ The HOBO reader intentionally maintains only one logger BLE connection at a time
 
 ## Code provenance and validation
 
-- MX2001 automatic write-pointer scheduling and `PRIVATE_APP` packet behavior come from the hardware-proven MX2001 production sender.
+- MX2001 automatic write-pointer scheduling comes from the hardware-proven MX2001 production sender. V5.1 changes only its automatic mesh envelope to standard `TELEMETRY_APP`; it does not change the BLE command/response decoder, write-pointer gate, logger lock, or manual-read format.
 - MX2201 automatic telemetry behavior follows the earlier hardware-proven interval-aligned telemetry implementation.
 - MX2001 + MX2201 live BLE behavior is based on the hardware-proven combined reader.
 - MX2203 response parsing is based on the hardware-proven MX2203 reader.

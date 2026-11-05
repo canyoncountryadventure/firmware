@@ -56,10 +56,12 @@ struct ble_evt_t {struct {unsigned evt_id=0;}header;struct {
  struct {uint16_t conn_handle=BLE_CONN_HANDLE_INVALID;}common_evt;
  struct {struct {struct {unsigned src=0;}timeout;}params;}gap_evt;
  struct {uint16_t gatt_status=0;struct {struct {uint16_t count=1;}prim_srvc_disc_rsp;}params;}gattc_evt;}evt;};
-struct Scan {bool running=false,startOk=true,resumeOk=true,stopOk=true;unsigned starts=0,stops=0,resumes=0;
+struct Scan {bool running=false,startOk=true,resumeOk=true,stopOk=true,active=false;unsigned starts=0,stops=0,resumes=0,interval=0,window=0;
  bool start(int){starts++;if(startOk)running=true;return startOk;}
  bool stop(){stops++;if(stopOk)running=false;return stopOk;}
- bool resume(){resumes++;return resumeOk;}bool isRunning(){return running;}};
+ bool resume(){resumes++;return resumeOk;}bool isRunning(){return running;}
+ void setInterval(unsigned i,unsigned w){interval=i;window=w;}
+ void useActiveScan(bool value){active=value;}};
 struct BF {Scan Scanner;bool links[BLE_MAX_CONNECTION]={};bool phones[BLE_MAX_CONNECTION]={};
  std::vector<uint16_t> disconnects;bool connectOk=true;uint8_t addressType=0;
  struct CentralType {BF* bf;unsigned connected(){unsigned n=0;for(bool v:bf->links)n+=v;return n;}
@@ -106,7 +108,9 @@ methods = "\n".join(
         "void rejectCurrentCandidate(uint32_t retryMs = REJECT_RETRY_MS)",
         "void resetMeasurementCapture()",
         "void resumeScanner()",
+        "void requestHighDutyScanBurst()",
         "bool restartScanner(uint32_t now)",
+        "void serviceDisconnectedScanner(uint32_t now)",
         "void bleEventCallback(ble_evt_t *event)",
         "void scanCallback(ble_gap_evt_adv_report_t *report)",
         "void triggerBleRecovery(const char *reason)",
@@ -143,7 +147,8 @@ helpers += (
 tests = r"""
 void reset(){connecting=false;connected=false;setupInProgress=false;recoveryPending=false;
  connectionHandle=BLE_CONN_HANDLE_INVALID;connectAttemptStartedMs=100;clockMs=100;
- bleRecoveryCycles=0;scanRestartRequested=false;connectTimedOut=false;scanRetryDueMs=0;
+ bleRecoveryCycles=0;scanRestartRequested=false;highDutyScanRequested=false;highDutyScanActive=false;
+ scanBurstUntilMs=0;lastScanBurstMs=0;connectTimedOut=false;scanRetryDueMs=0;
  universalState=UniversalState::IDLE;loggerLockEnabled=false;haveRejectedAddr=false;haveStatusBaseline=false;
  handshakeWakeActive=false;handshakeWakeDeadlineMs=0;handshakeWakeCooldownUntilMs=0;platformHoboAwake=false;
  Bluefruit.Scanner=Scan{};Bluefruit.disconnects.clear();Bluefruit.connectOk=true;
@@ -245,7 +250,10 @@ assert "serviceHoboLedPattern(now);" in block(
 )
 assert "UniversalState::DISCOVER_SERVICE" not in source
 assert "scanRestartRequested || !Bluefruit.Scanner.isRunning()" in source
-assert "Bluefruit.Scanner.setInterval(320, 32)" in source
+assert "Bluefruit.Scanner.setInterval(highDutyScanActive ? 160 : 320, highDutyScanActive ? 80 : 32)" in source
+assert "Bluefruit.Scanner.useActiveScan(highDutyScanActive)" in source
+assert "HIGH_DUTY_SCAN_MS = 120UL * 1000UL" in source
+assert "HANDSHAKE_WAKE_COOLDOWN_MS = 30000UL" in source
 constructor_start = source.index(
     "HOBOMX2001MX2201MX2203TelemetryModule::HOBOMX2001MX2201MX2203TelemetryModule()"
 )

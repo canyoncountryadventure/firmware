@@ -1173,13 +1173,22 @@ void loop()
     }
 
 #if defined(ARCH_NRF52) && defined(FIELD_RECOVERY_V2)
+    // One owner for whole-node maintenance. A deterministic node-specific
+    // offset prevents every field relay from restarting in the same few
+    // seconds while preserving the 12-hour full BLE/radio reset.
     static const uint32_t fieldBootMs = millis();
+    static const uint32_t fieldRebootStaggerMs =
+        nodeDB ? (((nodeDB->getNodeNum() >> 3) ^ nodeDB->getNodeNum()) % 601UL) * 1000UL : 0UL;
     static bool fieldScheduledRebootArmed = true;
-    if (fieldScheduledRebootArmed && (uint32_t)(millis() - fieldBootMs) >= (12UL * 60UL * 60UL * 1000UL)) {
+    if (fieldScheduledRebootArmed &&
+        (uint32_t)(millis() - fieldBootMs) >= ((12UL * 60UL * 60UL * 1000UL) + fieldRebootStaggerMs)) {
         fieldScheduledRebootArmed = false;
-        LOG_WARN("Field v2: 12-hour preventive reboot due");
-        if (rebootAtMsec == 0)
-            rebootAtMsec = millis() + 5000UL;
+        if (rebootAtMsec == 0) {
+            nrf52FieldDiagEvent(4, 2, 12);
+            LOG_WARN("Field V5: scheduled 12h reboot (station offset %lus), 15s drain",
+                     static_cast<unsigned long>(fieldRebootStaggerMs / 1000UL));
+            rebootAtMsec = millis() + 15000UL;
+        }
     }
 #endif
 
