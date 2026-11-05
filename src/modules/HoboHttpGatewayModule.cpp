@@ -145,17 +145,19 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
     uploadQueue.setReader(this);
     Preferences saved;
     bool migrateLegacyPolls = false;
+    bool resetForV9OptIn = true;
     if (saved.begin("cca_cc01", true)) {
-        cc01WaterEnabled = saved.getBool("water", true);
-        cc01HoboEnabled = saved.getBool("hobo", true);
+        cc01WaterEnabled = saved.getBool("water", false);
+        cc01HoboEnabled = saved.getBool("hobo", false);
         cc01FastMode = saved.getBool("fast", false);
         cc01AdminNode = saved.getUInt("admin", 0);
         cc01ConfigVersion = saved.getUInt("version", 0);
         cc01IntervalOverrideMinutes = saved.getUShort("cc01_interval", 0);
         mathesonIntervalMinutes = saved.getUShort("matheson_interval", 60);
         migrateLegacyPolls = !saved.getBool("v8_fallback", false);
-        autoFallback.enabled = saved.getBool("auto_dm_on", true);
-        autoFallback.pausedMask = saved.getUShort("auto_dm_mask", 0) & cca_auto_fallback::Policy::ALL_MASK;
+        resetForV9OptIn = !saved.getBool("v9_optin", false);
+        autoFallback.enabled = saved.getBool("auto_dm_on", false);
+        autoFallback.pausedMask = saved.getUShort("auto_dm_mask", cca_auto_fallback::Policy::ALL_MASK) & cca_auto_fallback::Policy::ALL_MASK;
         // One compact, version-tolerant blob for per-stream interval values.
         if (saved.getBytesLength("auto_dm_int") == sizeof(autoFallback.intervalOverridesMinutes)) {
             saved.getBytes("auto_dm_int", autoFallback.intervalOverridesMinutes.data(),
@@ -193,8 +195,37 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i)
             configuredPolls[i] = ConfiguredPoll{};
     }
+    // First V9 boot: no station may inherit V8's broad polling configuration.
+    // Preserve unrelated NVS, LoRa credentials, and station identity.
+    if (resetForV9OptIn) {
+        autoFallback.pauseAll();
+        autoFallback.intervalOverridesMinutes.fill(0);
+        cc01WaterEnabled = false;
+        cc01HoboEnabled = false;
+        for (auto &poll : configuredPolls) poll = ConfiguredPoll{};
+        configuredPollActive = -1;
+        Preferences clean;
+        if (clean.begin("cca_cc01", false)) {
+            clean.putBool("v9_optin", true);
+            clean.putBool("auto_dm_on", false);
+            clean.putUShort("auto_dm_mask", cca_auto_fallback::Policy::ALL_MASK);
+            clean.putBytes("auto_dm_int", autoFallback.intervalOverridesMinutes.data(),
+                           sizeof(autoFallback.intervalOverridesMinutes));
+            clean.putBool("water", false);
+            clean.putBool("hobo", false);
+            for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
+                char key[18] = {};
+                snprintf(key, sizeof(key), "poll%u_node", i);
+                clean.putUInt(key, 0);
+                snprintf(key, sizeof(key), "poll%u_interval", i);
+                clean.putUShort(key, 0);
+            }
+            clean.end();
+        }
+        LOG_INFO("CCA V9 opt-in migration: all automatic DM polling disabled");
+    }
     setInterval(1000);
-    LOG_INFO("CCA clean gateway enabled: immediate independent forwarding -> %s", HOBO_HTTP_GATEWAY_URL);
+    LOG_INFO("CCA V9 gateway: passive automatic telemetry forwarding -> %s", HOBO_HTTP_GATEWAY_URL);
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     LOG_INFO("CCA clean gateway: favorite-nodes-only filtering enabled");
 #endif
@@ -621,11 +652,6 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
     String body;
     body.reserve(1100);
     body += "{";
-    if (job.type == JobType::SENSOR_STATUS) {
-        return String("{\"type\":\"event\",\"sensor\":") + jsonQuoted(job.sensorStatusType) +
-               ",\"status\":" + jsonQuoted(job.sensorStatusReason) +
-               ",\"packet_id\":" + String(job.packetId) + "}";
-    }
     if (job.type == JobType::MX2001)
         body += "\"type\":\"mx2001\"";
     else if (job.type == JobType::MOISTURE_PIR)
@@ -760,8 +786,7 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     HTTPClient http;
     client.setTimeout(12000);
     http.setTimeout(12000);
-    if (!http.begin(client, job.type == JobType::SENSOR_STATUS ?
-                    "https://meshtastic-ecru.vercel.app/api/ingest?control=cc01" : HOBO_HTTP_GATEWAY_URL)) {
+    if (!http.begin(client, HOBO_HTTP_GATEWAY_URL)) {
         LOG_WARN("CCA clean gateway: could not initialize HTTPS request");
         return false;
     }
@@ -824,7 +849,7 @@ String HoboHttpGatewayModule::statusJson()
     const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
                         cc01Phase == Cc01Phase::Hobo ? "waiting_hobo" :
                         cc01Phase == Cc01Phase::Done ? "done" : "idle";
-    String body = "{\"firmware_fix\":\"v8-dm-http-recovery-2026-11-01\"";
+    String body = "{\"firmware_fix\":\"v9-opt-in-fallback-2026-11-04\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -930,13 +955,11 @@ String HoboHttpGatewayModule::statusJson()
 int32_t HoboHttpGatewayModule::runOnce()
 {
     ++healthLoopCycles;
-    // V8: rescue missing automatic stage/temperature after 15m (Pack,
-    // Mill, South Cottonwood) or 60m (all other watched stations).
+    // V9: opt-in rescue only after 60 minutes without AUTO by default.
     // No unconditional Cottonwood or Matheson polling. LoRa still works
     // without Wi-Fi; captured DM replies queue for later upload.
     pollMissingAutomatic();
     pollConfiguredStations();
-    refreshCc01CloudControl();
 
     if (strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0)
         return 60000;
