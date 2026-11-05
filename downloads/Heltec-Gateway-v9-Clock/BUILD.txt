@@ -1,0 +1,8 @@
+TARGET=Heltec-Gateway-v9-Clock
+HARDWARE=Heltec WiFi LoRa 32 V4 OLED
+PIO_ENV=heltec-v4
+FORMAT=ESP32-S3 BIN; ZIP includes companion OTA/flash files
+SOURCE_COMMIT=6a35d6c4e1528353f980988da45b192d76553012
+BUILD_RUN=https://github.com/canyoncountryadventure/firmware/actions/runs/41976737698
+5b02183540fc16a8a8af19fd2ed65fe34b0a6bbd96ee8724ed82df5162ca1df8  Heltec-Gateway-v9-Clock-11-04-26.bin
+e118c61018e73a41bffde3a62da178acdcb890b0c728b71c68b5a80a0462c13d  Heltec-Gateway-v9-Clock-11-04-26.zip
