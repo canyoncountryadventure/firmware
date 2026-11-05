@@ -28,15 +28,15 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v6/test_dm_parser.cpp -o /tmp/test_cc01_dm
           /tmp/test_cc01_dm
-      - name: Verify V8 missed-auto integration (replaces obsolete V7 periodic-poller replay)
+      - name: Verify V9 missed-auto integration (replaces obsolete V7 periodic-poller replay)
         run: python3 test/test_heltec_v9/test_gateway_integration.py
-      - name: Exercise V8 watchdog progress and failure logic
+      - name: Exercise V9 watchdog progress and failure logic
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v7/test_recovery_supervisor.cpp -o /tmp/test_gateway_recovery_v7
           /tmp/test_gateway_recovery_v7
       - name: Verify Mill Creek telemetry allowlist
-        run: python3 test/test_heltec_v8/test_mill_creek_allowlist.py
-      - name: Test V8 per-sensor missing-auto fallback and MX220x replies
+        run: python3 test/test_heltec_v9/test_mill_creek_allowlist.py
+      - name: Test V9 per-sensor missing-auto fallback and MX220x replies
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v9/test_auto_fallback.cpp -o /tmp/test_gateway_v9
           /tmp/test_gateway_v9
