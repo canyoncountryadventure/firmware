@@ -2,9 +2,11 @@
 // V9: opt-in per-sensor automatic-telemetry watchdog, independent of Wi-Fi/Neon.
 // No dynamic allocation, timestamps stored in wrapping uint32_t millis.
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace cca_auto_fallback {
+using std::size_t;
 
 enum class Kind : uint8_t { Water = 0, Mx2001 = 1, Temperature = 2 };
 
