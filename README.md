@@ -1,3 +1,24 @@
+# CCA Heltec Sensor Gateway V9 (current release)
+
+**November 4, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
+
+**[OPEN THE V9 RELEASE README: verified Wi-Fi flash, checksums, all commands, authorized sender, testing, rollback, and Vercel rollout](downloads/Heltec-Gateway-v9/README.md)**
+
+- **Verified V9 OTA BIN:** [Heltec-Gateway-v9-11-04-26.bin](downloads/Heltec-Gateway-v9/Heltec-Gateway-v9-11-04-26.bin)
+- **Build identity and hash:** [V9 BUILD.txt](downloads/Heltec-Gateway-v9/BUILD.txt), compiled from `29b4d236942666497a36ffbf8dd86b9cc6f97d4f`; test and publish workflow [passed](https://github.com/canyoncountryadventure/firmware/actions/runs/41971187447).
+- **V9 firmware marker:** `v9-opt-in-fallback-2026-11-04`.
+- **Most important change:** after a first V9 upgrade, every station's automatic DM rescue is **OFF** until explicitly enabled. Once enabled, the default missing-AUTO timeout is **1 hour**.
+- **Only V9 syntax:** `AUTO DM PACK CREEK 1HR`, `AUTO DM PACK CREEK 15MIN`, `AUTO DM PACK CREEK 30MIN`, `AUTO DM PACK CREEK 24HR`, `AUTO DM PACK CREEK OFF`, `AUTO DM STATUS`, or `AUTO DM OFF` for all.
+- **Control sender:** the Heltec enforces its saved authorized admin node when configured; a gateway with no admin node saved (value 0) will accept control from any radio able to reach it on a permitted DM channel. See the [V9 README](downloads/Heltec-Gateway-v9/README.md#4-who-can-issue-control-dms) for the exact condition.
+- **No CC01 cloud control:** V9 no longer requests the legacy `/api/ingest?control=cc01` endpoint or POSTs failed sensor events. Valid automatic telemetry and successful manual DM readings still forward.
+- **Vercel cleanup is separate and staged:** [Meshtastic PR #4](https://github.com/canyoncountryadventure/Meshtastic/pull/4) must **not** be merged until V9 is flashed and verified; nothing in the firmware build deploys the web app.
+
+The V8 documentation below is **archived** and its old `AUTO ...`, `AUTO DM ON`, `AUTO DM INTERVAL ...`, and repeating `POLL` commands **do not apply to V9**. Follow the V9 release README for all new operations.
+
+---
+
+## Archived Heltec V8 documentation (do not use for V9)
+
 # CCA Heltec Sensor Gateway V8
 
 **November 1, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
