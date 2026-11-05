@@ -293,6 +293,7 @@ void HoboHttpGatewayModule::pollConfiguredStations()
 void HoboHttpGatewayModule::noteAutomaticSensor(uint32_t node, cca_auto_fallback::Kind kind)
 {
     if (!autoFallback.receivedAuto(node, kind, millis())) return;
+    hourlyRescue.cancel(node, kind, autoFallback);
     // A recovered automatic packet cancels an unsent fallback for exactly
     // this sensor, but never disables a different sensor on the same node.
     ConfiguredPoll &fallback = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
@@ -305,27 +306,35 @@ void HoboHttpGatewayModule::noteAutomaticSensor(uint32_t node, cca_auto_fallback
 }
 void HoboHttpGatewayModule::pollMissingAutomatic()
 {
-    if (configuredPolls[AUTO_FALLBACK_POLL_SLOT].node) return;
     const uint32_t now = millis();
-    for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
-        const auto &watch = autoFallback.watches[i];
-        if (!autoFallback.due(i, now)) continue;
 
-        ConfiguredPoll &rescue = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
-        rescue = ConfiguredPoll{};
-        rescue.node = watch.node;
-        rescue.mode = watch.kind == cca_auto_fallback::Kind::Water ?
-            ConfiguredPollMode::Water : ConfiguredPollMode::Read;
-        rescue.oneShot = true;
-        autoFallback.attemptedAt(i, now);
-        ++autoFallbackQueued;
-        LOG_INFO("CCA V8 missing-auto rescue node=0x%08lx kind=%u age=%lu sec",
-                 static_cast<unsigned long>(watch.node),
-                 static_cast<unsigned>(watch.kind),
-                 static_cast<unsigned long>((now - watch.lastAutoMs) / 1000UL));
-        setIntervalFromNow(0);
-        break;
-    }
+    // Only a trustworthy real-world clock may open an automatic DM batch.
+    // UTC top-of-hour is also Mountain local top-of-hour, including DST.
+    // If time hasn't synchronized, do not fall back to uptime-relative DMs.
+    const uint32_t utcNow = getValidTime(RTCQualityFromNet);
+    hourlyRescue.observe(utcNow, now, autoFallback);
+
+    // The boundary snapshot is retained while other LoRa jobs finish.
+    // Sensor jobs are dispatched ONE AT A TIME; up to three retries per job.
+    if (configuredPolls[AUTO_FALLBACK_POLL_SLOT].node) return;
+    const int index = hourlyRescue.takeNext(autoFallback, now);
+    if (index < 0) return;
+
+    const auto &watch = autoFallback.watches[static_cast<size_t>(index)];
+    ConfiguredPoll &rescue = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
+    rescue = ConfiguredPoll{};
+    rescue.node = watch.node;
+    rescue.mode = watch.kind == cca_auto_fallback::Kind::Water
+        ? ConfiguredPollMode::Water : ConfiguredPollMode::Read;
+    rescue.oneShot = true;
+    autoFallback.attemptedAt(static_cast<size_t>(index), now);
+    ++autoFallbackQueued;
+    LOG_INFO("CCA V9 hourly missing-AUTO rescue node=0x%08lx kind=%u age=%lu sec UTC=%lu",
+             static_cast<unsigned long>(watch.node),
+             static_cast<unsigned>(watch.kind),
+             static_cast<unsigned long>((now - watch.lastAutoMs) / 1000UL),
+             static_cast<unsigned long>(utcNow));
+    setIntervalFromNow(0);
 }
 
 void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
@@ -626,6 +635,7 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         }
         if (request == "OFF") {
             autoFallback.pauseAll();
+            hourlyRescue.clearPending();
             ConfiguredPoll &rescue = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
             rescue = ConfiguredPoll{};
             if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT) configuredPollActive = -1;
@@ -650,6 +660,10 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
             sendCc01Text(sender, "AUTO DM: unknown sensor station or invalid node");
             return;
         }
+        // Any change to this station cancels its previous hourly backlog.
+        // A freshly enabled station waits a FULL missing-AUTO hour before
+        // it can enter the NEXT top-of-hour batch.
+        hourlyRescue.cancelNode(node, autoFallback);
         if (disable) {
             autoFallback.setNodeEnabled(node, false);
         } else {
