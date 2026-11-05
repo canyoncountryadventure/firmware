@@ -22,7 +22,7 @@ constexpr uint32_t PACK_CREEK_POLL_NODE = 1949224949UL;
 
 bool validPollIntervalMinutes(uint32_t minutes)
 {
-    return minutes >= 5 && minutes <= 1440;
+    return minutes == 15 || minutes == 30 || minutes == 60 || minutes == 1440;
 }
 uint32_t pollNodeForName(const String &name)
 {
@@ -310,8 +310,6 @@ void HoboHttpGatewayModule::pollMissingAutomatic()
     for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
         const auto &watch = autoFallback.watches[i];
         if (!autoFallback.due(i, now)) continue;
-        if (watch.node == CC01_POLL_NODE && watch.kind == cca_auto_fallback::Kind::Water &&
-            !cc01WaterEnabled) continue;
 
         ConfiguredPoll &rescue = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
         rescue = ConfiguredPoll{};
@@ -330,17 +328,6 @@ void HoboHttpGatewayModule::pollMissingAutomatic()
     }
 }
 
-void HoboHttpGatewayModule::queueCc01SensorStatus(const meshtastic_MeshPacket &mp, const char *sensor, const char *reason)
-{
-    UploadJob job = {};
-    job.type = JobType::SENSOR_STATUS;
-    fillCommon(job, mp);
-    job.dmPollResult = true;
-    snprintf(job.sensorStatusType, sizeof(job.sensorStatusType), "%s", sensor);
-    snprintf(job.sensorStatusReason, sizeof(job.sensorStatusReason), "%s", reason);
-    if (uploadQueue.enqueue(job, 0)) setIntervalFromNow(0);
-    else ++cc01QueueFull;
-}
 void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
 {
     ++cc01Replies;
@@ -352,21 +339,21 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
     String normalized(reply); normalized.toUpperCase();
     if (normalized.indexOf("HOBO UNAVAILABLE") >= 0) {
         if (cc01Phase == Cc01Phase::Hobo && cc01HoboPending && cc01HoboAttempts) {
-            queueCc01SensorStatus(mp, "hobo", "ble_unavailable");
+            ++cc01Rejected; // Unavailable sensor: diagnostic stays local, never POST to Neon.
             cc01HoboPending = false; cc01Phase = Cc01Phase::Done;
         }
         return;
     }
     if (normalized.startsWith("READ FAILED:") && normalized.indexOf("TIMEOUT")>=0) {
         if (cc01Phase == Cc01Phase::Water && cc01WaterPending && cc01WaterAttempts) {
-            queueCc01SensorStatus(mp,"water","timeout");
+            ++cc01Rejected; // Failed water read stays local.
         }
         // Still honor the 30s separation between retry attempts.
         return;
     }
     if (normalized.startsWith("HOBO READ FAILED")) {
         if (cc01Phase == Cc01Phase::Hobo && cc01HoboPending && cc01HoboAttempts)
-            queueCc01SensorStatus(mp,"hobo","read_failed");
+            ++cc01Rejected; // Failed HOBO read stays local.
         return;
     }
     cca_cc01_dm::WaterReading water;
@@ -384,7 +371,7 @@ void HoboHttpGatewayModule::handleCc01Reply(const meshtastic_MeshPacket &mp)
             cc01HaveStage = true;
             cc01LastStageFt = water.stageFeet; cc01LastStageMs = millis();
             const bool fast = water.stageFeet > 0.75f;
-            if (fast != cc01FastMode) { cc01FastMode = fast; persistCc01Settings(); }
+            if (fast != cc01FastMode) cc01FastMode = fast; // In-memory diagnostic only
             if (cc01Phase == Cc01Phase::Water && cc01WaterPending) {
                 cc01WaterPending = false;
                 cc01Phase = cc01HoboPending && cc01HoboEnabled ? Cc01Phase::Hobo : Cc01Phase::Done;
@@ -425,7 +412,7 @@ void HoboHttpGatewayModule::handleMathesonReply(const meshtastic_MeshPacket &mp)
     String normalized(reply); normalized.toUpperCase();
     if (normalized.indexOf("HOBO UNAVAILABLE") >= 0) {
         if (mathesonPhase == MathesonPhase::Hobo && mathesonHoboPending) {
-            queueCc01SensorStatus(mp, "hobo", "ble_unavailable");
+            ++mathesonRejected; // Failed Matheson read stays local.
             mathesonHoboPending = false;
             mathesonPhase = MathesonPhase::Done;
         }
@@ -602,40 +589,61 @@ void HoboHttpGatewayModule::handleManualSensorReply(const meshtastic_MeshPacket 
 }
 void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
 {
-    const size_t n=mp.decoded.payload.size;
-    if (!n || n>120) return;
-    char command[121]={};
-    memcpy(command,mp.decoded.payload.bytes,n);
-    String text(command); text.trim(); text.toUpperCase();
-    // The message is already a DM: the leading "DM " keyword is optional.
-    if ((text.startsWith("AUTO ") && !text.startsWith("AUTO DM ")) ||
-        (text.length() >= 4 && text.substring(text.length() - 4) == " OFF" &&
-         !text.startsWith("DM ") && !text.startsWith("AUTO DM ") && !text.startsWith("FALLBACK ") &&
-         !text.startsWith("POLL "))) {
-        text = "DM " + text;
-    }
-    if (text.startsWith("DM ")) {
-        String request = text.substring(3);
+    const size_t n = mp.decoded.payload.size;
+    if (!n || n > 120) return;
+    char command[121] = {};
+    memcpy(command, mp.decoded.payload.bytes, n);
+    String text(command);
+    text.trim();
+    text.toUpperCase();
+    const uint32_t sender = getFrom(&mp);
+
+    // Operator-only opt-in model. No AUTO DM station is enabled by default.
+    // Only successful AUTO sensor packets reset the one-hour rescue clock.
+    if (text.startsWith("AUTO DM ")) {
+        String request = text.substring(8);
         request.trim();
-        String last = popPollToken(request);
-        const bool disable = last == "OFF";
-        uint32_t minutes = 0;
-        if (!disable) {
-            if (last == "MIN" || last == "MINS" || last == "MINUTE" || last == "MINUTES")
-                last = popPollToken(request);
-            char *end = nullptr;
-            minutes = strtoul(last.c_str(), &end, 10);
-            if (end == last.c_str() || *end != '\0' || !validPollIntervalMinutes(minutes) ||
-                !request.startsWith("AUTO ")) {
-                sendCc01Text(getFrom(&mp), "Use DM AUTO <station|node> <5..1440> MIN or DM <station|node> OFF");
-                return;
+        if (request == "STATUS") {
+            String reply = "AUTO DM defaults OFF. Enabled:";
+            uint32_t enabledStations = 0;
+            for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
+                const uint32_t node = autoFallback.watches[i].node;
+                bool earlier = false;
+                for (size_t j = 0; j < i; ++j)
+                    if (autoFallback.watches[j].node == node) earlier = true;
+                if (earlier || !autoFallback.nodeEnabled(node)) continue;
+                ++enabledStations;
+                reply += " !" + String(node, HEX) + "=" +
+                         String(autoFallback.nodeIntervalMinutes(node)) + "m";
             }
-            request = request.substring(5);
-            request.trim();
+            if (!enabledStations) reply += " none";
+            sendCc01Text(sender, reply.c_str());
+            return;
+        }
+        if (request == "OFF") {
+            autoFallback.pauseAll();
+            ConfiguredPoll &rescue = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
+            rescue = ConfiguredPoll{};
+            if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT) configuredPollActive = -1;
+            persistCc01Settings();
+            sendCc01Text(sender, "AUTO DM all OFF. Automatic telemetry unaffected.");
+            return;
+        }
+
+        String intervalText = popPollToken(request);
+        uint16_t minutes = 0;
+        const bool disable = intervalText == "OFF";
+        if (intervalText == "15MIN" || intervalText == "15M" || intervalText == "15MINUTES") minutes = 15;
+        else if (intervalText == "30MIN" || intervalText == "30M" || intervalText == "30MINUTES") minutes = 30;
+        else if (intervalText == "1HR" || intervalText == "1H" || intervalText == "60MIN") minutes = 60;
+        else if (intervalText == "24HR" || intervalText == "24H" || intervalText == "1440MIN") minutes = 1440;
+        if (!disable && !minutes) {
+            sendCc01Text(sender, "Use AUTO DM <station> 15MIN|30MIN|1HR|24HR|OFF");
+            return;
         }
         const uint32_t node = pollNodeForName(request);
         if (!node || !autoFallback.isKnownNode(node)) {
-            sendCc01Text(getFrom(&mp), "DM target is not a monitored station");
+            sendCc01Text(sender, "AUTO DM: unknown sensor station or invalid node");
             return;
         }
         if (disable) {
@@ -643,291 +651,52 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         } else {
             autoFallback.enabled = true;
             autoFallback.setNodeEnabled(node, true);
-            autoFallback.setNodeIntervalMinutes(node, static_cast<uint16_t>(minutes));
+            autoFallback.setNodeIntervalMinutes(node, minutes);
+            autoFallback.armNode(node, millis());
         }
-        ConfiguredPoll &fallback = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
-        if (fallback.node == node) {
-            fallback = ConfiguredPoll{};
-            if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT)
-                configuredPollActive = -1;
+        ConfiguredPoll &rescue = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
+        if (rescue.node == node) {
+            rescue = ConfiguredPoll{};
+            if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT) configuredPollActive = -1;
         }
         persistCc01Settings();
-        const String reply = disable
-            ? String("DM !") + String(node, HEX) + " OFF: automatic telemetry only."
-            : String("DM !") + String(node, HEX) + " AUTO: rescue after " + String(minutes) + " min.";
-        sendCc01Text(getFrom(&mp), reply.c_str());
+        const String reply = String("AUTO DM !") + String(node, HEX) +
+                             (disable ? " OFF; auto only." :
+                              " ON after " + String(minutes) + " min missing auto.");
+        sendCc01Text(sender, reply.c_str());
         return;
     }
-    bool known=true, changed=false;
-    String action;
-    // These commands control ONLY Heltec-initiated missing-auto rescue DMs.
-    // Sensor broadcasts and automatic uploads continue independently.
-    if (text.startsWith("AUTO DM ") || text.startsWith("FALLBACK ")) {
-        const String prefix = text.startsWith("AUTO DM ") ? "AUTO DM " : "FALLBACK ";
-        String request = text.substring(prefix.length());
-        request.trim();
-        const int space = request.indexOf(' ');
-        String operation = space < 0 ? request : request.substring(0, space);
-        String target = space < 0 ? "" : request.substring(space + 1);
+
+    // One-time manual test remains available. No recurring POLL schedules.
+    if (text.startsWith("POLL ")) {
+        String target = text.substring(5);
         target.trim();
-        bool valid = true;
-        bool persist = false;
-        uint32_t node = 0;
-        if (operation == "INTERVAL") {
-            // AUTO DM INTERVAL <station|ALL> <5..1440|DEFAULT>
-            // This is a missing-AUTO watchdog deadline, not the remote
-            // sensor's actual sampling/reporting interval.
-            String minutesText = popPollToken(target);
-            const bool reset = minutesText == "DEFAULT" || minutesText == "AUTO";
-            char *end = nullptr;
-            const char *number = minutesText.c_str();
-            const unsigned long n = *number >= '0' && *number <= '9'
-                ? strtoul(number, &end, 10) : 0;
-            const bool numeric = !reset && end && end != number &&
-                *end == '\0' && n <= 1440 &&
-                cca_auto_fallback::Policy::validIntervalMinutes(static_cast<uint16_t>(n));
-            if (target.isEmpty() || (!reset && !numeric)) {
-                sendCc01Text(getFrom(&mp),
-                    "Use AUTO DM INTERVAL <station|ALL> <5..1440|DEFAULT>");
-                return;
-            }
-            const uint16_t minutes = reset ? 0 : static_cast<uint16_t>(n);
-            const bool all = target == "ALL";
-            const uint32_t selected = all ? 0 : pollNodeForName(target);
-            if (!all && (!selected || !autoFallback.setNodeIntervalMinutes(selected, minutes))) {
-                sendCc01Text(getFrom(&mp), "AUTO DM INTERVAL: unknown monitored station");
-                return;
-            }
-            if (all) autoFallback.setAllIntervalMinutes(minutes);
-            // Cancel a queued rescue, if any, so the next cycle uses the
-            // requested deadline. Already transmitted DMs cannot be recalled.
-            ConfiguredPoll &rescue = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
-            if (rescue.node && (all || rescue.node == selected)) {
-                rescue = ConfiguredPoll{};
-                if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT)
-                    configuredPollActive = -1;
-            }
-            persistCc01Settings();
-            const String reply = String("Auto DM interval ") +
-                (all ? "ALL" : String("!") + String(selected, HEX)) + ": " +
-                (reset ? "defaults restored" : String(minutes) + " min") +
-                ". AUTO telemetry unchanged.";
-            sendCc01Text(getFrom(&mp), reply.c_str());
-            return;
-        }
-        if (!target.isEmpty()) {
-            node = pollNodeForName(target);
-            valid = node != 0 && autoFallback.isKnownNode(node);
-        }
-        if (operation == "STATUS") {
-            if (!target.isEmpty() && !valid) {
-                sendCc01Text(getFrom(&mp), "AUTO DM: unrecognized sensor station");
-                return;
-            }
-            String reply = String("Auto DM ") + (autoFallback.enabled ? "ON" : "OFF") +
-                           " (defaults Pack/Mill/CC01 15m, others 60m).";
-            if (node) {
-                reply += " !" + String(node, HEX) + " " +
-                         (autoFallback.nodeEnabled(node) ? "ON" : "OFF");
-                reply += " " + String(autoFallback.nodeIntervalMinutes(node)) + "m";
-                reply += autoFallback.nodeHasIntervalOverride(node) ? " custom" : " default";
-            } else {
-                reply += " Paused:";
-                bool any = false;
-                for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
-                    const auto &w = autoFallback.watches[i];
-                    if (autoFallback.isEnabled(i)) continue;
-                    // Show each paused node just once, even Pack Creek.
-                    bool shown = false;
-                    for (size_t j = 0; j < i; ++j)
-                        if (autoFallback.watches[j].node == w.node) shown = true;
-                    if (shown) continue;
-                    reply += " !" + String(w.node, HEX);
-                    any = true;
-                }
-                if (!any) reply += " none";
-            }
-            sendCc01Text(getFrom(&mp), reply.c_str());
-            return;
-        } else if (!valid || (operation != "ON" && operation != "OFF" && operation != "ONLY")) {
-            valid = false;
-        } else if (operation == "ONLY") {
-            if (!node) valid = false;
-            else { autoFallback.setOnlyNode(node); persist = true; }
-        } else if (node) {
-            if (operation == "ON") {
-                autoFallback.setNodeEnabled(node, true);
-                // Explicitly selecting a station also enables global rescue.
-                autoFallback.enabled = true;
-            } else autoFallback.setNodeEnabled(node, false);
-            persist = true;
-        } else if (operation == "ON") {
-            autoFallback.enableAll();
-            persist = true;
-        } else if (operation == "OFF") {
-            autoFallback.pauseAll();
-            persist = true;
-        }
-        if (!valid) {
-            sendCc01Text(getFrom(&mp),
-                "Use AUTO DM ON|OFF [station], AUTO DM ONLY <station>, AUTO DM STATUS");
-            return;
-        }
-        if (persist) {
-            // Prevent another transmission or retry from an already queued
-            // rescue. Auto telemetry remains accepted without interruption.
-            ConfiguredPoll &fallback = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
-            if (fallback.node && !autoFallback.nodeEnabled(fallback.node)) {
-                fallback = ConfiguredPoll{};
-                if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT)
-                    configuredPollActive = -1;
-            }
-            persistCc01Settings();
-        }
-        String reply = String("Auto DM ") + (autoFallback.enabled ? "ON" : "OFF");
-        reply += node ? " !" + String(node, HEX) : " all";
-        reply += ": " + operation + ". AUTO telemetry unchanged.";
-        sendCc01Text(getFrom(&mp), reply.c_str());
-        return;
-    }
-    if (text=="PAUSE HOBO") cc01HoboEnabled=false;
-    else if (text=="RESUME HOBO") cc01HoboEnabled=true;
-    else if (text=="PAUSE SENSOR") cc01WaterEnabled=false;
-    else if (text=="RESUME SENSOR") cc01WaterEnabled=true;
-    else if (text=="POLL COTTONWOOD AUTO" || text=="POLL CC01 AUTO") {
-        cc01IntervalOverrideMinutes=0;
-        changed=true;
-    } else if (text=="POLL STATUS") { /* query only */ }
-    else {
-        if (!text.startsWith("POLL ")) {
-            known=false;
+        ConfiguredPollMode mode = ConfiguredPollMode::Read;
+        String last = popPollToken(target);
+        if (last == "WATER" || last == "READ" || last == "BOTH") {
+            mode = last == "WATER" ? ConfiguredPollMode::Water :
+                   last == "BOTH" ? ConfiguredPollMode::Both : ConfiguredPollMode::Read;
         } else {
-            String request=text.substring(5); request.trim();
-            String working=request;
-            String last=popPollToken(working);
-            ConfiguredPollMode mode=ConfiguredPollMode::Read;
-            bool explicitMode=false;
-            if (last=="READ" || last=="WATER" || last=="BOTH") {
-                explicitMode=true;
-                mode=last=="WATER" ? ConfiguredPollMode::Water :
-                    last=="BOTH" ? ConfiguredPollMode::Both : ConfiguredPollMode::Read;
-                last=popPollToken(working);
-            }
-            const bool disable=last=="OFF";
-            char *end=nullptr;
-            const unsigned long minutes=strtoul(last.c_str(),&end,10);
-            const bool recurring=!disable && end!=last.c_str() && *end=='\0' && validPollIntervalMinutes(minutes);
-            String target=disable || recurring ? working :
-                (explicitMode ? working + " " + last : request);
+            target = text.substring(5);
             target.trim();
-            const uint32_t node=pollNodeForName(target);
-            if (!node) {
-                known=false;
-            } else if (node==CC01_POLL_NODE) {
-                if (!recurring) known=false;
-                else { cc01IntervalOverrideMinutes=static_cast<uint16_t>(minutes); changed=true; }
-            } else if (node==MATHESON_POLL_NODE) {
-                if (!recurring) known=false;
-                else { mathesonIntervalMinutes=static_cast<uint16_t>(minutes); changed=true; }
-            } else if (disable) {
-                bool found=false;
-                for (uint8_t i=0;i<CONFIGURED_POLL_PERSISTENT_SLOTS;++i) {
-                    if (configuredPolls[i].node==node) {
-                        configuredPolls[i]=ConfiguredPoll{};
-                        if (configuredPollActive==static_cast<int8_t>(i)) configuredPollActive=-1;
-                        found=true;
-                    }
-                }
-                known=found;
-                changed=found;
-                action=found ? "disabled" : "was not scheduled";
-            } else if (!recurring) {
-                if (configuredPollActive>=0) {
-                    known=false;
-                    action="busy; wait for current poll";
-                } else {
-                    ConfiguredPoll &manual=configuredPolls[CONFIGURED_POLL_PERSISTENT_SLOTS];
-                    manual=ConfiguredPoll{};
-                    manual.node=node;
-                    manual.mode=mode;
-                    manual.oneShot=true;
-                    action="one-time " + String(mode==ConfiguredPollMode::Water ? "WATER READ" :
-                        mode==ConfiguredPollMode::Both ? "WATER READ then READ" : "READ") + " queued";
-                }
-            } else {
-                int8_t slot=-1;
-                for (uint8_t i=0;i<CONFIGURED_POLL_PERSISTENT_SLOTS;++i)
-                    if (configuredPolls[i].node==node) { slot=static_cast<int8_t>(i); break; }
-                if (slot<0) for (uint8_t i=0;i<CONFIGURED_POLL_PERSISTENT_SLOTS;++i)
-                    if (!configuredPolls[i].node) { slot=static_cast<int8_t>(i); break; }
-                if (slot<0) {
-                    known=false;
-                    action="table full; disable one with POLL <name> OFF";
-                } else {
-                    ConfiguredPoll &entry=configuredPolls[slot];
-                    entry=ConfiguredPoll{};
-                    entry.node=node;
-                    entry.intervalMinutes=static_cast<uint16_t>(minutes);
-                    entry.mode=mode;
-                    action="every " + String(minutes) + " min " +
-                        String(mode==ConfiguredPollMode::Water ? "WATER READ" :
-                        mode==ConfiguredPollMode::Both ? "WATER+READ" : "READ");
-                    changed=true;
-                }
-            }
         }
-    }
-    if (!known) {
-        if (!action.length()) action="syntax: POLL <name|node> [minutes] [READ|WATER|BOTH]";
-        sendCc01Text(getFrom(&mp), (String("Poll not changed: ")+action).c_str());
+        const uint32_t node = pollNodeForName(target);
+        if (!node || !autoFallback.isKnownNode(node)) {
+            sendCc01Text(sender, "Use POLL <station> [READ|WATER|BOTH] for one-time tests");
+            return;
+        }
+        ConfiguredPoll &manual = configuredPolls[CONFIGURED_POLL_PERSISTENT_SLOTS];
+        if (manual.node || configuredPollActive == CONFIGURED_POLL_PERSISTENT_SLOTS) {
+            sendCc01Text(sender, "Manual poll busy; retry when current request finishes.");
+            return;
+        }
+        manual = ConfiguredPoll{};
+        manual.node = node;
+        manual.mode = mode;
+        manual.oneShot = true;
+        sendCc01Text(sender, "One-time manual sensor read queued.");
         return;
     }
-    if (text!="POLL STATUS" && (changed || text.startsWith("PAUSE") || text.startsWith("RESUME"))) persistCc01Settings();
-    String result = String("V8 auto DM 15m Pack/Mill/CC01, 60m others; legacy Cottonwood ") +
-                    (cc01IntervalOverrideMinutes ? String(cc01IntervalOverrideMinutes) : String(cc01FastMode ? 15 : 60)) +
-                    " min" + (cc01IntervalOverrideMinutes ? " fixed" : " auto") +
-                    ", Matheson " + String(mathesonIntervalMinutes) + " min; sensor " +
-                    (cc01WaterEnabled?"ON":"PAUSED") +
-                    ", HOBO " + (cc01HoboEnabled?"ON":"PAUSED") +
-                    ", custom " + action + ", config v" + String(cc01ConfigVersion);
-    sendCc01Text(getFrom(&mp),result.c_str());
-}
-void HoboHttpGatewayModule::refreshCc01CloudControl()
-{
-    const uint32_t now=millis();
-    if (!WiFi.isConnected() || !strlen(HOBO_HTTP_GATEWAY_INGEST_KEY)) return;
-    if (cc01NextConfigMs && static_cast<int32_t>(now-cc01NextConfigMs)<0) return;
-    cc01NextConfigMs=now+120000UL;
-    WiFiClientSecure client; client.setInsecure();
-    HTTPClient http; http.setTimeout(4000);
-    if (!http.begin(client,"https://meshtastic-ecru.vercel.app/api/ingest?control=cc01")) return;
-    http.addHeader("X-Ingest-Key",HOBO_HTTP_GATEWAY_INGEST_KEY);
-    const int status=http.GET();
-    if (status==200) {
-        String body=http.getString();
-        const int index=body.indexOf("\"version\":");
-        if (index>=0) {
-            uint32_t version=static_cast<uint32_t>(strtoul(body.c_str()+index+10,nullptr,10));
-            if (version>cc01ConfigVersion) {
-                cc01WaterEnabled=body.indexOf("\"water_enabled\":true")>=0;
-                cc01HoboEnabled=body.indexOf("\"hobo_enabled\":true")>=0;
-                const int p=body.indexOf("\"authorized_admin_node\":");
-                if (p>=0) cc01AdminNode=static_cast<uint32_t>(strtoul(body.c_str()+p+24,nullptr,10));
-                cc01ConfigVersion=version;
-                persistCc01Settings();
-                LOG_INFO("CCA CC01 cloud control applied version %lu",static_cast<unsigned long>(version));
-            }
-        }
-    }
-    http.end();
-    HTTPClient report;
-    if (!report.begin(client,"https://meshtastic-ecru.vercel.app/api/ingest?control=cc01")) return;
-    report.addHeader("X-Ingest-Key",HOBO_HTTP_GATEWAY_INGEST_KEY);
-    report.addHeader("Content-Type","application/json");
-    const String json=String("{\"type\":\"report\",\"water_enabled\":") +
-      (cc01WaterEnabled?"true":"false") + ",\"hobo_enabled\":" +
-      (cc01HoboEnabled?"true":"false") + ",\"version\":" + String(cc01ConfigVersion) + "}";
-    report.POST(json);
-    report.end();
+    sendCc01Text(sender, "Use AUTO DM <station> 15MIN|30MIN|1HR|24HR|OFF, AUTO DM STATUS");
 }
 #endif
