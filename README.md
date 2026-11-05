@@ -1,3 +1,25 @@
+# CCA Heltec Gateway V9 Clock (current release)
+
+**November 4, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3**
+
+**[V9 Clock release: verified Wi-Fi flash, checksum, station defaults, new DM commands, hour-boundary logic, and rollback](downloads/Heltec-Gateway-v9-Clock/README.md)**
+
+- [Verified non-factory V9 Clock application BIN](downloads/Heltec-Gateway-v9-Clock/Heltec-Gateway-v9-Clock-11-04-26.bin)
+- [Build source commit and SHA-256 manifest](downloads/Heltec-Gateway-v9-Clock/BUILD.txt)
+- [Passed firmware compilation, tests, and publish](https://github.com/canyoncountryadventure/firmware/actions/runs/41976737698)
+- **Default ON (1HR):** Fishlake Hightop, Mill Creek, Pack Creek, Matheson, Cottonwood Relay. **All other stations OFF** for auto DM rescue.
+- **1HR clock alignment:** request only after at least 60 minutes without genuine AUTO data, at the next top-of-hour boundary.
+- **Accepted DM intervals:** `15MIN`, `30MIN`, `45MIN`, `1HR`, `6HR`, `12HR`, `24HR`, `OFF`.
+- **Sender:** properly addressed control DMs are accepted **from any Meshtastic radio**, without the previous authorized-sender check.
+- **Compatible ingestion:** no legacy CC01 cloud polling or failure-event uploads; normal successful sensor telemetry still forwards.
+- **Vercel:** cleanup [PR #4](https://github.com/canyoncountryadventure/Meshtastic/pull/4) is a separate, undeployed draft. Flash V9 Clock and verify field readings before merging it.
+
+The old V9 opt-in README below is archived, and its **all-off-first-boot** and **single-radio-authorized** behavior applies **only** to the earlier build. Use the link above for current V9 Clock operations.
+
+---
+
+## Archived V9 opt-in and earlier versions
+
 # CCA Heltec Sensor Gateway V9 (current release)
 
 **November 4, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
