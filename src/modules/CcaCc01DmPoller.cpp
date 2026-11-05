@@ -595,6 +595,12 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
     text.trim();
     text.toUpperCase();
     const uint32_t sender = getFrom(&mp);
+    // Retain the previously configured authorized radio. Never permit an
+    // arbitrary mesh node to change gateway rescue schedules.
+    if (cc01AdminNode && sender != cc01AdminNode) {
+        LOG_WARN("CCA V9 ignored unauthorized gateway control DM");
+        return;
+    }
 
     // Operator-only opt-in model. No AUTO DM station is enabled by default.
     // Only successful AUTO sensor packets reset the one-hour rescue clock.
