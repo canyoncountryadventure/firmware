@@ -157,7 +157,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         mathesonIntervalMinutes = saved.getUShort("matheson_interval", 60);
         migrateLegacyPolls = !saved.getBool("v8_fallback", false);
         resetForV9OptIn = !saved.getBool("v9_optin", false);
-        applyV9ClockPresets = !saved.getBool("v9_clock_presets", false);
+        applyV9ClockPresets = !saved.getBool("v9clk_preset", false);
         autoFallback.enabled = saved.getBool("auto_dm_on", false);
         autoFallback.pausedMask = saved.getUShort("auto_dm_mask", cca_auto_fallback::Policy::ALL_MASK) & cca_auto_fallback::Policy::ALL_MASK;
         // One compact, version-tolerant blob for per-stream interval values.
@@ -261,7 +261,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
                 clean.putUShort(key, 0);
             }
             // Mark successful writes last, so a partial migration can retry.
-            clean.putBool("v9_clock_presets", true);
+            clean.putBool("v9clk_preset", true);
             clean.end();
         }
         LOG_INFO("CCA V9 clock presets: Fishlake, Mill, Pack, Matheson, Cottonwood Relay ON at 60m; all others OFF");
