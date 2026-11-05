@@ -1,5 +1,5 @@
 #pragma once
-// V9: opt-in per-sensor automatic-telemetry watchdog, independent of Wi-Fi/Neon.
+// V9 clock-aligned per-sensor missing-AUTO watchdog, independent of Wi-Fi/Neon.
 // No dynamic allocation, timestamps stored in wrapping uint32_t millis.
 #include <array>
 #include <cstddef>
@@ -21,7 +21,6 @@ struct Watch {
 class Policy {
 public:
     static constexpr uint32_t MISSING_AUTO_MS = 60UL * 60UL * 1000UL;
-    static constexpr uint32_t FAST_MISSING_AUTO_MS = 15UL * 60UL * 1000UL;
     // One stream per independent data source. MX2001 READ contains BOTH
     // water level and temperature, so it has a single combined watchdog.
     static constexpr size_t WATCH_COUNT = 11;
@@ -31,7 +30,7 @@ public:
     // A bit per stream; station ON/OFF affects all streams of the same node.
     // Compact enough for the existing ESP32 Preferences namespace (11 bits).
     bool enabled = false;
-    uint16_t pausedMask = 0xFFFFU; // every station starts disabled until explicitly enabled
+    uint16_t pausedMask = 0xFFFFU; // actual boot presets applied once in gateway constructor
     // 0 = use the one-hour missing-auto default. Each station has
     // one interval shared by all its watched sensor streams.
     std::array<uint16_t, WATCH_COUNT> intervalOverridesMinutes = {};
@@ -52,14 +51,15 @@ public:
 
     static constexpr uint16_t ALL_MASK = (1U << WATCH_COUNT) - 1U;
 
-    // V9: all stations use one hour unless explicitly assigned 15m, 30m, or 24h.
+    // One-hour default; explicit cadence overrides do not shorten the one-hour missing-AUTO prerequisite.
     // Does not alter the field node's own automatic reporting interval.
     static constexpr uint32_t thresholdMs(uint32_t /*node*/) {
         return MISSING_AUTO_MS;
     }
 
     static constexpr bool validIntervalMinutes(uint16_t minutes) {
-        return minutes == 15 || minutes == 30 || minutes == 60 || minutes == 1440;
+        return minutes == 15 || minutes == 30 || minutes == 45 || minutes == 60 ||
+               minutes == 360 || minutes == 720 || minutes == 1440;
     }
     uint16_t intervalMinutes(size_t index) const {
         if (index >= watches.size()) return 0;
@@ -157,16 +157,15 @@ public:
     bool due(size_t index, uint32_t now) const {
         if (!isEnabled(index)) return false;
         const auto &watch = watches[index];
-        // V9 clock-aligned release: no automatic rescue until at least one
-        // FULL hour of missing AUTO, even if a legacy 15/30-minute option
-        // was saved in NVS. 24-hour settings still require a full day.
-        const uint32_t requested = static_cast<uint32_t>(intervalMinutes(index)) * 60000UL;
-        const uint32_t threshold = requested > MISSING_AUTO_MS ? requested : MISSING_AUTO_MS;
-        if (now < threshold || static_cast<uint32_t>(now - watch.lastAutoMs) < threshold) return false;
-        // Only one rescue per configured interval. The hourly scheduler
-        // separately checks a valid wall-clock boundary before queueing.
+        // A radio must be missing a valid AUTO sensor packet for a FULL hour
+        // before ANY automatic DM rescue, regardless of its configured cadence.
+        if (now < MISSING_AUTO_MS ||
+            static_cast<uint32_t>(now - watch.lastAutoMs) < MISSING_AUTO_MS) return false;
+        // Then limit repeat rescue to the chosen 15m/30m/45m/1h/6h/12h/24h
+        // cadence. The clock-aligned batch scheduler decides the actual minute.
+        const uint32_t repeatMs = static_cast<uint32_t>(intervalMinutes(index)) * 60000UL;
         return !watch.attempted ||
-               static_cast<uint32_t>(now - watch.lastAttemptMs) >= threshold;
+               static_cast<uint32_t>(now - watch.lastAttemptMs) >= repeatMs;
     }
 
     void attemptedAt(size_t index, uint32_t now) {
