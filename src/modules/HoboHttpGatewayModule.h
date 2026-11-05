@@ -73,7 +73,6 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         DEVICE = 3,
         SOIL = 4,
         WATER_DISTANCE = 5,
-        SENSOR_STATUS = 6,
     };
 
     struct UploadJob {
@@ -126,8 +125,6 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         uint32_t uptimeSeconds;
 
         char stationName[40];
-        char sensorStatusType[8];
-        char sensorStatusReason[20];
     };
 
     struct SeenPacket {
@@ -169,8 +166,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     bool cc01WaterPending = false;
     bool cc01HoboPending = false;
     bool cc01HasDmSent = false;
-    bool cc01WaterEnabled = true;
-    bool cc01HoboEnabled = true;
+    bool cc01WaterEnabled = false;
+    bool cc01HoboEnabled = false;
     bool cc01FastMode = false;
     bool cc01HaveStage = false;
     float cc01LastStageFt = 0.0f;
@@ -265,10 +262,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     void handleConfiguredPollReply(const meshtastic_MeshPacket &mp);
     void handleManualSensorReply(const meshtastic_MeshPacket &mp);
     void handleCc01ControlDm(const meshtastic_MeshPacket &mp);
-    void refreshCc01CloudControl();
     void persistCc01Settings();
     bool isConfiguredPollReply(uint32_t from) const;
-    void queueCc01SensorStatus(const meshtastic_MeshPacket &mp, const char *sensor, const char *reason);
     bool sendCc01Text(uint32_t to, const char *command);
 
     bool isDuplicate(const meshtastic_MeshPacket &mp);
