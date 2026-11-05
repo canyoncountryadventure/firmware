@@ -849,7 +849,7 @@ String HoboHttpGatewayModule::statusJson()
     const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
                         cc01Phase == Cc01Phase::Hobo ? "waiting_hobo" :
                         cc01Phase == Cc01Phase::Done ? "done" : "idle";
-    String body = "{\"firmware_fix\":\"v9-opt-in-fallback-2026-11-04\"";
+    String body = "{\"firmware_fix\":\"v9-hour-boundary-2026-11-04\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -933,6 +933,16 @@ String HoboHttpGatewayModule::statusJson()
     body += "},\"auto_fallback\":{\"missing_minutes\":60,\"default_minutes\":60,\"enabled\":" +
         String(autoFallback.enabled ? "true" : "false");
     body += ",\"paused_mask\":" + String(autoFallback.pausedMask);
+    const uint32_t utcClock = getValidTime(RTCQualityFromNet);
+    body += ",\"clock_aligned\":true";
+    body += ",\"min_missing_auto_minutes\":60";
+    body += ",\"clock_synchronized\":" + String(utcClock ? "true" : "false");
+    body += ",\"utc_epoch_seconds\":" + (utcClock ? String(utcClock) : String("null"));
+    body += ",\"minutes_until_next_hour\":" +
+        (utcClock ? String((3600UL - utcClock % 3600UL) / 60UL) : String("null"));
+    body += ",\"hourly_pending_mask\":" + String(hourlyRescue.pendingMask());
+    body += ",\"last_boundary_utc_hour\":" +
+        (hourlyRescue.hasValidBoundary() ? String(hourlyRescue.lastUtcHour()) : String("null"));
     body += ",\"queued\":" + String(autoFallbackQueued);
     body += ",\"replies\":" + String(autoFallbackReplies);
     body += ",\"watched\":[";
@@ -942,6 +952,8 @@ String HoboHttpGatewayModule::statusJson()
         body += "{\"node\":" + String(w.node) + ",\"kind\":" + String(static_cast<uint8_t>(w.kind));
         body += ",\"enabled\":" + String(autoFallback.isEnabled(i) ? "true" : "false");
         body += ",\"threshold_minutes\":" + String(autoFallback.intervalMinutes(i));
+        body += ",\"effective_min_missing_minutes\":" +
+            String(autoFallback.intervalMinutes(i) > 60 ? autoFallback.intervalMinutes(i) : 60);
         body += ",\"default_minutes\":" + String(cca_auto_fallback::Policy::thresholdMs(w.node) / 60000UL);
         body += ",\"custom_interval\":" + String(autoFallback.intervalOverridesMinutes[i] ? "true" : "false");
         body += ",\"last_auto_ms\":" + String(w.lastAutoMs);
