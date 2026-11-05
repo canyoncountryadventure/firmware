@@ -449,10 +449,8 @@ void HoboHttpGatewayModule::handleConfiguredPollReply(const meshtastic_MeshPacke
     ConfiguredPoll &poll = configuredPolls[configuredPollActive];
     String normalized(reply); normalized.toUpperCase();
     if (normalized.indexOf("HOBO UNAVAILABLE") >= 0) {
-        // The legacy sensor-event endpoint is Cottonwood-specific. Never
-        // attribute another station's missing HOBO to South Cottonwood.
-        if (getFrom(&mp) == CC01_POLL_NODE)
-            queueCc01SensorStatus(mp, "hobo", "ble_unavailable");
+        // The station was unreachable. Log locally; never wake Neon to report a failed DM.
+        ++configuredPollRejected;
         poll.phase = ConfiguredPollPhase::Done;
         return;
     }
