@@ -22,7 +22,8 @@ constexpr uint32_t PACK_CREEK_POLL_NODE = 1949224949UL;
 
 bool validPollIntervalMinutes(uint32_t minutes)
 {
-    return minutes == 15 || minutes == 30 || minutes == 60 || minutes == 1440;
+    return minutes == 15 || minutes == 30 || minutes == 45 || minutes == 60 ||
+           minutes == 360 || minutes == 720 || minutes == 1440;
 }
 uint32_t pollNodeForName(const String &name)
 {
@@ -604,20 +605,17 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
     text.trim();
     text.toUpperCase();
     const uint32_t sender = getFrom(&mp);
-    // Retain the previously configured authorized radio. Never permit an
-    // arbitrary mesh node to change gateway rescue schedules.
-    if (cc01AdminNode && sender != cc01AdminNode) {
-        LOG_WARN("CCA V9 ignored unauthorized gateway control DM");
-        return;
-    }
+    // Deliberately accept gateway control DMs from ANY radio with a
+    // correctly addressed, decoded PKI or LongFast message. This is an
+    // operator-requested trust model; no stored sender allowlist is used.
 
-    // Operator-only opt-in model. No AUTO DM station is enabled by default.
-    // Only successful AUTO sensor packets reset the one-hour rescue clock.
+    // V9 presets enable five stations; others must be enabled via direct DM.
+    // Only real AUTO sensor packets reset the one-hour stale-sensor gate.
     if (text.startsWith("AUTO DM ")) {
         String request = text.substring(8);
         request.trim();
         if (request == "STATUS") {
-            String reply = "AUTO DM defaults OFF. Enabled:";
+            String reply = "AUTO DM clock-aligned. Enabled:";
             uint32_t enabledStations = 0;
             for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
                 const uint32_t node = autoFallback.watches[i].node;
@@ -649,10 +647,13 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         const bool disable = intervalText == "OFF";
         if (intervalText == "15MIN" || intervalText == "15M" || intervalText == "15MINUTES") minutes = 15;
         else if (intervalText == "30MIN" || intervalText == "30M" || intervalText == "30MINUTES") minutes = 30;
+        else if (intervalText == "45MIN" || intervalText == "45M" || intervalText == "45MINUTES") minutes = 45;
         else if (intervalText == "1HR" || intervalText == "1H" || intervalText == "60MIN") minutes = 60;
+        else if (intervalText == "6HR" || intervalText == "6H" || intervalText == "360MIN") minutes = 360;
+        else if (intervalText == "12HR" || intervalText == "12H" || intervalText == "720MIN") minutes = 720;
         else if (intervalText == "24HR" || intervalText == "24H" || intervalText == "1440MIN") minutes = 1440;
         if (!disable && !minutes) {
-            sendCc01Text(sender, "Use AUTO DM <station> 15MIN|30MIN|1HR|24HR|OFF");
+            sendCc01Text(sender, "Use AUTO DM <station> 15MIN|30MIN|45MIN|1HR|6HR|12HR|24HR|OFF");
             return;
         }
         const uint32_t node = pollNodeForName(request);
@@ -660,9 +661,9 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
             sendCc01Text(sender, "AUTO DM: unknown sensor station or invalid node");
             return;
         }
-        // Any change to this station cancels its previous hourly backlog.
-        // A freshly enabled station waits a FULL missing-AUTO hour before
-        // it can enter the NEXT top-of-hour batch.
+        // Any station change cancels its old clock-aligned pending DM.
+        // Newly enabled streams must miss AUTO for one full hour before
+        // they become eligible at their next selected wall-clock boundary.
         hourlyRescue.cancelNode(node, autoFallback);
         if (disable) {
             autoFallback.setNodeEnabled(node, false);
@@ -680,7 +681,7 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         persistCc01Settings();
         const String reply = String("AUTO DM !") + String(node, HEX) +
                              (disable ? " OFF; auto only." :
-                              " ON after " + String(minutes) + " min missing auto.");
+                              " ON after 60m missing AUTO; " + String(minutes) + "m clock slots.");
         sendCc01Text(sender, reply.c_str());
         return;
     }
