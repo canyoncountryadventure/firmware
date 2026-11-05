@@ -157,9 +157,14 @@ public:
     bool due(size_t index, uint32_t now) const {
         if (!isEnabled(index)) return false;
         const auto &watch = watches[index];
-        const uint32_t threshold = static_cast<uint32_t>(intervalMinutes(index)) * 60000UL;
+        // V9 clock-aligned release: no automatic rescue until at least one
+        // FULL hour of missing AUTO, even if a legacy 15/30-minute option
+        // was saved in NVS. 24-hour settings still require a full day.
+        const uint32_t requested = static_cast<uint32_t>(intervalMinutes(index)) * 60000UL;
+        const uint32_t threshold = requested > MISSING_AUTO_MS ? requested : MISSING_AUTO_MS;
         if (now < threshold || static_cast<uint32_t>(now - watch.lastAutoMs) < threshold) return false;
-        // Bound repeat rescue cycles to the node's own auto-reporting deadline.
+        // Only one rescue per configured interval. The hourly scheduler
+        // separately checks a valid wall-clock boundary before queueing.
         return !watch.attempted ||
                static_cast<uint32_t>(now - watch.lastAttemptMs) >= threshold;
     }
