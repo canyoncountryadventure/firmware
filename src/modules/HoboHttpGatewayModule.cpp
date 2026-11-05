@@ -930,7 +930,7 @@ String HoboHttpGatewayModule::statusJson()
         body += ",\"mode\":" + String(static_cast<uint8_t>(configuredPolls[i].mode)) + "}";
     }
     body += ']';
-    body += "},\"auto_fallback\":{\"missing_minutes\":60,\"fast_missing_minutes\":15,\"enabled\":" +
+    body += "},\"auto_fallback\":{\"missing_minutes\":60,\"default_minutes\":60,\"enabled\":" +
         String(autoFallback.enabled ? "true" : "false");
     body += ",\"paused_mask\":" + String(autoFallback.pausedMask);
     body += ",\"queued\":" + String(autoFallbackQueued);
