@@ -38,6 +38,7 @@
 #include "mesh/MeshModule.h"
 #include "mesh/TypedQueue.h"
 #include "AutoFallbackPolicy.h"
+#include "HourlyRescueBatch.h"
 
 #include <cstdint>
 
@@ -207,6 +208,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     ConfiguredPoll configuredPolls[CONFIGURED_POLL_SLOTS] = {};
     int8_t configuredPollActive = -1;
     cca_auto_fallback::Policy autoFallback;
+    cca_auto_fallback::HourlyRescueBatch hourlyRescue;
     uint32_t autoFallbackQueued = 0;
     uint32_t autoFallbackReplies = 0;
     uint32_t configuredPollRequests = 0;
