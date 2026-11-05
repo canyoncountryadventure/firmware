@@ -17,7 +17,7 @@ assert "queueCc01SensorStatus" not in gateway + header + poller
 assert "control=cc01" not in gateway + poller
 assert "resetForV9OptIn" in gateway
 assert "applyV9ClockPresets" in gateway
-assert "v9_clock_presets" in gateway
+assert "v9clk_preset" in gateway
 assert "hourlyRescue.observe(utcNow, now, autoFallback)" in poller
 assert "getValidTime(RTCQualityFromNet)" in poller
 assert "hourlyRescue.takeNext(autoFallback, now)" in poller
@@ -37,7 +37,7 @@ assert "1949224949UL, // Pack Creek" in gateway
 assert "2004386937UL, // Matheson" in gateway
 assert "2425602407UL  // Cottonwood Relay" in gateway
 assert "autoFallback.setNodeEnabled(node, true)" in gateway
-assert "clean.putBool(\"v9_clock_presets\", true)" in gateway
+assert "clean.putBool(\"v9clk_preset\", true)" in gateway
 assert "uint16_t pausedMask = 0xFFFFU;" in policy
 assert "return MISSING_AUTO_MS;" in policy
 assert "autoFallback.armNode(node, millis());" in poller
