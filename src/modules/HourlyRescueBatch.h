@@ -1,7 +1,7 @@
 #pragma once
-// Schedule missing-AUTO rescue batches on actual UTC hour boundaries.
-// UTC :00 is also local :00 for every whole-hour timezone, including
-// Mountain Standard/Daylight Time. Never infer wall time from millis().
+// Per-station clock-aligned missing-AUTO batch scheduler.
+// A 60-minute cadence fires at UTC :00, which is also :00 Mountain local.
+// All requests are scheduled only after a FULL hour without valid AUTO.
 #include "AutoFallbackPolicy.h"
 #include <cstddef>
 #include <cstdint>
@@ -10,35 +10,43 @@ namespace cca_auto_fallback {
 
 class HourlyRescueBatch {
 public:
-    // Allow 90 seconds for RTC synchronization and loop scheduling after :00.
-    // Once captured, the due batch drains sequentially through the LoRa queue.
+    // Grace period covers NTP/mesh clock synchronization and loop scheduling.
     static constexpr uint32_t BOUNDARY_GRACE_SECONDS = 90;
 
     bool observe(uint32_t validUtcSeconds, uint32_t monotonicNowMs, const Policy &policy) {
-        if (!validUtcSeconds) return false; // No trusted time: do not poll off-hour.
-        const uint32_t utcHour = validUtcSeconds / 3600UL;
-        if (haveHour && utcHour == lastObservedHour) return false;
-        haveHour = true;
-        lastObservedHour = utcHour;
-        pending = 0;
-        if (validUtcSeconds % 3600UL >= BOUNDARY_GRACE_SECONDS) return false;
+        if (!validUtcSeconds) return false; // Fail closed until clock is trustworthy.
+        const uint32_t minute = validUtcSeconds / 60UL;
+        // Never repeatedly reevaluate one minute or replay an earlier RTC time.
+        if (haveMinute && minute <= lastObservedMinute) return false;
+        haveMinute = true;
+        lastObservedMinute = minute;
 
+        bool added = false;
         for (std::size_t i = 0; i < policy.watches.size(); ++i) {
-            if (policy.due(i, monotonicNowMs))
-                pending |= static_cast<uint16_t>(1U << i);
+            const uint32_t intervalSeconds =
+                static_cast<uint32_t>(policy.intervalMinutes(i)) * 60UL;
+            // Periods are aligned to UTC midnight. 45-minute windows are
+            // :00, :45, 01:30, 02:15, etc; 60-minute periods always :00.
+            if (!intervalSeconds || validUtcSeconds % intervalSeconds >= BOUNDARY_GRACE_SECONDS)
+                continue;
+            if (!policy.due(i, monotonicNowMs)) continue;
+            const uint16_t bit = static_cast<uint16_t>(1U << i);
+            if (!(pending & bit)) {
+                pending |= bit;
+                added = true;
+            }
         }
-        return pending != 0;
+        return added;
     }
 
-    // Only watches that were missing at the last top-of-hour can be queued.
-    // An AUTO recovery or operator OFF invalidates a pending request.
+    // Hold other stations in RAM while LoRa handles one job (with retries).
+    // Recheck the watch to avoid DMing a node that just recovered.
     int takeNext(const Policy &policy, uint32_t monotonicNowMs) {
         for (std::size_t i = 0; i < policy.watches.size(); ++i) {
             const uint16_t bit = static_cast<uint16_t>(1U << i);
             if (!(pending & bit)) continue;
             pending &= static_cast<uint16_t>(~bit);
-            if (policy.due(i, monotonicNowMs))
-                return static_cast<int>(i);
+            if (policy.due(i, monotonicNowMs)) return static_cast<int>(i);
         }
         return -1;
     }
@@ -60,12 +68,12 @@ public:
 
     void clearPending() { pending = 0; }
     uint16_t pendingMask() const { return pending; }
-    bool hasValidBoundary() const { return haveHour; }
-    uint32_t lastUtcHour() const { return lastObservedHour; }
+    bool hasValidBoundary() const { return haveMinute; }
+    uint32_t lastUtcHour() const { return haveMinute ? lastObservedMinute / 60UL : 0UL; }
 
 private:
-    bool haveHour = false;
-    uint32_t lastObservedHour = 0;
+    bool haveMinute = false;
+    uint32_t lastObservedMinute = 0;
     uint16_t pending = 0;
 };
 } // namespace cca_auto_fallback
