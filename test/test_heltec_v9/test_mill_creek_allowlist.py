@@ -11,6 +11,6 @@ assert "COTTONWOOD_RELAY_2_NODE = 1222051909UL; // !48d70845" in source
 assert "from != SEED_RELAY_1_NODE && from != COTTONWOOD_RELAY_2_NODE" in source
 assert "from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE &&" in source
 assert "from != SEED_RELAY_1_NODE" in source
-assert "v9-opt-in-fallback-2026-11-04" in source
+assert "v9-hour-boundary-2026-11-04" in source
 
-print("PASS: V9 gateway allowlist identifies Mini Me and forwards Cottonwood Relay 2, Seed Relay 1 and Mill Creek")
+print("PASS: V9 hourly gateway allowlist identifies Mini Me and forwards Cottonwood Relay 2, Seed Relay 1 and Mill Creek")
