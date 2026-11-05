@@ -146,6 +146,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
     Preferences saved;
     bool migrateLegacyPolls = false;
     bool resetForV9OptIn = true;
+    bool applyV9ClockPresets = true;
     if (saved.begin("cca_cc01", true)) {
         cc01WaterEnabled = saved.getBool("water", false);
         cc01HoboEnabled = saved.getBool("hobo", false);
@@ -156,6 +157,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         mathesonIntervalMinutes = saved.getUShort("matheson_interval", 60);
         migrateLegacyPolls = !saved.getBool("v8_fallback", false);
         resetForV9OptIn = !saved.getBool("v9_optin", false);
+        applyV9ClockPresets = !saved.getBool("v9_clock_presets", false);
         autoFallback.enabled = saved.getBool("auto_dm_on", false);
         autoFallback.pausedMask = saved.getUShort("auto_dm_mask", cca_auto_fallback::Policy::ALL_MASK) & cca_auto_fallback::Policy::ALL_MASK;
         // One compact, version-tolerant blob for per-stream interval values.
@@ -223,6 +225,46 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
             clean.end();
         }
         LOG_INFO("CCA V9 opt-in migration: all automatic DM polling disabled");
+    }
+    // V9 clock presets (once per device on upgrade): five selected monitored
+    // stations ON at 60-minute cadence; ALL others OFF. Operator DMs made
+    // after this boot survive normal reboots and are never overwritten.
+    if (applyV9ClockPresets) {
+        autoFallback.pauseAll();
+        autoFallback.enabled = true;
+        autoFallback.intervalOverridesMinutes.fill(0);
+        static constexpr uint32_t INITIAL_NODES[] = {
+            1577197109UL, // Fishlake Hightop
+            1683604927UL, // Mill Creek
+            1949224949UL, // Pack Creek (stage and HOBO)
+            2004386937UL, // Matheson
+            2425602407UL  // Cottonwood Relay
+        };
+        for (const uint32_t node : INITIAL_NODES) {
+            autoFallback.setNodeEnabled(node, true);
+            autoFallback.armNode(node, millis());
+        }
+        hourlyRescue.clearPending();
+        for (auto &poll : configuredPolls) poll = ConfiguredPoll{};
+        configuredPollActive = -1;
+        Preferences clean;
+        if (clean.begin("cca_cc01", false)) {
+            clean.putBool("auto_dm_on", true);
+            clean.putUShort("auto_dm_mask", autoFallback.pausedMask);
+            clean.putBytes("auto_dm_int", autoFallback.intervalOverridesMinutes.data(),
+                           sizeof(autoFallback.intervalOverridesMinutes));
+            for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
+                char key[18] = {};
+                snprintf(key, sizeof(key), "poll%u_node", i);
+                clean.putUInt(key, 0);
+                snprintf(key, sizeof(key), "poll%u_interval", i);
+                clean.putUShort(key, 0);
+            }
+            // Mark successful writes last, so a partial migration can retry.
+            clean.putBool("v9_clock_presets", true);
+            clean.end();
+        }
+        LOG_INFO("CCA V9 clock presets: Fishlake, Mill, Pack, Matheson, Cottonwood Relay ON at 60m; all others OFF");
     }
     setInterval(1000);
     LOG_INFO("CCA V9 gateway: passive automatic telemetry forwarding -> %s", HOBO_HTTP_GATEWAY_URL);
