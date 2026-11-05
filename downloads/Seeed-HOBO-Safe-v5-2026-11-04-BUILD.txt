@@ -1,0 +1,7 @@
+TARGET=Seeed-HOBO-Safe-v5
+ENV=seeed_xiao_nrf52840_kit
+COMMIT=d07061c29eadae1dbe007629836c2755a0cbd958
+HOBO_STATUS_POLL=30sec
+DRONE_IMAGE=Build separately on Remote-Drone-Flashing-v2
+a305328ef969dfb13f4d8139ecb401530e7fe3418ab23502960e071b4e9c55db  export/Seeed-HOBO-Safe-v5-2026-11-04.uf2
+d13e3020511d6fab4e10725c836f1beb0aea6830010b7ae123c7df073d9b700f  export/Seeed-HOBO-Safe-v5-2026-11-04-OTA.zip
