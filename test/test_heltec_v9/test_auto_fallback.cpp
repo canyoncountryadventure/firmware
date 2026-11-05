@@ -76,6 +76,15 @@ int main() {
     assert(batch45.takeNext(p,e+15UL*MIN)==0);
     batch45.clearPending();
 
+    // A sensor that becomes one hour stale at 02:01 must wait until 03:00,
+    // not sneak into an over-generous 02:00 grace window.
+    HourlyRescueBatch strictHour;
+    assert(p.setNodeIntervalMinutes(PACK,60));
+    p.armNode(PACK,50000000UL);
+    assert(!strictHour.observe(2UL*3600UL,50000000UL+59UL*MIN,p));
+    assert(!strictHour.observe(2UL*3600UL+60UL,50000000UL+60UL*MIN,p));
+    assert(strictHour.observe(3UL*3600UL,50000000UL+119UL*MIN,p));
+
     // Six-hour intervals: first rescued after >=1h missing when next 6h clock slot arrives;
     // then the repeat cannot run sooner than six hours.
     assert(p.setNodeIntervalMinutes(PACK,360));
