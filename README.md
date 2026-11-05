@@ -2,6 +2,10 @@
 
 **November 1, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
 
+### V8.1: standard HOBO telemetry compatibility
+
+RAK and Seeed HOBO V5.1 now send automatic MX2001 stage and temperature as normal Meshtastic `TELEMETRY_APP` environment metrics—the same standard transport family used by battery telemetry. For the known MX2001 stations only—**Pack Creek** `!742ecff5`, **Mill Creek** `!6459c5bf`, and **Matheson** `!77788479`—V8 recognizes a paired temperature plus `distance` field, converts stage millimetres back to feet, and uploads a normal `mx2001` observation with `payload.source="telemetry_app"`. It does not fabricate a logger MAC, raw temperature, sequence number, or BLE RSSI that the standard packet does not contain. Legacy private MX packets and manual `READ` replies remain supported unchanged.
+
 
 ### Simple DM controls for rescue polling (V8)
 

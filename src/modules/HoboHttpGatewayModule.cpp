@@ -17,6 +17,7 @@
 #include <cstring>
 #include <cstdint>
 #include <cctype>
+#include <cmath>
 
 namespace
 {
@@ -34,6 +35,14 @@ constexpr uint32_t CC02_NODE = 2425602407UL; // !9093c167
 constexpr uint32_t MILL_CREEK_NODE = 1683604927UL; // !6459c5bf
 constexpr uint32_t SEED_RELAY_1_NODE = 647393146UL; // !26966f7a
 constexpr uint32_t COTTONWOOD_RELAY_2_NODE = 1222051909UL; // !48d70845, CWR2
+
+// EnvironmentMetrics has no logger-model field. Only these known MX2001
+// stations may interpret a paired temperature+distance packet as HOBO stage;
+// every other normal environmental packet remains ordinary telemetry.
+bool isStandardTelemetryMX2001(uint32_t node)
+{
+    return node == SWELL_NODE || node == MILL_CREEK_NODE || node == MATHESON_NODE;
+}
 
 uint16_t readLE16(const uint8_t *p)
 {
@@ -528,19 +537,42 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
         !decoded.variant.environment_metrics.has_temperature)
         return false;
 
+    const auto &environment = decoded.variant.environment_metrics;
+    const float distanceMm = environment.distance;
+    const bool pairedMx2001Stage = environment.has_distance && isStandardTelemetryMX2001(getFrom(&mp)) &&
+                                   std::isfinite(distanceMm) && distanceMm >= -100000.0f && distanceMm <= 100000.0f;
+
     UploadJob job = {};
-    job.type = JobType::ENVIRONMENT;
     fillCommon(job, mp);
-    job.temperatureC = decoded.variant.environment_metrics.temperature;
+    job.temperatureC = environment.temperature;
+
+    if (pairedMx2001Stage) {
+        // EnvironmentMetrics.distance is millimetres. RAK/Seeed V5 uses it
+        // for calibrated MX2001 stage so it follows standard battery telemetry.
+        job.type = JobType::MX2001;
+        job.standardTelemetry = true;
+        job.waterLevelFt = distanceMm / 304.8f;
+        job.temperatureF = (job.temperatureC * (9.0f / 5.0f)) + 32.0f;
+        snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
+    } else {
+        job.type = JobType::ENVIRONMENT;
+    }
 
     if (!uploadQueue.enqueue(job, 0)) {
-        LOG_WARN("CCA clean gateway: queue full; dropped environment packet 0x%08lx",
+        LOG_WARN("CCA clean gateway: queue full; dropped %s packet 0x%08lx",
+                 pairedMx2001Stage ? "standard MX2001 telemetry" : "environment",
                  static_cast<unsigned long>(mp.id));
         return false;
     }
-    noteAutomaticSensor(job.from, cca_auto_fallback::Kind::Temperature);
-    LOG_INFO("CCA clean gateway: queued temperature %.2f C from 0x%08lx",
-             job.temperatureC, static_cast<unsigned long>(job.from));
+    if (pairedMx2001Stage) {
+        noteAutomaticSensor(job.from, cca_auto_fallback::Kind::Mx2001);
+        LOG_INFO("CCA clean gateway: queued standard MX2001 telemetry stage=%.2f ft temp=%.2f C from 0x%08lx",
+                 job.waterLevelFt, job.temperatureC, static_cast<unsigned long>(job.from));
+    } else {
+        noteAutomaticSensor(job.from, cca_auto_fallback::Kind::Temperature);
+        LOG_INFO("CCA clean gateway: queued temperature %.2f C from 0x%08lx",
+                 job.temperatureC, static_cast<unsigned long>(job.from));
+    }
     setIntervalFromNow(0);
     return true;
 }
@@ -649,17 +681,23 @@ String HoboHttpGatewayModule::serializeJob(const UploadJob &job) const
         body += "\"water_level_ft\":" + String(job.waterLevelFt, 3);
         body += ",\"temperature_f\":" + String(job.temperatureF, 3);
         body += ",\"temperature_c\":" + String(job.temperatureC, 3);
-        if (!job.dmPollResult)
-            body += ",\"temperature_raw\":" + String(job.temperatureRaw);
-        body += ",\"logger_mac\":" + jsonQuoted(job.loggerMac);
         body += ",\"logger_model\":\"MX2001\"";
-        if (!job.dmPollResult)
-            body += ",\"sequence\":" + String(job.sequence);
-        if (job.dmPollResult)
-            body += ",\"source\":\"heltec_dm\"";
-        body += ",\"ble_rssi_dbm\":" + String(job.bleRssi);
-        if (job.localBleSensor)
-            body += ",\"source\":\"heltec_ble\"";
+        if (job.standardTelemetry) {
+            // Standard telemetry intentionally carries no proprietary raw
+            // bytes, logger MAC, sequence, or BLE RSSI. Do not invent them.
+            body += ",\"source\":\"telemetry_app\"";
+        } else {
+            if (!job.dmPollResult)
+                body += ",\"temperature_raw\":" + String(job.temperatureRaw);
+            body += ",\"logger_mac\":" + jsonQuoted(job.loggerMac);
+            if (!job.dmPollResult)
+                body += ",\"sequence\":" + String(job.sequence);
+            if (job.dmPollResult)
+                body += ",\"source\":\"heltec_dm\"";
+            body += ",\"ble_rssi_dbm\":" + String(job.bleRssi);
+            if (job.localBleSensor)
+                body += ",\"source\":\"heltec_ble\"";
+        }
     } else if (job.type == JobType::MOISTURE_PIR) {
         body += "\"rock_adc\":" + String(job.moistureAdc);
         body += ",\"rock_voltage_v\":" + String(job.moistureSensorMv / 1000.0f, 3);

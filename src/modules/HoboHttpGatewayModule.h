@@ -99,6 +99,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
         char loggerModel[12];
         bool localBleSensor;
         bool dmPollResult; // CC01 DM reply, not a PRIVATE_APP telemetry packet
+        // MX2001 water stage received as normal TELEMETRY_APP EnvironmentMetrics.
+        bool standardTelemetry;
 
         uint16_t moistureAdc;
         uint16_t moistureSensorMv;
