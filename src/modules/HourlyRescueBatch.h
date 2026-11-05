@@ -10,8 +10,9 @@ namespace cca_auto_fallback {
 
 class HourlyRescueBatch {
 public:
-    // Grace period covers NTP/mesh clock synchronization and loop scheduling.
-    static constexpr uint32_t BOUNDARY_GRACE_SECONDS = 90;
+    // Only the first minute of a boundary qualifies. A 90-second window
+    // could incorrectly trigger at 02:01 after missing the 02:00 cutoff.
+    static constexpr uint32_t BOUNDARY_GRACE_SECONDS = 60;
 
     bool observe(uint32_t validUtcSeconds, uint32_t monotonicNowMs, const Policy &policy) {
         if (!validUtcSeconds) return false; // Fail closed until clock is trustworthy.
