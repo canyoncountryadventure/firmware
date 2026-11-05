@@ -995,7 +995,7 @@ String HoboHttpGatewayModule::statusJson()
         body += ",\"enabled\":" + String(autoFallback.isEnabled(i) ? "true" : "false");
         body += ",\"threshold_minutes\":" + String(autoFallback.intervalMinutes(i));
         body += ",\"effective_min_missing_minutes\":" +
-            String(autoFallback.intervalMinutes(i) > 60 ? autoFallback.intervalMinutes(i) : 60);
+            String(60);
         body += ",\"default_minutes\":" + String(cca_auto_fallback::Policy::thresholdMs(w.node) / 60000UL);
         body += ",\"custom_interval\":" + String(autoFallback.intervalOverridesMinutes[i] ? "true" : "false");
         body += ",\"last_auto_ms\":" + String(w.lastAutoMs);
