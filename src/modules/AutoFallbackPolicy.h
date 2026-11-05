@@ -1,5 +1,5 @@
 #pragma once
-// V8: per-sensor automatic-telemetry watchdog, independent of Wi-Fi/Neon.
+// V9: opt-in per-sensor automatic-telemetry watchdog, independent of Wi-Fi/Neon.
 // No dynamic allocation, timestamps stored in wrapping uint32_t millis.
 #include <array>
 #include <cstdint>
@@ -28,9 +28,9 @@ public:
 
     // A bit per stream; station ON/OFF affects all streams of the same node.
     // Compact enough for the existing ESP32 Preferences namespace (11 bits).
-    bool enabled = true;
-    uint16_t pausedMask = 0;
-    // 0 = use the site's built-in 15/60-minute default. Each station has
+    bool enabled = false;
+    uint16_t pausedMask = 0xFFFFU; // every station starts disabled until explicitly enabled
+    // 0 = use the one-hour missing-auto default. Each station has
     // one interval shared by all its watched sensor streams.
     std::array<uint16_t, WATCH_COUNT> intervalOverridesMinutes = {};
 
@@ -50,18 +50,14 @@ public:
 
     static constexpr uint16_t ALL_MASK = (1U << WATCH_COUNT) - 1U;
 
-    // Fast stations monitor each independent stage/temperature stream every 15m.
-    // All other monitored stations use 60m. This controls gateway fallback
-    // requests, not the sampling interval programmed into the field logger.
-    static constexpr uint32_t thresholdMs(uint32_t node) {
-        return node == 1949224949UL || // Pack Creek: ultrasonic + HOBO
-               node == 1683604927UL || // Mill Creek: MX2001
-               node == 1695962694UL    // South Cottonwood: MB7388
-            ? FAST_MISSING_AUTO_MS : MISSING_AUTO_MS;
+    // V9: all stations use one hour unless explicitly assigned 15m, 30m, or 24h.
+    // Does not alter the field node's own automatic reporting interval.
+    static constexpr uint32_t thresholdMs(uint32_t /*node*/) {
+        return MISSING_AUTO_MS;
     }
 
     static constexpr bool validIntervalMinutes(uint16_t minutes) {
-        return minutes >= 5 && minutes <= 1440;
+        return minutes == 15 || minutes == 30 || minutes == 60 || minutes == 1440;
     }
     uint16_t intervalMinutes(size_t index) const {
         if (index >= watches.size()) return 0;
@@ -135,6 +131,16 @@ public:
     // Never use device/battery telemetry to reset the sensor watchdog.
     // A successful reply to our fallback DM does NOT reset this timestamp;
     // only a true automatic packet does.
+    // Start a fresh missing-auto deadline when the operator enables a station.
+    void armNode(uint32_t node, uint32_t now) {
+        for (auto &watch : watches) {
+            if (watch.node != node) continue;
+            watch.lastAutoMs = now;
+            watch.lastAttemptMs = 0;
+            watch.attempted = false;
+        }
+    }
+
     bool receivedAuto(uint32_t node, Kind kind, uint32_t now) {
         bool matched = false;
         for (auto &watch : watches) {
