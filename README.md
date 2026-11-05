@@ -1,4 +1,4 @@
-# Seeed-HOBO-Safe-v5 — Field BLE Recovery V5 (2026-11-03)
+# Seeed-HOBO-Safe-v5 — Field BLE Recovery V5.1 (2026-11-04)
 
 **Target:** Seeed XIAO nRF52840 + Wio-SX1262 (`seeed_xiao_nrf52840_kit`)  
 **Meshtastic baseline:** 2.7.26; derived non-destructively from Seeed-HOBO-Safe-v4.  
@@ -12,9 +12,10 @@ This experimental recovery update addresses unattended HOBO disconnections that 
 The existing V5 source was updated in place, with **no change to Meshtastic 2.7.26**, logger sampling, the locked HOBO MAC, or BLE Nordic DFU support.
 
 - **Healthy HOBO:** leave the BLE link and STATUS polling alone; normal 30-second STATUS checks continue.
-- **Disconnected:** refresh the passive BLE scanner every five minutes and perform a bounded 30-second 50% scan burst.
+- **Disconnected:** use an active 50%-duty BLE acquisition burst for two minutes at boot, after a disconnect/recovery, and every five missing minutes. Outside those bounded bursts, retain the original passive 10% scan.
 - **15 minutes without successful HOBO STATUS:** perform an automatic BLE-only central-link / scanner-state reset. Clear stale rejected-candidate state. Do not disable the SoftDevice or reboot LoRa.
-- **Persistently unhealthy:** repeat the deeper BLE-only reset at the saved interval (default **120 minutes**), not every 15 minutes. A successful STATUS reply rearms the initial 15-minute health timeout.
+- **Still no STATUS five minutes later:** perform one watchdog-origin whole-node reset that rebuilds the nRF52 BLE/SoftDevice and radio stack while retaining settings. A retained guard permits only one such reset until a valid STATUS returns.
+- **Persistently unhealthy:** repeat BLE-only recovery at the saved interval (default **120 minutes**), not every 15 minutes. A successful STATUS reply rearms the initial 15-minute health timeout and clears the one-reset guard.
 - **Busy reads:** defer a scheduled BLE reset for up to 10 seconds to allow in-flight HOBO reads to complete; a stuck operation cannot block recovery forever.
 - **Full node:** retain the existing 12-hour preventive reboot in Meshtastic's main loop, with up to ten minutes of deterministic per-node staggering and a 15-second send/read grace period. The reboot is not a complete electrical power cut to the external SX1262.
 - **Radio fault:** retain existing guarded SX1262 receive/chip-state recovery and independent NRF hardware watchdog. Do not reset a healthy LoRa transceiver periodically.
@@ -48,13 +49,17 @@ V4 can report `scanner=SCANNING` for an arbitrarily long time without recognizin
 ## V5 changes
 
 - Single scanner owner: the universal HOBO state machine (no competing scan supervisor).
-- Normal passive scan remains 10% duty (320/32 units). After five disconnected minutes, restart at 50% duty (160/80 units) for 30 seconds, then return to 10%; repeat in bounded five-minute intervals if still disconnected.
+- Normal passive scan remains 10% duty (320/32 units). At boot, after disconnect/recovery, and every five missing minutes, use active 50% duty (160/80 units) for two minutes, then return to passive 10%.
 - Scanner refresh does not interrupt a connected link or in-progress BLE connection.
 - Preserve persistent logger MAC locking and reconnect/retry behavior; no factory erasure.
 - `HOBO RESTART` queues a BLE-only restart on the telemetry worker rather than resetting Meshtastic, and does not count as a failed recovery cycle.
 - `BLE DIAG` or `HOBO STATUS` returns two compact LoRa messages with advertisement totals, locked-address matches, HOBO candidates, connection attempts/ready counts, scanner refresh counts, last STATUS age, and most recent BLE failure.
 - `AUTO STATUS` returns logger-pointer tracking state and automatic transmit counts (boot-local). Manual `READ` remains independent of automatic record-pointer tracking.
-- Existing V4 WDT diagnostics, STATUS poll interval, watchdog escalation on exhausted BLE commands, radio recovery, and 12-hour burn-in reboot are retained.
+- Existing V4 WDT diagnostics, STATUS poll interval, guarded radio recovery, and 12-hour burn-in reboot are retained. Ordinary BLE faults never cause a reboot loop.
+
+### Standard telemetry transport
+
+MX2001 automatic reports now use normal Meshtastic `TELEMETRY_APP` environment metrics: temperature in °C and calibrated stage in `distance` as millimetres (`stage_ft × 304.8`). Device/battery and environmental metrics are separate protobuf messages, but both use the same normal telemetry port. The companion Heltec gateway recognizes the paired temperature-plus-distance MX2001 form only from the known Pack Creek, Mill Creek, and Matheson MX2001 node IDs and uploads it as `mx2001` data. Manual `READ` still includes logger MAC and BLE RSSI.
 
 ### DM verification
 
@@ -77,9 +82,9 @@ LOGGER
 
 The separate `build_hobo_v5.yml` GitHub Actions workflow builds `seeed_xiao_nrf52840_kit` and publishes after successful compilation:
 
-- [Nordic DFU OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-03-OTA.zip)
-- [USB UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-03.uf2)
-- [SHA256 and source commit](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-03-BUILD.txt)
+- [Nordic DFU OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-04-OTA.zip)
+- [USB UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-04.uf2)
+- [SHA256 and source commit](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-04-BUILD.txt)
 
 **The links are valid only after GitHub Actions successfully publishes the artifacts.** Do not distribute or flash an unverified file. This is the normal field-node firmware, not the autonomous drone Scout image; no matching V5 drone Scout artifact has been produced.
 
@@ -87,6 +92,6 @@ Do not unzip the OTA ZIP before selecting it in Nordic nRF Connect. Test on one 
 
 ## Limits and recovery policy
 
-V5 does **not** assume a 2-hour full-node reboot will solve a missing HOBO advertisement. It emphasizes scanner-level recovery with bounded high-duty bursts and preserves the existing radio watchdog fallback. The reason for missing advertisements may be range, physical placement, logger battery, logger advertisement state, or firmware.
+V5.1 does **not** assume a fixed 2-hour full-node reboot will solve a missing HOBO advertisement. It uses active scanner acquisition, a BLE-only recovery, then one status-proven guarded whole-node reset. Strong Mill Creek BLE evidence means range is not the universal explanation; a scanner/GATT/SoftDevice wedge can exist while LoRa battery telemetry still works.
 
 Counters are boot-local, and `status_seen=0` means no successful STATUS since boot. `target` advertisement counts require that the saved MAC matches the advertisement address, not merely the scanner being active. Only a field trial can establish reliable reconnect performance.

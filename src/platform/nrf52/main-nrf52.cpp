@@ -65,6 +65,8 @@ static nrfx_wdt_channel_id nrfx_wdt_channel_id_nrf52_main;
 #if defined(FIELD_RECOVERY_V2)
 static nrfx_wdt_channel_id nrfx_wdt_channel_id_field;
 static volatile bool fieldWatchdogFeedAllowed = true;
+// Nonzero when an authorized subsystem has scheduled a watchdog-origin reset.
+static volatile uint32_t scheduledWatchdogResetAtMs = 0;
 #endif
 
 namespace
@@ -113,6 +115,25 @@ void nrf52FieldWatchdogTrip()
     // Preserve the subsystem-specific failure context recorded by the caller.
     fieldWatchdogFeedAllowed = false;
     LOG_ERROR("Field v2: health watchdog deliberately starved; hardware reset pending");
+#endif
+}
+
+bool nrf52ScheduleWatchdogReset(uint32_t delayMs)
+{
+#if defined(FIELD_RECOVERY_V2)
+    if (scheduledWatchdogResetAtMs != 0)
+        return false;
+
+    // Give a queued reply/telemetry packet a brief transmit window before the
+    // independent watchdog channel is deliberately starved. This never erases
+    // logger locks, calibration, or radio settings.
+    scheduledWatchdogResetAtMs = millis() + delayMs;
+    if (scheduledWatchdogResetAtMs == 0)
+        scheduledWatchdogResetAtMs = 1;
+    return true;
+#else
+    (void)delayMs;
+    return false;
 #endif
 }
 
@@ -414,6 +435,13 @@ void nrf52Loop()
     }
     nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_nrf52_main);
 #if defined(FIELD_RECOVERY_V2)
+    const uint32_t requestedReset = scheduledWatchdogResetAtMs;
+    if (requestedReset != 0 && (int32_t)(millis() - requestedReset) >= 0) {
+        scheduledWatchdogResetAtMs = 0;
+        nrf52FieldDiagEvent(2, 5, 0); // subsystem=HOBO; staged watchdog recovery
+        LOG_WARN("Field recovery: watchdog-origin hardware reset requested; waiting for WDT expiry");
+        nrf52FieldWatchdogTrip();
+    }
     if (fieldWatchdogFeedAllowed)
         nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_field);
 #endif

@@ -23,6 +23,9 @@ jobs:
           ref: Seeed-HOBO-Safe-v5
           submodules: recursive
 
+      - name: Verify Seeed V5.1 recovery contracts
+        run: python3 test/test_seeed_hobo_v5.py
+
       - name: Build Seeed XIAO nRF52840 Kit
         uses: meshtastic/gh-action-firmware@39d0ffe8e0708beb3fb7b66f4c91aa941dc9764e
         with:
@@ -39,21 +42,21 @@ jobs:
           test -n "$UF2" && test -f "$UF2"
           test -n "$OTA" && test -f "$OTA"
           mkdir -p export
-          cp "$UF2" export/Seeed-HOBO-Safe-v5-2026-11-03.uf2
-          cp "$OTA" export/Seeed-HOBO-Safe-v5-2026-11-03-OTA.zip
+          cp "$UF2" export/Seeed-HOBO-Safe-v5-2026-11-04.uf2
+          cp "$OTA" export/Seeed-HOBO-Safe-v5-2026-11-04-OTA.zip
           {
             echo "TARGET=Seeed-HOBO-Safe-v5"
             echo "ENV=seeed_xiao_nrf52840_kit"
             echo "COMMIT=$GITHUB_SHA"
             echo "HOBO_STATUS_POLL=30sec"
             echo "DRONE_IMAGE=Build separately on Remote-Drone-Flashing-v2"
-            sha256sum export/Seeed-HOBO-Safe-v5-2026-11-03.uf2 export/Seeed-HOBO-Safe-v5-2026-11-03-OTA.zip
-          } > export/Seeed-HOBO-Safe-v5-2026-11-03-BUILD.txt
+            sha256sum export/Seeed-HOBO-Safe-v5-2026-11-04.uf2 export/Seeed-HOBO-Safe-v5-2026-11-04-OTA.zip
+          } > export/Seeed-HOBO-Safe-v5-2026-11-04-BUILD.txt
 
       - name: Upload V5 target artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: Seeed-HOBO-Safe-v5-2026-11-03-${{ github.run_number }}
+          name: Seeed-HOBO-Safe-v5-2026-11-04-${{ github.run_number }}
           retention-days: 90
           overwrite: true
           path: export/*
@@ -81,10 +84,10 @@ jobs:
             git fetch origin field-self-recovery
             git reset --hard origin/field-self-recovery
             mkdir -p downloads
-            cp ../export/Seeed-HOBO-Safe-v5-2026-11-03.uf2 downloads/
-            cp ../export/Seeed-HOBO-Safe-v5-2026-11-03-OTA.zip downloads/
-            cp ../export/Seeed-HOBO-Safe-v5-2026-11-03-BUILD.txt downloads/
-            git add downloads/Seeed-HOBO-Safe-v5-2026-11-03.uf2 downloads/Seeed-HOBO-Safe-v5-2026-11-03-OTA.zip downloads/Seeed-HOBO-Safe-v5-2026-11-03-BUILD.txt
+            cp ../export/Seeed-HOBO-Safe-v5-2026-11-04.uf2 downloads/
+            cp ../export/Seeed-HOBO-Safe-v5-2026-11-04-OTA.zip downloads/
+            cp ../export/Seeed-HOBO-Safe-v5-2026-11-04-BUILD.txt downloads/
+            git add downloads/Seeed-HOBO-Safe-v5-2026-11-04.uf2 downloads/Seeed-HOBO-Safe-v5-2026-11-04-OTA.zip downloads/Seeed-HOBO-Safe-v5-2026-11-04-BUILD.txt
             if git diff --cached --quiet; then exit 0; fi
             git commit -m "Publish Seeed-HOBO-Safe-v5 target"
             if git push origin HEAD:field-self-recovery; then exit 0; fi

@@ -55,7 +55,7 @@ HOBO universal AUTO TX confirmed count=7 pointer=0x00001ADD interval=20 sec poin
 
 ### Model-specific automatic output
 
-- **MX2001:** sends the existing 19-byte `PRIVATE_APP` packet containing water level, temperature, logger MAC, sequence, and BLE RSSI. This remains compatible with `tools/mx2001_receiver.py` and the water dashboard ingest path.
+- **MX2001:** sends normal Meshtastic `TELEMETRY_APP` environmental telemetry. It carries temperature in °C plus calibrated water stage in `EnvironmentMetrics.distance` in millimetres (`stage ft × 304.8`). This is the same standard transport family used by device/battery telemetry, so it cannot disappear merely because a gateway filters the former private `MX` packet. `Telemetry` is a protobuf oneof, so device/battery and environment measurements remain separate standard packets on the same normal telemetry route.
 - **MX2201:** sends standard Meshtastic environmental temperature telemetry on `TELEMETRY_APP`.
 - **MX2203:** sends standard Meshtastic environmental temperature telemetry on `TELEMETRY_APP`.
 
