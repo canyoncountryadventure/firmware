@@ -110,6 +110,12 @@ extern SPISettings spiSettings;
 #if defined(ARCH_NRF52)
 void nrf52FieldWatchdogTrip();
 bool nrf52FieldWatchdogIsArmed();
+void nrf52SetHoboHandshakeAwake(bool awake);
+bool nrf52HoboHandshakeAwake();
+bool nrf52HoboHandshakeHfclkRunning();
+uint32_t nrf52HoboHandshakeHfclkResult();
+bool nrf52MarkRebootPacket(uint32_t sender, uint32_t packetId);
+bool nrf52ScheduleWatchdogReset(uint32_t delayMs);
 void nrf52FlashQuiesce();
 void nrf52FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint16_t error = 0);
 void nrf52FieldDiagPrint();

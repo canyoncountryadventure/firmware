@@ -1,4 +1,5 @@
 #include "configuration.h"
+#include <atomic>
 #include <Adafruit_TinyUSB.h>
 #include <Adafruit_nRFCrypto.h>
 #include <InternalFileSystem.h>
@@ -13,6 +14,7 @@
 #include <assert.h>
 #include <ble_gap.h>
 #include <memory.h>
+#include <nrf_soc.h>
 #include <nrfx_wdt.c>
 #include <nrfx_wdt.h>
 #include <stdio.h>
@@ -62,9 +64,46 @@ void variant_nrf52LoopHook(void) {}
 
 static nrfx_wdt_t nrfx_wdt = NRFX_WDT_INSTANCE(0);
 static nrfx_wdt_channel_id nrfx_wdt_channel_id_nrf52_main;
+static std::atomic<bool> hoboHandshakeAwake{false};
+static std::atomic<bool> hoboHandshakeHfclkRequested{false};
+static std::atomic<uint32_t> hoboHandshakeHfclkLastResult{NRF_SUCCESS};
+
+void nrf52SetHoboHandshakeAwake(bool awake)
+{
+    const bool wasAwake = hoboHandshakeAwake.exchange(awake);
+    if (awake && !wasAwake) {
+        const uint32_t result = sd_clock_hfclk_request();
+        hoboHandshakeHfclkLastResult.store(result);
+        hoboHandshakeHfclkRequested.store(result == NRF_SUCCESS);
+        if (result != NRF_SUCCESS)
+            LOG_WARN("HOBO handshake HFCLK request failed: %lu", static_cast<unsigned long>(result));
+    } else if (!awake && wasAwake && hoboHandshakeHfclkRequested.exchange(false)) {
+        const uint32_t result = sd_clock_hfclk_release();
+        hoboHandshakeHfclkLastResult.store(result);
+        if (result != NRF_SUCCESS)
+            LOG_WARN("HOBO handshake HFCLK release failed: %lu", static_cast<unsigned long>(result));
+    }
+}
+
+bool nrf52HoboHandshakeAwake()
+{
+    return hoboHandshakeAwake.load();
+}
+
+bool nrf52HoboHandshakeHfclkRunning()
+{
+    uint32_t running = 0;
+    return sd_clock_hfclk_is_running(&running) == NRF_SUCCESS && running != 0;
+}
+
+uint32_t nrf52HoboHandshakeHfclkResult()
+{
+    return hoboHandshakeHfclkLastResult.load();
+}
 #if defined(FIELD_RECOVERY_V2)
 static nrfx_wdt_channel_id nrfx_wdt_channel_id_field;
 static volatile bool fieldWatchdogFeedAllowed = true;
+static volatile uint32_t remoteWatchdogResetAtMs = 0;
 #endif
 
 namespace
@@ -76,7 +115,48 @@ struct FieldDiag {
 };
 constexpr uint32_t FIELD_DIAG_MAGIC = 0x46334447;
 __attribute__((section(".noinit"))) FieldDiag fieldDiag;
+
+struct RebootReplayGuard {
+    uint32_t magic, sender, packetId, validation;
+};
+constexpr uint32_t REBOOT_REPLAY_MAGIC = 0x52424F54UL;
+constexpr uint32_t REBOOT_REPLAY_XOR = 0x79B6C20DUL;
+__attribute__((section(".noinit"))) RebootReplayGuard rebootReplayGuard;
 } // namespace
+
+bool nrf52MarkRebootPacket(uint32_t sender, uint32_t packetId)
+{
+    if (packetId == 0)
+        return true;
+    const uint32_t validation = REBOOT_REPLAY_MAGIC ^ sender ^ packetId ^ REBOOT_REPLAY_XOR;
+    if (rebootReplayGuard.magic == REBOOT_REPLAY_MAGIC && rebootReplayGuard.validation == validation &&
+        rebootReplayGuard.sender == sender && rebootReplayGuard.packetId == packetId) {
+        LOG_WARN("Ignored retransmitted reboot packet id=0x%08lX from=0x%08lX", static_cast<unsigned long>(packetId),
+                 static_cast<unsigned long>(sender));
+        return false;
+    }
+
+    rebootReplayGuard.magic = REBOOT_REPLAY_MAGIC;
+    rebootReplayGuard.sender = sender;
+    rebootReplayGuard.packetId = packetId;
+    rebootReplayGuard.validation = validation;
+    return true;
+}
+
+bool nrf52ScheduleWatchdogReset(uint32_t delayMs)
+{
+#if defined(FIELD_RECOVERY_V2)
+    if (remoteWatchdogResetAtMs != 0)
+        return false;
+    remoteWatchdogResetAtMs = millis() + delayMs;
+    if (remoteWatchdogResetAtMs == 0)
+        remoteWatchdogResetAtMs = 1;
+    return true;
+#else
+    (void)delayMs;
+    return false;
+#endif
+}
 
 void nrf52FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint16_t error)
 {
@@ -231,10 +311,7 @@ uint16_t getVDDVoltage()
 
 bool loopCanSleep()
 {
-    // turn off sleep only while connected via USB
-    // return true;
-    return !Serial; // the bool operator on the nrf52 serial class returns true if connected to a PC currently
-    // return !(TinyUSBDevice.mounted() && !TinyUSBDevice.suspended());
+    return !Serial && !nrf52HoboHandshakeAwake();
 }
 
 // handle standard gcc assert failures
@@ -414,6 +491,13 @@ void nrf52Loop()
     }
     nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_nrf52_main);
 #if defined(FIELD_RECOVERY_V2)
+    const uint32_t requestedReset = remoteWatchdogResetAtMs;
+    if (requestedReset != 0 && static_cast<int32_t>(millis() - requestedReset) >= 0) {
+        remoteWatchdogResetAtMs = 0;
+        nrf52FieldDiagEvent(2, 4, 0);
+        LOG_WARN("HOBO recovery: watchdog-origin hardware reset requested; waiting for WDT expiry");
+        nrf52FieldWatchdogTrip();
+    }
     if (fieldWatchdogFeedAllowed)
         nrfx_wdt_channel_feed(&nrfx_wdt, nrfx_wdt_channel_id_field);
 #endif

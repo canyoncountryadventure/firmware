@@ -12,16 +12,21 @@
 #include "SPILock.h"
 #include "main.h"
 #include "pb_encode.h"
+#if defined(HAS_RGB_LED)
+#include "AmbientLightingThread.h"
+extern AmbientLightingThread *ambientLightingThread;
+#endif
 
+#include "mesh/Throttle.h"
+#include <atomic>
 #include <ble_gap.h>
 #include <bluefruit.h>
 #include <cctype>
-#include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
-#include <cstdlib>
 
 namespace
 {
@@ -55,6 +60,8 @@ enum class MetaProfile : uint8_t { NONE = 0, MX2001, MX2201 };
 
 enum class ReadPurpose : uint8_t { PROBE = 0, AUTOMATIC, ON_DEMAND };
 
+enum class HoboLedPattern : uint8_t { NONE = 0, FAILURE_RED, SUCCESS_RGB };
+
 enum class UniversalState : uint8_t {
     IDLE = 0,
     SEND_INIT,
@@ -71,38 +78,52 @@ enum class UniversalState : uint8_t {
 };
 
 bool initialized = false;
-bool connecting = false;
-bool connected = false;
-uint16_t connectionHandle = BLE_CONN_HANDLE_INVALID;
+std::atomic<bool> connecting{false};
+std::atomic<bool> connected{false};
+std::atomic<bool> setupInProgress{false};
+// Keep the MCU awake only while a logger handshake is actively being built.
+// Atomic state is shared by the module thread and Bluefruit callbacks.
+std::atomic<bool> handshakeWakeActive{false};
+std::atomic<uint32_t> handshakeWakeDeadlineMs{0};
+std::atomic<uint32_t> handshakeWakeCooldownUntilMs{0};
+concurrency::Lock bleLifecycleLock;
+std::atomic<uint16_t> connectionHandle{BLE_CONN_HANDLE_INVALID};
 uint32_t connectAttemptStartedMs = 0;
 uint8_t bleRecoveryCycles = 0;
-// V5: monotonic, boot-local BLE evidence. Never erase on reconnect.
+uint8_t consecutiveReadTimeouts = 0;
+// A valid STATUS reply is the only positive BLE/HOBO health signal. Scanner
+// state, a BLE advertisement, a LoRa packet, or battery telemetry does not
+// prove that the logger protocol is making forward progress.
 std::atomic<bool> manualBleRestartPending{false};
-// Only the HOBO worker performs resets. DMs modify the interval atomically.
 std::atomic<uint16_t> automaticBleResetMinutes{120};
-uint32_t bleHealthTimerStartMs = 0;
+uint32_t bleHealthStartedMs = 0;
+uint32_t lastGoodStatusMs = 0;
 uint32_t lastAutomaticBleResetMs = 0;
 uint32_t automaticBleResetCount = 0;
 uint32_t totalBleOnlyResetCount = 0;
 uint32_t autoBleResetDeferredSinceMs = 0;
 bool automaticBleResetPreviouslyAttempted = false;
-uint32_t allAdvertisementCount = 0;
-uint32_t matchingAddressCount = 0;
-uint32_t hoboCandidateCount = 0;
-uint32_t connectionAttemptCount = 0;
-uint32_t connectionReadyCount = 0;
-uint32_t scannerRestartCount = 0;
-uint32_t disconnectedSinceMs = 0;
-uint32_t lastScanRefreshMs = 0;
+bool hardwareResetScheduled = false;
+uint32_t bootstrapStartedMs = 0;
+uint32_t scanRetryDueMs = 0;
+std::atomic<bool> recoveryPending{false};
+std::atomic<bool> scanRestartRequested{false};
+std::atomic<bool> highDutyScanRequested{false};
+bool highDutyScanActive = false;
 uint32_t scanBurstUntilMs = 0;
-uint32_t lastTargetAdvertisementMs = 0;
-uint32_t lastGoodStatusMs = 0;
-uint32_t totalAutomaticTxCount = 0;
-uint32_t lastAnyAutomaticTxMs = 0;
-bool recoveryScanBurst = false;
-bool restoreNormalScan = false;
+uint32_t lastScanBurstMs = 0;
+std::atomic<bool> connectTimedOut{false};
+std::atomic<uint16_t> discoveryGattStatus{0xFFFF};
+std::atomic<uint16_t> discoveryServiceCount{0};
+std::atomic<bool> discoveryResponseSeen{false};
+std::atomic<uint8_t> pendingLedPattern{static_cast<uint8_t>(HoboLedPattern::NONE)};
+HoboLedPattern activeLedPattern = HoboLedPattern::NONE;
+uint8_t ledTransitionsRemaining = 0;
+bool hoboLedOn = false;
+uint32_t nextLedTransitionMs = 0;
+LoggerType lastVerifiedType = LoggerType::UNKNOWN;
+uint8_t lastVerifiedAddr[6] = {};
 char lastBleFailure[48] = "none";
-uint8_t consecutiveReadTimeouts = 0;
 
 LoggerType loggerType = LoggerType::UNKNOWN;
 MetaProfile activeMetaProfile = MetaProfile::NONE;
@@ -166,7 +187,8 @@ static constexpr uint32_t COMMAND_DELAY_MS = 400;
 static constexpr uint32_t READ_TIMEOUT_MS = 3000;
 static constexpr uint32_t STATUS_TIMEOUT_MS = 3000;
 // Field v3: check the logger write pointer at a fixed 30-second cadence.
-// This does not change the logger's own recording interval or radio TX interval.
+// This does not change the logger's own recording interval or radio TX
+// interval.
 static constexpr uint32_t HOBO_STATUS_POLL_MS = 30000UL;
 static constexpr uint32_t POINTER_FINE_POLL_MS = HOBO_STATUS_POLL_MS;
 static constexpr uint32_t POINTER_INITIAL_SYNC_POLL_MS = HOBO_STATUS_POLL_MS;
@@ -176,18 +198,48 @@ static constexpr uint8_t READ_TIMEOUT_LIMIT = 3;
 static constexpr uint32_t CONNECT_ATTEMPT_TIMEOUT_MS = 30000UL;
 static constexpr uint32_t REJECT_RETRY_MS = 60000;
 static constexpr uint32_t TRANSIENT_RETRY_MS = 5000;
-// V5: bounded high-duty scan only while the assigned logger is missing.
-static constexpr uint32_t SCAN_REFRESH_MS = 5UL * 60UL * 1000UL;
-static constexpr uint32_t HIGH_DUTY_SCAN_MS = 30UL * 1000UL;
-// First deep reset after 15 minutes with no valid HOBO STATUS, then every
-// configured interval (default 120 min) while still unhealthy.
-static constexpr uint32_t FIRST_DEEP_BLE_RECOVERY_MS = 15UL * 60UL * 1000UL;
-static constexpr uint32_t DEFER_BLE_RESET_WHILE_READ_MS = 10UL * 1000UL;
 static constexpr uint32_t SERVICE_SETTLE_MS = 500;
 static constexpr uint32_t SERVICE_RETRY_DELAY_MS = 350;
 static constexpr uint8_t SERVICE_DISCOVERY_ATTEMPTS = 3;
+static constexpr uint32_t SCAN_RETRY_MS = 5000UL;
+// A failed scanner gets a short, active 50% acquisition window. Normal
+// operation returns to the original passive 10% scan, so a healthy station
+// keeps its prior battery budget.
+static constexpr uint32_t HIGH_DUTY_SCAN_MS = 120UL * 1000UL;
+static constexpr uint32_t SCAN_BURST_REFRESH_MS = 5UL * 60UL * 1000UL;
+static constexpr uint32_t BOOTSTRAP_TIMEOUT_MS = 30000UL;
+// First rebuild the central link after 15 minutes without a valid STATUS. If
+// that did not restore the logger five minutes later, reboot the whole node
+// once through the watchdog. A retained guard prevents a dead HOBO from
+// turning this into a reset loop; a verified STATUS clears that guard.
+static constexpr uint32_t FIRST_DEEP_BLE_RECOVERY_MS = 15UL * 60UL * 1000UL;
+static constexpr uint32_t HARDWARE_RESET_GRACE_MS = 5UL * 60UL * 1000UL;
+static constexpr uint32_t DEFER_BLE_RESET_WHILE_READ_MS = 10000UL;
+// Battery-mode startup needs enough uninterrupted CPU time for scan, GATT
+// discovery, model verification and the first STATUS response. A failed logger
+// must not hold the CPU awake forever.
+static constexpr uint32_t HANDSHAKE_AWAKE_BUDGET_MS = 120000UL;
+// The former five-minute cooldown turned one missed/GATT-wedged handshake
+// into a long blind period even when the logger was inches away. A short
+// cooldown avoids tight retry churn but lets the next recovery scan actually
+// attempt another connection.
+static constexpr uint32_t HANDSHAKE_WAKE_COOLDOWN_MS = 30000UL;
+static constexpr uint32_t HOBO_LED_STEP_MS = 250UL;
+static constexpr uint8_t HOBO_LED_LEVEL = 160;
+static constexpr float HOBO_LED_CURRENT = 10.0f;
+static constexpr char IDENTITY_FILE_PATH[] = "/prefs/hobo_identity.bin";
 static constexpr char LOCK_FILE_PATH[] = "/prefs/hobo_lock.bin";
 static constexpr char BLE_RECOVERY_FILE_PATH[] = "/prefs/hobo_ble_recovery.bin";
+
+struct HoboHardwareResetGuard {
+    uint32_t magic;
+    uint32_t validation;
+    uint32_t usedSinceVerifiedStatus;
+};
+
+static constexpr uint32_t HOBO_HARD_RESET_GUARD_MAGIC = 0x48425247UL; // HBRG
+static constexpr uint32_t HOBO_HARD_RESET_GUARD_XOR = 0x5CD0E7A1UL;
+__attribute__((section(".noinit"))) HoboHardwareResetGuard hoboHardwareResetGuard;
 
 static constexpr uint32_t MX2201_MIN_RAW = 400;
 static constexpr uint32_t MX2201_MAX_RAW = 2400;
@@ -199,61 +251,110 @@ static constexpr float MX2203_FULL_RAW = 16384.0f;
 static constexpr float MX2203_CONST_C = 46.85f;
 static constexpr uint32_t MX2203_MAX_RAW = 16383;
 
+void requestHoboLedPattern(HoboLedPattern pattern)
+{
+    pendingLedPattern.store(static_cast<uint8_t>(pattern));
+}
+
 bool reached(uint32_t now, uint32_t target)
 {
     return static_cast<int32_t>(now - target) >= 0;
 }
 
-void noteBleFailure(const char *reason)
+void serviceHoboLedPattern(uint32_t now)
 {
-    snprintf(lastBleFailure, sizeof(lastBleFailure), "%s", reason ? reason : "unknown");
+    const HoboLedPattern pending = static_cast<HoboLedPattern>(
+        pendingLedPattern.exchange(static_cast<uint8_t>(HoboLedPattern::NONE)));
+    if (pending != HoboLedPattern::NONE) {
+        activeLedPattern = pending;
+        ledTransitionsRemaining = 6;
+        hoboLedOn = false;
+        nextLedTransitionMs = now;
+    }
+
+    if (activeLedPattern == HoboLedPattern::NONE || !reached(now, nextLedTransitionMs))
+        return;
+
+#if defined(HAS_RGB_LED)
+    if (ambientLightingThread != nullptr) {
+        hoboLedOn = !hoboLedOn;
+        if (hoboLedOn) {
+            const uint8_t greenBlue =
+                activeLedPattern == HoboLedPattern::SUCCESS_RGB ? HOBO_LED_LEVEL : 0;
+            ambientLightingThread->setTemporaryLighting(HOBO_LED_CURRENT, HOBO_LED_LEVEL, greenBlue, greenBlue);
+        } else {
+            ambientLightingThread->setTemporaryLighting(0, 0, 0, 0);
+        }
+    }
+#endif
+
+    if (ledTransitionsRemaining > 0)
+        ledTransitionsRemaining--;
+    if (ledTransitionsRemaining == 0) {
+#if defined(HAS_RGB_LED)
+        if (ambientLightingThread != nullptr)
+            ambientLightingThread->restoreConfiguredLighting();
+#endif
+        activeLedPattern = HoboLedPattern::NONE;
+        hoboLedOn = false;
+        nextLedTransitionMs = 0;
+        return;
+    }
+
+    nextLedTransitionMs = now + HOBO_LED_STEP_MS;
 }
 
-// Only this HOBO state machine modifies the scanner. Do not interfere with
-// an active link or an in-flight connect, including the SoftDevice link state.
-void refreshDisconnectedScanner(bool fast)
+bool requestHandshakeWake(uint32_t now)
 {
-    if (connected || connecting || Bluefruit.Central.connected())
+    if (handshakeWakeActive.load())
+        return true;
+
+    const uint32_t cooldownUntil = handshakeWakeCooldownUntilMs.load();
+    if (cooldownUntil != 0 && !reached(now, cooldownUntil))
+        return false;
+
+    uint32_t deadline = now + HANDSHAKE_AWAKE_BUDGET_MS;
+    if (deadline == 0)
+        deadline = 1;
+
+    handshakeWakeCooldownUntilMs.store(0);
+    handshakeWakeDeadlineMs.store(deadline);
+    handshakeWakeActive.store(true);
+    nrf52SetHoboHandshakeAwake(true);
+    LOG_INFO("HOBO universal: handshake wake active for %lu sec",
+             static_cast<unsigned long>(HANDSHAKE_AWAKE_BUDGET_MS / 1000UL));
+    return true;
+}
+
+void releaseHandshakeWake(bool successful, uint32_t now)
+{
+    const bool wasActive = handshakeWakeActive.exchange(false);
+    handshakeWakeDeadlineMs.store(0);
+    handshakeWakeCooldownUntilMs.store(successful ? 0 : now + HANDSHAKE_WAKE_COOLDOWN_MS);
+    nrf52SetHoboHandshakeAwake(false);
+
+    if (!wasActive)
         return;
 
-    Bluefruit.Scanner.stop();
-    Bluefruit.Scanner.setInterval(fast ? 160 : 320, fast ? 80 : 32); // 50% / 10% duty
-    Bluefruit.Scanner.useActiveScan(false);
-    const bool started = Bluefruit.Scanner.start(0);
-    scannerRestartCount++;
-    lastScanRefreshMs = millis();
-    recoveryScanBurst = fast;
-    restoreNormalScan = false;
-    if (!started) {
-        noteBleFailure("scanner start failed");
-        LOG_WARN("HOBO V5: scanner start failed after refresh");
+    if (successful) {
+        LOG_INFO("HOBO universal: handshake verified; normal sleep restored");
+    } else {
+        LOG_WARN("HOBO universal: handshake wake budget expired; sleeping for %lu sec before retry",
+                 static_cast<unsigned long>(HANDSHAKE_WAKE_COOLDOWN_MS / 1000UL));
     }
 }
 
-void serviceDisconnectedScanner(uint32_t now)
+bool serviceHandshakeWake(uint32_t now)
 {
-    if (disconnectedSinceMs == 0)
-        disconnectedSinceMs = now;
+    if (!handshakeWakeActive.load())
+        return false;
 
-    if (restoreNormalScan) {
-        refreshDisconnectedScanner(false);
-        return;
-    }
+    const uint32_t deadline = handshakeWakeDeadlineMs.load();
+    if (deadline == 0 || !reached(now, deadline))
+        return false;
 
-    if (recoveryScanBurst && reached(now, scanBurstUntilMs)) {
-        refreshDisconnectedScanner(false);
-        return;
-    }
-
-    if (!recoveryScanBurst && (now - disconnectedSinceMs) >= SCAN_REFRESH_MS &&
-        (now - lastScanRefreshMs) >= SCAN_REFRESH_MS) {
-        refreshDisconnectedScanner(true);
-        scanBurstUntilMs = now + HIGH_DUTY_SCAN_MS;
-        return;
-    }
-
-    if (!Bluefruit.Scanner.isRunning() && (now - lastScanRefreshMs) >= 5000UL)
-        refreshDisconnectedScanner(false);
+    releaseHandshakeWake(false, now);
+    return true;
 }
 
 uint32_t readBE32(const uint8_t *p)
@@ -289,6 +390,87 @@ uint8_t lockChecksum(const uint8_t *data, size_t length)
     return checksum;
 }
 
+uint32_t hoboHardwareResetValidation(uint32_t usedSinceVerifiedStatus)
+{
+    return HOBO_HARD_RESET_GUARD_MAGIC ^ HOBO_HARD_RESET_GUARD_XOR ^ usedSinceVerifiedStatus;
+}
+
+void initializeHoboHardwareResetGuard()
+{
+    if (hoboHardwareResetGuard.magic == HOBO_HARD_RESET_GUARD_MAGIC &&
+        hoboHardwareResetGuard.usedSinceVerifiedStatus <= 1 &&
+        hoboHardwareResetGuard.validation == hoboHardwareResetValidation(hoboHardwareResetGuard.usedSinceVerifiedStatus))
+        return;
+
+    hoboHardwareResetGuard.magic = HOBO_HARD_RESET_GUARD_MAGIC;
+    hoboHardwareResetGuard.usedSinceVerifiedStatus = 0;
+    hoboHardwareResetGuard.validation = hoboHardwareResetValidation(0);
+}
+
+bool hoboHardwareResetAlreadyUsed()
+{
+    initializeHoboHardwareResetGuard();
+    return hoboHardwareResetGuard.usedSinceVerifiedStatus != 0;
+}
+
+void markHoboHardwareResetUsed()
+{
+    initializeHoboHardwareResetGuard();
+    hoboHardwareResetGuard.usedSinceVerifiedStatus = 1;
+    hoboHardwareResetGuard.validation = hoboHardwareResetValidation(1);
+}
+
+void clearHoboHardwareResetGuard()
+{
+    initializeHoboHardwareResetGuard();
+    hoboHardwareResetGuard.usedSinceVerifiedStatus = 0;
+    hoboHardwareResetGuard.validation = hoboHardwareResetValidation(0);
+}
+
+// This setting controls the repeat cadence of an otherwise healthy node's
+// BLE-only recovery. It deliberately lives in its own CRC-checked record and
+// never touches the logger lock, station calibration, or Meshtastic settings.
+bool saveAutomaticBleResetMinutes(uint16_t minutes)
+{
+    uint8_t record[8] = {'H', 'B', 'R', '1', 1,
+                         static_cast<uint8_t>(minutes & 0xff),
+                         static_cast<uint8_t>((minutes >> 8) & 0xff), 0};
+    record[7] = lockChecksum(record, 7);
+
+    concurrency::LockGuard guard(spiLock);
+    FSCom.remove(BLE_RECOVERY_FILE_PATH);
+    File file = FSCom.open(BLE_RECOVERY_FILE_PATH, FILE_O_WRITE);
+    if (!file)
+        return false;
+    const size_t written = file.write(record, sizeof(record));
+    file.flush();
+    file.close();
+    return written == sizeof(record);
+}
+
+void loadAutomaticBleResetMinutes()
+{
+    uint8_t record[8] = {};
+    size_t length = 0;
+    {
+        concurrency::LockGuard guard(spiLock);
+        File file = FSCom.open(BLE_RECOVERY_FILE_PATH, FILE_O_READ);
+        if (file) {
+            length = file.read(record, sizeof(record));
+            file.close();
+        }
+    }
+
+    if (length != sizeof(record) || memcmp(record, "HBR1", 4) != 0 || record[4] != 1 ||
+        record[7] != lockChecksum(record, 7))
+        return; // Default: 120 minutes.
+
+    const uint16_t minutes = static_cast<uint16_t>(record[5]) |
+                             (static_cast<uint16_t>(record[6]) << 8);
+    if (minutes == 0 || (minutes >= 15 && minutes <= 720))
+        automaticBleResetMinutes.store(minutes);
+}
+
 void logLockTarget(const char *prefix)
 {
     if (!loggerLockEnabled)
@@ -306,6 +488,9 @@ bool saveLoggerLock()
     record[11] = lockChecksum(record, 11);
 
     concurrency::LockGuard g(spiLock);
+    // Adafruit LittleFS FILE_O_WRITE appends. Remove the fixed-size record
+    // first so a changed target replaces the old record instead of following it.
+    FSCom.remove(LOCK_FILE_PATH);
     File file = FSCom.open(LOCK_FILE_PATH, FILE_O_WRITE);
     if (!file) {
         LOG_WARN("HOBO universal: failed to open logger lock file for write");
@@ -362,45 +547,47 @@ void loadLoggerLock()
     logLockTarget("HOBO universal: restored logger lock:");
 }
 
-// Separate CRC-checked configuration file; never touch the persistent
-// logger lock, Meshtastic preferences or HOBO recording interval.
-bool saveAutomaticBleResetMinutes(uint16_t minutes)
+void loadLoggerIdentity()
 {
-    uint8_t record[8] = {'H', 'B', 'R', '1', 1,
-                         static_cast<uint8_t>(minutes & 0xff),
-                         static_cast<uint8_t>((minutes >> 8) & 0xff), 0};
-    record[7] = lockChecksum(record, 7);
-
+    uint8_t record[12] = {};
     concurrency::LockGuard g(spiLock);
-    File file = FSCom.open(BLE_RECOVERY_FILE_PATH, FILE_O_WRITE);
+    File file = FSCom.open(IDENTITY_FILE_PATH, FILE_O_READ);
     if (!file)
-        return false;
+        return;
+    const size_t count = file.read(record, sizeof(record));
+    file.close();
+    if (count != sizeof(record) || memcmp(record, "HBI1", 4) != 0 || record[4] < 1 || record[4] > 3 ||
+        record[11] != lockChecksum(record, 11))
+        return;
+    lastVerifiedType = static_cast<LoggerType>(record[4]);
+    memcpy(lastVerifiedAddr, &record[5], 6);
+}
+
+void rememberLoggerIdentity()
+{
+    if (loggerType != LoggerType::MX2001 && loggerType != LoggerType::MX2201 && loggerType != LoggerType::MX2203)
+        return;
+    if (lastVerifiedType == loggerType && memcmp(lastVerifiedAddr, candidateAddrRaw, 6) == 0)
+        return;
+    lastVerifiedType = loggerType;
+    memcpy(lastVerifiedAddr, candidateAddrRaw, 6);
+    uint8_t record[12] = {'H', 'B', 'I', '1', static_cast<uint8_t>(loggerType)};
+    memcpy(&record[5], lastVerifiedAddr, 6);
+    record[11] = lockChecksum(record, 11);
+    concurrency::LockGuard g(spiLock);
+    // FILE_O_WRITE is append mode on nRF52 LittleFS. The loader reads the
+    // first record, so explicitly replace it when a different logger verifies.
+    FSCom.remove(IDENTITY_FILE_PATH);
+    File file = FSCom.open(IDENTITY_FILE_PATH, FILE_O_WRITE);
+    if (!file) {
+        LOG_WARN("HOBO v5: could not save verified logger model");
+        return;
+    }
     const size_t written = file.write(record, sizeof(record));
     file.flush();
     file.close();
-    return written == sizeof(record);
-}
-
-void loadAutomaticBleResetMinutes()
-{
-    uint8_t record[8] = {};
-    size_t length = 0;
-    {
-        concurrency::LockGuard g(spiLock);
-        File file = FSCom.open(BLE_RECOVERY_FILE_PATH, FILE_O_READ);
-        if (file) {
-            length = file.read(record, sizeof(record));
-            file.close();
-        }
-    }
-    if (length != sizeof(record) || memcmp(record, "HBR1", 4) != 0 || record[4] != 1 ||
-        record[7] != lockChecksum(record, 7))
-        return; // Default: 120 minutes.
-
-    const uint16_t minutes = static_cast<uint16_t>(record[5]) |
-                             (static_cast<uint16_t>(record[6]) << 8);
-    if (minutes == 0 || (minutes >= 15 && minutes <= 720))
-        automaticBleResetMinutes.store(minutes);
+    if (written != sizeof(record))
+        LOG_WARN("HOBO v5: verified logger identity short write");
 }
 
 const char *loggerTypeName(LoggerType type)
@@ -574,44 +761,6 @@ bool isCommand(const uint8_t *bytes, size_t size, const char *expected)
     return *p == '\0';
 }
 
-// Recognize BLE RESET AUTO <minutes|OFF> without matching unrelated messages.
-// The caller validates the interval and commits it only after a successful write.
-bool parseBleResetAutoCommand(const uint8_t *bytes, size_t size, char outArg[32])
-{
-    if (!bytes || size == 0 || size >= 64)
-        return false;
-    char text[64] = {};
-    memcpy(text, bytes, size);
-    char *cmd = text;
-    while (*cmd == ' ' || *cmd == '\t' || *cmd == '\r' || *cmd == '\n')
-        ++cmd;
-    if (*cmd == '/')
-        ++cmd;
-    for (char *p = cmd; *p; ++p)
-        *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
-
-    static constexpr char PREFIX[] = "BLE RESET AUTO";
-    const size_t prefixLen = sizeof(PREFIX) - 1;
-    if (strncmp(cmd, PREFIX, prefixLen) != 0)
-        return false;
-    char *arg = cmd + prefixLen;
-    if (*arg != '\0' && *arg != ' ' && *arg != '\t')
-        return false;
-    while (*arg == ' ' || *arg == '\t')
-        ++arg;
-    const size_t argLen = strlen(arg);
-    if (argLen >= 32)
-        return false;
-    memcpy(outArg, arg, argLen + 1);
-    size_t remaining = argLen;
-    while (remaining > 0 && (outArg[remaining - 1] == ' ' ||
-                             outArg[remaining - 1] == '\r' ||
-                             outArg[remaining - 1] == '\n' ||
-                             outArg[remaining - 1] == '\t'))
-        outArg[--remaining] = '\0';
-    return true;
-}
-
 void resetMeasurementCapture()
 {
     directReadActive = false;
@@ -763,36 +912,115 @@ void notifyCallback(BLEClientCharacteristic *characteristic, uint8_t *data, uint
         finishMX2001Measurement();
 }
 
+void triggerBleRecovery(const char *reason);
+
+void resumeScanner()
+{
+    if (!Bluefruit.Scanner.resume())
+        scanRestartRequested = true;
+}
+
+void requestHighDutyScanBurst()
+{
+    // This can be called from Bluefruit callbacks. The worker owns actual
+    // scanner reconfiguration, so no callback races the SoftDevice here.
+    highDutyScanRequested = true;
+    scanRestartRequested = true;
+}
+
+bool restartScanner(uint32_t now)
+{
+    concurrency::LockGuard guard(&bleLifecycleLock);
+    if (connecting || connected || recoveryPending || Bluefruit.Central.connected())
+        return false;
+
+    // A start/resume alone retains the old scan mode. Explicitly replace the
+    // scanner configuration whenever switching between acquisition and normal
+    // mode so passive scan cannot stay stuck after a failed discovery.
+    if (scanRestartRequested) {
+        Bluefruit.Scanner.stop();
+        Bluefruit.Scanner.setInterval(highDutyScanActive ? 160 : 320, highDutyScanActive ? 80 : 32);
+        Bluefruit.Scanner.useActiveScan(highDutyScanActive);
+    }
+    if (Bluefruit.Scanner.start(0)) {
+        scanRetryDueMs = 0;
+        scanRestartRequested = false;
+        return true;
+    }
+    snprintf(lastBleFailure, sizeof(lastBleFailure), "scanner start failed");
+    scanRetryDueMs = now + SCAN_RETRY_MS;
+    return false;
+}
+
+void serviceDisconnectedScanner(uint32_t now)
+{
+    if (highDutyScanRequested.exchange(false)) {
+        highDutyScanActive = true;
+        lastScanBurstMs = now;
+        scanBurstUntilMs = now + HIGH_DUTY_SCAN_MS;
+    } else if (highDutyScanActive && reached(now, scanBurstUntilMs)) {
+        highDutyScanActive = false;
+        scanRestartRequested = true;
+    } else if (!highDutyScanActive &&
+               (lastScanBurstMs == 0 || !Throttle::isWithinTimespanMs(lastScanBurstMs, SCAN_BURST_REFRESH_MS))) {
+        // Do not leave a nearby logger invisible for hours after one missed
+        // advertising window. A brief acquisition burst repeats every five
+        // minutes only while the HOBO link is down.
+        highDutyScanActive = true;
+        lastScanBurstMs = now;
+        scanBurstUntilMs = now + HIGH_DUTY_SCAN_MS;
+        scanRestartRequested = true;
+    }
+
+    if (scanRetryDueMs != 0 && !reached(now, scanRetryDueMs))
+        return;
+    if (scanRestartRequested || !Bluefruit.Scanner.isRunning())
+        restartScanner(now);
+}
+
+void bleEventCallback(ble_evt_t *event)
+{
+    if (event && event->header.evt_id == BLE_GAP_EVT_TIMEOUT && event->evt.gap_evt.params.timeout.src == BLE_GAP_TIMEOUT_SRC_CONN)
+        connectTimedOut = true;
+
+    if (event == nullptr || event->evt.common_evt.conn_handle != connectionHandle)
+        return;
+    if (event->header.evt_id == BLE_GATTC_EVT_PRIM_SRVC_DISC_RSP) {
+        discoveryGattStatus = event->evt.gattc_evt.gatt_status;
+        discoveryServiceCount = event->evt.gattc_evt.params.prim_srvc_disc_rsp.count;
+        discoveryResponseSeen = true;
+    }
+}
+
 void scanCallback(ble_gap_evt_adv_report_t *report)
 {
     if (report == nullptr)
         return;
 
-    if (connecting || connected) {
-        Bluefruit.Scanner.resume();
+    concurrency::LockGuard guard(&bleLifecycleLock);
+    if (connecting || connected || recoveryPending)
+        return;
+
+    if (!report->type.connectable) {
+        resumeScanner();
         return;
     }
 
-    allAdvertisementCount++;
     if (loggerLockEnabled && memcmp(report->peer_addr.addr, lockedAddrRaw, 6) != 0) {
-        Bluefruit.Scanner.resume();
+        resumeScanner();
         return;
     }
-
-    matchingAddressCount++;
-    lastTargetAdvertisementMs = millis();
 
     if (isRejectedCandidate(report->peer_addr.addr)) {
-        Bluefruit.Scanner.resume();
+        resumeScanner();
         return;
     }
 
     const CandidateInfo info = inspectAdvertisement(report);
     if (!info.candidate) {
-        Bluefruit.Scanner.resume();
+        resumeScanner();
         return;
     }
-    hoboCandidateCount++;
 
     memcpy(candidateAddrRaw, report->peer_addr.addr, 6);
     makeHumanMac(report->peer_addr.addr, loggerMac);
@@ -803,33 +1031,57 @@ void scanCallback(ble_gap_evt_adv_report_t *report)
     LOG_INFO("HOBO universal: candidate %02X:%02X:%02X:%02X:%02X:%02X RSSI=%d%s", loggerMac[0], loggerMac[1], loggerMac[2],
              loggerMac[3], loggerMac[4], loggerMac[5], loggerBleRssi, loggerLockEnabled ? " LOCKED-TARGET" : "");
 
+    const uint32_t now = millis();
+    if (!requestHandshakeWake(now)) {
+        // A previous full wake budget failed. Do not begin a handshake that the
+        // main loop is intentionally allowed to sleep through.
+        resumeScanner();
+        return;
+    }
+
+    connectTimedOut = false;
+    connectAttemptStartedMs = now;
     connecting = true;
-    connectionAttemptCount++;
-    connectAttemptStartedMs = millis();
     Bluefruit.Scanner.stop();
 
     if (!Bluefruit.Central.connect(report)) {
         connecting = false;
         connectAttemptStartedMs = 0;
-        noteBleFailure("BLE connect request failed");
         LOG_WARN("HOBO universal: BLE connection request failed");
-        restoreNormalScan = true;
-        Bluefruit.Scanner.start(0);
+        requestHighDutyScanBurst();
+        scanRetryDueMs = millis() + SCAN_RETRY_MS;
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "connection request failed");
+        requestHoboLedPattern(HoboLedPattern::FAILURE_RED);
     }
 }
 
 void connectCallback(uint16_t connHandle)
 {
+    setupInProgress = true;
+    struct SetupGuard {
+        ~SetupGuard() { setupInProgress = false; }
+    } setupGuard;
+    if (!connecting || recoveryPending || !Bluefruit.Central.connected(connHandle) ||
+        (loggerLockEnabled && memcmp(candidateAddrRaw, lockedAddrRaw, 6) != 0)) {
+        Bluefruit.disconnect(connHandle);
+        return;
+    }
+    connectionHandle = connHandle;
+    connected = true;
     connecting = false;
     connectAttemptStartedMs = 0;
-    connected = true;
-    connectionHandle = connHandle;
-    disconnectedSinceMs = 0;
+    connectTimedOut = false;
+    universalState = UniversalState::IDLE;
 
     delay(SERVICE_SETTLE_MS);
 
     bool serviceFound = false;
+    discoveryResponseSeen = false;
+    discoveryGattStatus = 0xFFFF;
+    discoveryServiceCount = 0;
     for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS; ++attempt) {
+        if (!Bluefruit.Central.connected(connHandle))
+            return;
         if (hoboService.discover(connHandle)) {
             serviceFound = true;
             break;
@@ -839,15 +1091,18 @@ void connectCallback(uint16_t connHandle)
     }
 
     if (!serviceFound) {
-        noteBleFailure("service discovery failed");
-        LOG_WARN("HOBO universal: service discovery failed");
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "service: rsp=%u gatt=%04X n=%u", discoveryResponseSeen.load(),
+                 discoveryGattStatus.load(), discoveryServiceCount.load());
+        LOG_WARN("HOBO universal: %s", lastBleFailure);
         rejectCurrentCandidate(TRANSIENT_RETRY_MS);
-        Bluefruit.disconnect(connHandle);
+        triggerBleRecovery(lastBleFailure);
         return;
     }
 
     bool characteristicFound = false;
     for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS; ++attempt) {
+        if (!Bluefruit.Central.connected(connHandle))
+            return;
         if (hoboCharacteristic.discover()) {
             characteristicFound = true;
             break;
@@ -857,15 +1112,16 @@ void connectCallback(uint16_t connHandle)
     }
 
     if (!characteristicFound) {
-        noteBleFailure("characteristic discovery failed");
-        LOG_WARN("HOBO universal: characteristic discovery failed");
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "characteristic discovery");
         rejectCurrentCandidate(TRANSIENT_RETRY_MS);
-        Bluefruit.disconnect(connHandle);
+        triggerBleRecovery(lastBleFailure);
         return;
     }
 
     bool notifyEnabled = false;
     for (uint8_t attempt = 1; attempt <= SERVICE_DISCOVERY_ATTEMPTS; ++attempt) {
+        if (!Bluefruit.Central.connected(connHandle))
+            return;
         if (hoboCharacteristic.enableNotify()) {
             notifyEnabled = true;
             break;
@@ -875,12 +1131,14 @@ void connectCallback(uint16_t connHandle)
     }
 
     if (!notifyEnabled) {
-        noteBleFailure("notification enable failed");
-        LOG_WARN("HOBO universal: notification enable failed");
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "notification enable");
         rejectCurrentCandidate(TRANSIENT_RETRY_MS);
-        Bluefruit.disconnect(connHandle);
+        triggerBleRecovery(lastBleFailure);
         return;
     }
+
+    if (!Bluefruit.Central.connected(connHandle) || recoveryPending)
+        return;
 
     loggerType = LoggerType::UNKNOWN;
     activeMetaProfile = MetaProfile::NONE;
@@ -902,26 +1160,29 @@ void connectCallback(uint16_t connHandle)
     lastAutomaticTxMs = 0;
     automaticTxCount = 0;
 
+    bootstrapStartedMs = millis();
     universalState = UniversalState::SEND_INIT;
-    stateDueMs = millis() + 500;
-
-    connectionReadyCount++;
+    stateDueMs = bootstrapStartedMs + 500;
     LOG_INFO("HOBO universal: BLE command channel ready");
-    logMac("HOBO universal connected logger:", loggerMac);
 }
 
 void disconnectCallback(uint16_t connHandle, uint8_t reason)
 {
-    (void)connHandle;
+    if (connHandle != connectionHandle)
+        return;
+    const uint32_t now = millis();
+    const bool hadVerifiedHandshake = haveStatusBaseline;
+    recoveryPending = false;
+    requestHighDutyScanBurst();
+    scanRetryDueMs = now + TRANSIENT_RETRY_MS;
 
     LOG_WARN("HOBO universal: disconnected reason=0x%02X", reason);
 
     connected = false;
     connecting = false;
-    disconnectedSinceMs = millis();
-    restoreNormalScan = true;
     connectAttemptStartedMs = 0;
     connectionHandle = BLE_CONN_HANDLE_INVALID;
+    bootstrapStartedMs = 0;
     loggerType = LoggerType::UNKNOWN;
     activeMetaProfile = MetaProfile::NONE;
     readPurpose = ReadPurpose::PROBE;
@@ -947,32 +1208,39 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason)
         readRequestPending = false;
         readFailureReplyPending = (readRequester != 0);
     }
+
+    // A healthy link that later drops gets a fresh bounded reconnect window.
+    // Failed handshakes keep their original deadline or cooldown.
+    if (hadVerifiedHandshake)
+        requestHandshakeWake(now);
 }
 
 void triggerBleRecovery(const char *reason)
 {
-    bleRecoveryCycles++;
-    noteBleFailure(reason);
-    LOG_ERROR("HOBO universal: BLE recovery cycle %u: %s", bleRecoveryCycles, reason ? reason : "unspecified");
-
+    requestHoboLedPattern(HoboLedPattern::FAILURE_RED);
+    concurrency::LockGuard guard(&bleLifecycleLock);
+    if (bleRecoveryCycles < UINT8_MAX)
+        bleRecoveryCycles++;
+    if (reason != lastBleFailure)
+        snprintf(lastBleFailure, sizeof(lastBleFailure), "%s", reason ? reason : "BLE failure");
+    LOG_WARN("HOBO universal: BLE recovery %u: %s", bleRecoveryCycles, lastBleFailure);
     if (connected && connectionHandle != BLE_CONN_HANDLE_INVALID) {
+        recoveryPending = true;
         Bluefruit.disconnect(connectionHandle);
     } else if (connecting) {
-        (void)sd_ble_gap_connect_cancel();
+        const uint32_t status = sd_ble_gap_connect_cancel();
+        if (status != NRF_SUCCESS && status != NRF_ERROR_INVALID_STATE) {
+            LOG_ERROR("HOBO universal: connect cancel error %lu", static_cast<unsigned long>(status));
+            return;
+        }
         connecting = false;
         connectAttemptStartedMs = 0;
+        connectTimedOut = false;
     }
-
     universalState = UniversalState::IDLE;
     statusTrackingAvailable = false;
-
-#if defined(FIELD_RECOVERY_V2)
-    if (bleRecoveryCycles >= 5) {
-        LOG_ERROR("HOBO universal: BLE recovery exhausted; tripping field watchdog");
-        nrf52FieldDiagEvent(2, 3, bleRecoveryCycles);
-        nrf52FieldWatchdogTrip();
-    }
-#endif
+    requestHighDutyScanBurst();
+    scanRetryDueMs = millis() + SCAN_RETRY_MS;
 }
 
 void initializeClient()
@@ -980,30 +1248,31 @@ void initializeClient()
     LOG_INFO("HOBO universal bridge: MX2001 + MX2201 + MX2203");
 
     loadLoggerLock();
+    loadLoggerIdentity();
     loadAutomaticBleResetMinutes();
-    bleHealthTimerStartMs = millis();
+    initializeHoboHardwareResetGuard();
+    bleHealthStartedMs = millis();
 
     hoboService.begin();
     hoboCharacteristic.setNotifyCallback(notifyCallback);
     hoboCharacteristic.begin(&hoboService);
 
+    Bluefruit.setEventCallback(bleEventCallback);
     Bluefruit.Central.setConnectCallback(connectCallback);
     Bluefruit.Central.setDisconnectCallback(disconnectCallback);
 
     Bluefruit.Scanner.setRxCallback(scanCallback);
     Bluefruit.Scanner.restartOnDisconnect(false);
-    // Passive 10% duty scan; the HOBO state machine is the sole owner of scanner lifecycle.
-    Bluefruit.Scanner.setInterval(320, 32);
-    Bluefruit.Scanner.useActiveScan(false);
 
     initialized = true;
 
-    lastScanRefreshMs = millis();
-    disconnectedSinceMs = millis();
-    if (!Bluefruit.Scanner.start(0)) {
-        noteBleFailure("initial scanner start failed");
-        LOG_WARN("HOBO universal: scanner failed to start");
-    }
+    const uint32_t now = millis();
+    requestHandshakeWake(now);
+    highDutyScanActive = true;
+    lastScanBurstMs = now;
+    scanBurstUntilMs = now + HIGH_DUTY_SCAN_MS;
+    scanRestartRequested = true;
+    restartScanner(now);
 }
 
 MetaProfile preferredMetaProfile()
@@ -1063,6 +1332,10 @@ const uint8_t *meta8Command(size_t &length)
 HOBOMX2001MX2201MX2203TelemetryModule::HOBOMX2001MX2201MX2203TelemetryModule()
     : SinglePortModule("HOBOMX2001MX2201MX2203", meshtastic_PortNum_PRIVATE_APP), concurrency::OSThread("HOBOMX2001MX2201MX2203")
 {
+    // Claim wake during module creation, before the first idle-loop sleep. USB
+    // serial was already doing this from boot; waiting until runOnce() left a
+    // 15-second battery-mode gap before the original wake request.
+    requestHandshakeWake(millis());
     isPromiscuous = true;
     setIntervalFromNow(500);
 }
@@ -1087,153 +1360,191 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
     if (mp.to != ourNode || mp.from == ourNode)
         return ProcessMessage::CONTINUE;
 
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "BLE RESET STATUS")) {
-        char reply[155] = {};
+    char recoveryCommand[40] = {};
+    const size_t recoveryLength = mp.decoded.payload.size < sizeof(recoveryCommand) - 1
+                                      ? mp.decoded.payload.size
+                                      : sizeof(recoveryCommand) - 1;
+    memcpy(recoveryCommand, mp.decoded.payload.bytes, recoveryLength);
+    char *recoveryStart = recoveryCommand;
+    while (isspace(static_cast<unsigned char>(*recoveryStart)))
+        ++recoveryStart;
+    if (*recoveryStart == '/')
+        ++recoveryStart;
+    for (char *p = recoveryStart; *p; ++p)
+        *p = static_cast<char>(toupper(static_cast<unsigned char>(*p)));
+
+    if (strcmp(recoveryStart, "HOBO RESTART") == 0) {
+        manualBleRestartPending.store(true);
+        sendTextReply(mp.from, mp.channel,
+                      "HOBO RESTART queued: central link will reset; mesh and logger lock stay intact.");
+        setIntervalFromNow(10);
+        return ProcessMessage::CONTINUE;
+    }
+
+    if (strcmp(recoveryStart, "BLE RESET STATUS") == 0) {
+        char reply[180] = {};
+        const uint32_t now = millis();
         snprintf(reply, sizeof(reply),
-                 "BLE RESET: %um (OFF=0); first after 15m stale STATUS. Auto resets:%lu total:%lu",
-                 static_cast<unsigned int>(automaticBleResetMinutes.load()),
+                 "BLE RESET: %um (OFF=0); STATUS:%u age:%lus soft:%lu hard:%s",
+                 static_cast<unsigned int>(automaticBleResetMinutes.load()), lastGoodStatusMs ? 1U : 0U,
+                 static_cast<unsigned long>(lastGoodStatusMs ? (now - lastGoodStatusMs) / 1000UL : 0UL),
                  static_cast<unsigned long>(automaticBleResetCount),
-                 static_cast<unsigned long>(totalBleOnlyResetCount));
+                 hoboHardwareResetAlreadyUsed() ? "used" : "available");
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
-    char recoveryArgument[32] = {};
-    if (parseBleResetAutoCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, recoveryArgument)) {
+    static constexpr const char BLE_RESET_AUTO[] = "BLE RESET AUTO";
+    if (strncmp(recoveryStart, BLE_RESET_AUTO, sizeof(BLE_RESET_AUTO) - 1) == 0 &&
+        (recoveryStart[sizeof(BLE_RESET_AUTO) - 1] == '\0' || recoveryStart[sizeof(BLE_RESET_AUTO) - 1] == ' ')) {
+        const char *argument = recoveryStart + sizeof(BLE_RESET_AUTO) - 1;
+        while (*argument == ' ')
+            ++argument;
         const uint16_t current = automaticBleResetMinutes.load();
-        if (recoveryArgument[0] == '\0') {
-            char reply[130] = {};
-            snprintf(reply, sizeof(reply), "BLE RESET AUTO: %um; first stale reset at 15m; 0=OFF; range 15-720m",
+        if (*argument == '\0') {
+            char reply[140] = {};
+            snprintf(reply, sizeof(reply),
+                     "BLE RESET AUTO: %um; first after 15m stale STATUS; 0=OFF; range 15-720m",
                      static_cast<unsigned int>(current));
             sendTextReply(mp.from, mp.channel, reply);
             return ProcessMessage::CONTINUE;
         }
 
         uint16_t requested = 0;
-        bool valid = !strcmp(recoveryArgument, "OFF") || !strcmp(recoveryArgument, "0");
+        bool valid = strcmp(argument, "OFF") == 0 || strcmp(argument, "0") == 0;
         if (!valid) {
             char *end = nullptr;
-            const long parsed = strtol(recoveryArgument, &end, 10);
-            valid = end && *end == '\0' && parsed >= 15 && parsed <= 720;
+            const long parsed = strtol(argument, &end, 10);
+            valid = end != nullptr && *end == '\0' && parsed >= 15 && parsed <= 720;
             if (valid)
                 requested = static_cast<uint16_t>(parsed);
         }
         if (!valid) {
-            sendTextReply(mp.from, mp.channel, "BLE RESET AUTO: use OFF or 15-720 minutes (example: BLE RESET AUTO 120)");
+            sendTextReply(mp.from, mp.channel,
+                          "BLE RESET AUTO: use OFF or 15-720 minutes (example: BLE RESET AUTO 120)");
             return ProcessMessage::CONTINUE;
         }
-        if (saveAutomaticBleResetMinutes(requested)) {
-            automaticBleResetMinutes.store(requested);
-            char reply[130] = {};
-            if (requested)
-                snprintf(reply, sizeof(reply), "BLE RESET AUTO saved: %u minutes; logger lock unchanged", static_cast<unsigned int>(requested));
-            else
-                snprintf(reply, sizeof(reply), "BLE RESET AUTO OFF saved; logger lock unchanged");
-            sendTextReply(mp.from, mp.channel, reply);
-        } else {
+        if (!saveAutomaticBleResetMinutes(requested)) {
             sendTextReply(mp.from, mp.channel, "BLE RESET AUTO: flash write failed; prior setting retained");
+            return ProcessMessage::CONTINUE;
         }
+        automaticBleResetMinutes.store(requested);
+        char reply[125] = {};
+        if (requested) {
+            snprintf(reply, sizeof(reply), "BLE RESET AUTO saved: %u minutes; logger lock unchanged",
+                     static_cast<unsigned int>(requested));
+        } else {
+            snprintf(reply, sizeof(reply), "BLE RESET AUTO OFF saved; logger lock unchanged");
+        }
+        sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "HOBO RESTART")) {
-        manualBleRestartPending.store(true);
-        sendTextReply(mp.from, mp.channel, "HOBO RESTART queued: BLE only; mesh and saved logger lock preserved");
-        setIntervalFromNow(10);
-        return ProcessMessage::CONTINUE;
-    }
-
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "BLE DIAG") ||
-        isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "HOBO STATUS")) {
+    if (strcmp(recoveryStart, "BLE DIAG") == 0 || strcmp(recoveryStart, "HOBO STATUS") == 0) {
+        char reply[220] = {};
         const uint32_t now = millis();
-        char out[215] = {};
-        snprintf(out, sizeof(out),
-                 "BLE 1/2 link:%u scan:%u fast:%u lock:%u\nadv:%lu target:%lu hobo:%lu\nconnect:%lu ready:%lu",
-                 static_cast<unsigned int>(Bluefruit.Central.connected()),
-                 Bluefruit.Scanner.isRunning() ? 1U : 0U, recoveryScanBurst ? 1U : 0U,
-                 loggerLockEnabled ? 1U : 0U,
-                 static_cast<unsigned long>(allAdvertisementCount),
-                 static_cast<unsigned long>(matchingAddressCount),
-                 static_cast<unsigned long>(hoboCandidateCount),
-                 static_cast<unsigned long>(connectionAttemptCount),
-                 static_cast<unsigned long>(connectionReadyCount));
-        sendTextReply(mp.from, mp.channel, out);
-        snprintf(out, sizeof(out),
-                 "BLE 2/2 status:%u age:%lus target:%u age:%lus\nscan:%lu recover:%u auto:%lu interval:%um last:%s",
-                 lastGoodStatusMs ? 1U : 0U,
-                 static_cast<unsigned long>(lastGoodStatusMs ? (now - lastGoodStatusMs) / 1000UL : 0),
-                 lastTargetAdvertisementMs ? 1U : 0U,
-                 static_cast<unsigned long>(lastTargetAdvertisementMs ? (now - lastTargetAdvertisementMs) / 1000UL : 0),
-                 static_cast<unsigned long>(scannerRestartCount),
-                 static_cast<unsigned int>(bleRecoveryCycles),
-                 static_cast<unsigned long>(automaticBleResetCount),
-                 static_cast<unsigned int>(automaticBleResetMinutes.load()),
+        snprintf(reply, sizeof(reply),
+                 "BLE link:%u scan:%u status:%u age:%lus\nrecover:%u soft:%lu hard:%s reset:%u last:%s",
+                 connected ? 1U : 0U, Bluefruit.Scanner.isRunning() ? 1U : 0U, lastGoodStatusMs ? 1U : 0U,
+                 static_cast<unsigned long>(lastGoodStatusMs ? (now - lastGoodStatusMs) / 1000UL : 0UL),
+                 static_cast<unsigned int>(bleRecoveryCycles), static_cast<unsigned long>(totalBleOnlyResetCount),
+                 hoboHardwareResetAlreadyUsed() ? "used" : "available", hardwareResetScheduled ? 1U : 0U,
                  lastBleFailure);
-        sendTextReply(mp.from, mp.channel, out);
+        sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
-    if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "AUTO STATUS")) {
+    if (strcmp(recoveryStart, "AUTO STATUS") == 0) {
         const uint32_t now = millis();
-        char out[170] = {};
-        snprintf(out, sizeof(out),
-                 "AUTO tracking:%u baseline:%u pointer:%08lX\nTX boot:%lu last_seen:%u age:%lus interval:%us",
+        char reply[180] = {};
+        snprintf(reply, sizeof(reply),
+                 "AUTO tracking:%u baseline:%u pointer:%08lX\nTX boot:%lu last:%u age:%lus interval:%us",
                  statusTrackingAvailable ? 1U : 0U, haveStatusBaseline ? 1U : 0U,
-                 static_cast<unsigned long>(lastWritePointer),
-                 static_cast<unsigned long>(totalAutomaticTxCount), lastAnyAutomaticTxMs ? 1U : 0U,
-                 static_cast<unsigned long>(lastAnyAutomaticTxMs ? (now - lastAnyAutomaticTxMs) / 1000UL : 0),
+                 static_cast<unsigned long>(lastWritePointer), static_cast<unsigned long>(automaticTxCount),
+                 lastAutomaticTxMs ? 1U : 0U,
+                 static_cast<unsigned long>(lastAutomaticTxMs ? (now - lastAutomaticTxMs) / 1000UL : 0UL),
                  static_cast<unsigned int>(loggerIntervalSeconds));
-        sendTextReply(mp.from, mp.channel, out);
+        sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
 
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "LOGGER")) {
         char reply[220] = {};
-        uint8_t targetHuman[6] = {};
-        if (loggerLockEnabled)
-            makeHumanMac(lockedAddrRaw, targetHuman);
-
-        if (!connected) {
-            if (loggerLockEnabled) {
-                snprintf(reply, sizeof(reply),
-                         "HOBO NOT CONNECTED\nLock: ON\nTarget: %02X:%02X:%02X:%02X:%02X:%02X\nWaiting for target",
-                         targetHuman[0], targetHuman[1], targetHuman[2], targetHuman[3], targetHuman[4], targetHuman[5]);
-            } else {
-                snprintf(reply, sizeof(reply), "HOBO NOT CONNECTED\nLock: OFF");
-            }
-        } else if (loggerIntervalSeconds > 0) {
-            if (loggerLockEnabled) {
-                snprintf(reply, sizeof(reply),
-                         "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: %u sec\nLock: "
-                         "ON\nTarget: %02X:%02X:%02X:%02X:%02X:%02X",
-                         loggerTypeName(loggerType), loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4],
-                         loggerMac[5], loggerBleRssi, loggerIntervalSeconds, targetHuman[0], targetHuman[1], targetHuman[2],
-                         targetHuman[3], targetHuman[4], targetHuman[5]);
-            } else {
-                snprintf(
-                    reply, sizeof(reply),
-                    "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: %u sec\nLock: OFF",
-                    loggerTypeName(loggerType), loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4],
-                    loggerMac[5], loggerBleRssi, loggerIntervalSeconds);
-            }
+        uint8_t previousMac[6] = {};
+        makeHumanMac(lastVerifiedAddr, previousMac);
+        const bool identified = connected && loggerType != LoggerType::UNKNOWN && loggerType != LoggerType::UNSUPPORTED;
+        const char *stateName = recoveryPending ? "RECOVERING"
+                                : identified    ? "CONNECTED"
+                                : connected     ? "IDENTIFYING"
+                                : connecting    ? "CONNECTING"
+                                                : "SCANNING";
+        const char *modelName = identified ? loggerTypeName(loggerType) : "Not identified";
+        if (lastVerifiedType != LoggerType::UNKNOWN && !identified) {
+            snprintf(reply, sizeof(reply),
+                     "HOBO %s\nModel: %s\nLast verified: %s\nLast MAC: "
+                     "%02X:%02X:%02X:%02X:%02X:%02X\nLock: %s\nFailures: %u\nLast "
+                     "error: %s",
+                     stateName, modelName, loggerTypeName(lastVerifiedType), previousMac[0], previousMac[1], previousMac[2],
+                     previousMac[3], previousMac[4], previousMac[5], loggerLockEnabled ? "ON" : "OFF", bleRecoveryCycles,
+                     lastBleFailure);
         } else {
-            if (loggerLockEnabled) {
-                snprintf(reply, sizeof(reply),
-                         "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: detecting\nLock: "
-                         "ON\nTarget: %02X:%02X:%02X:%02X:%02X:%02X",
-                         loggerTypeName(loggerType), loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4],
-                         loggerMac[5], loggerBleRssi, targetHuman[0], targetHuman[1], targetHuman[2], targetHuman[3],
-                         targetHuman[4], targetHuman[5]);
-            } else {
-                snprintf(
-                    reply, sizeof(reply),
-                    "HOBO CONNECTED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: detecting\nLock: OFF",
-                    loggerTypeName(loggerType), loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4],
-                    loggerMac[5], loggerBleRssi);
-            }
+            snprintf(reply, sizeof(reply),
+                     "HOBO %s\nModel: %s\nTarget/Candidate: "
+                     "%02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nInterval: %u "
+                     "sec\nLock: %s\nLast error: %s",
+                     stateName, modelName, loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5],
+                     loggerBleRssi, loggerIntervalSeconds, loggerLockEnabled ? "ON" : "OFF", lastBleFailure);
         }
 
         sendTextReply(mp.from, mp.channel, reply);
+        return ProcessMessage::CONTINUE;
+    }
+
+    char lockCommand[40] = {};
+    const size_t commandLength =
+        mp.decoded.payload.size < sizeof(lockCommand) - 1 ? mp.decoded.payload.size : sizeof(lockCommand) - 1;
+    memcpy(lockCommand, mp.decoded.payload.bytes, commandLength);
+    for (char *c = lockCommand; *c; ++c)
+        *c = static_cast<char>(toupper(static_cast<unsigned char>(*c)));
+    char *commandStart = lockCommand;
+    while (isspace(static_cast<unsigned char>(*commandStart)))
+        commandStart++;
+    if (*commandStart == '/')
+        commandStart++;
+    if (strncmp(commandStart, "LOCK ", 5) == 0) {
+        unsigned int address[6] = {};
+        char extra = 0;
+        if (sscanf(commandStart + 5, "%2x:%2x:%2x:%2x:%2x:%2x %c", &address[0], &address[1], &address[2], &address[3],
+                   &address[4], &address[5], &extra) != 6) {
+            sendTextReply(mp.from, mp.channel, "LOCK format: LOCK AA:BB:CC:DD:EE:FF");
+            return ProcessMessage::CONTINUE;
+        }
+        uint8_t previous[6] = {};
+        memcpy(previous, lockedAddrRaw, 6);
+        const bool wasLocked = loggerLockEnabled;
+        for (uint8_t i = 0; i < 6; ++i)
+            lockedAddrRaw[5 - i] = static_cast<uint8_t>(address[i]);
+        loggerLockEnabled = true;
+        if (!saveLoggerLock()) {
+            memcpy(lockedAddrRaw, previous, 6);
+            loggerLockEnabled = wasLocked;
+            sendTextReply(mp.from, mp.channel, "LOCK failed: could not save target");
+            return ProcessMessage::CONTINUE;
+        }
+        sendTextReply(mp.from, mp.channel,
+                      "LOGGER TARGET SAVED\nModel will be verified after "
+                      "connection\nPersists after reboot");
+        if (memcmp(candidateAddrRaw, lockedAddrRaw, 6) != 0) {
+            haveRejectedAddr = false;
+            if (connected) {
+                recoveryPending = true;
+                if (!Bluefruit.disconnect(connectionHandle))
+                    LOG_ERROR("HOBO v5: target change disconnect failed");
+            } else if (connecting) {
+                triggerBleRecovery("target changed during connect");
+            }
+            scanRestartRequested = true;
+        }
         return ProcessMessage::CONTINUE;
     }
 
@@ -1255,7 +1566,9 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
         }
 
         char reply[150] = {};
-        snprintf(reply, sizeof(reply), "LOGGER LOCKED\nModel: %s\nMAC: %02X:%02X:%02X:%02X:%02X:%02X\nPersists after reboot",
+        snprintf(reply, sizeof(reply),
+                 "LOGGER LOCKED\nModel: %s\nMAC: "
+                 "%02X:%02X:%02X:%02X:%02X:%02X\nPersists after reboot",
                  loggerTypeName(loggerType), loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5]);
         sendTextReply(mp.from, mp.channel, reply);
         logLockTarget("HOBO universal: saved logger lock:");
@@ -1264,7 +1577,9 @@ ProcessMessage HOBOMX2001MX2201MX2203TelemetryModule::handleReceived(const mesht
 
     if (isCommand(mp.decoded.payload.bytes, mp.decoded.payload.size, "UNLOCK")) {
         clearLoggerLock();
-        sendTextReply(mp.from, mp.channel, "LOGGER UNLOCKED\nScanning any supported HOBO\nCurrent BLE link will be released");
+        sendTextReply(mp.from, mp.channel,
+                      "LOGGER UNLOCKED\nScanning any supported HOBO\nCurrent BLE "
+                      "link will be released");
 
         if (connected && connectionHandle != BLE_CONN_HANDLE_INVALID)
             Bluefruit.disconnect(connectionHandle);
@@ -1324,14 +1639,28 @@ bool HOBOMX2001MX2201MX2203TelemetryModule::sendTextReply(uint32_t destination, 
 int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 {
     const uint32_t now = millis();
+    serviceHoboLedPattern(now);
 
-    auto sendTemperatureTelemetry = [&](float temperatureC) -> bool {
+    // Device/battery telemetry is already a standard TELEMETRY_APP protobuf.
+    // Put HOBO measurements on that exact transport too. The protobuf oneof
+    // means DeviceMetrics and EnvironmentMetrics are separate packets, but
+    // they share the normal telemetry port, routing, serialization and gateway
+    // handling instead of relying on the fragile custom MX PRIVATE_APP path.
+    auto sendHoboTelemetry = [&](bool includeStage) -> bool {
         meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
         telemetry.time = getTime();
         telemetry.which_variant = meshtastic_Telemetry_environment_metrics_tag;
         telemetry.variant.environment_metrics = meshtastic_EnvironmentMetrics_init_zero;
         telemetry.variant.environment_metrics.has_temperature = true;
-        telemetry.variant.environment_metrics.temperature = temperatureC;
+        telemetry.variant.environment_metrics.temperature = latestTemperatureC;
+        if (includeStage) {
+            // Meshtastic EnvironmentMetrics defines distance in millimetres.
+            // For an MX2001 we intentionally carry its calibrated water stage
+            // in that standard numeric field; the gateway converts it back to
+            // feet for the watershed database.
+            telemetry.variant.environment_metrics.has_distance = true;
+            telemetry.variant.environment_metrics.distance = latestStageFeet * 304.8f;
+        }
 
         if (nodeDB != nullptr) {
             nodeDB->updateTelemetry(nodeDB->getNodeNum(), telemetry, RX_SRC_LOCAL);
@@ -1358,67 +1687,17 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         packet->channel = 0;
         packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
 
-        LOG_INFO("HOBO universal TELEMETRY TX model=%s temp=%.2f C / %.2f F logger=%02X:%02X:%02X:%02X:%02X:%02X",
-                 loggerTypeName(loggerType), temperatureC, latestTemperatureF, loggerMac[0], loggerMac[1], loggerMac[2],
-                 loggerMac[3], loggerMac[4], loggerMac[5]);
-
-        service->sendToMesh(packet, RX_SRC_LOCAL, true);
-        return true;
-    };
-
-    auto sendMX2001MeasurementPacket = [&]() -> bool {
-        meshtastic_MeshPacket *packet = allocDataPacket();
-        if (packet == nullptr) {
-            LOG_WARN("HOBO universal: MX2001 packet allocation failed");
-            return false;
+        if (includeStage) {
+            LOG_INFO("HOBO universal TELEMETRY TX model=MX2001 stage=%.2f ft distance=%.0f mm temp=%.2f C / %.2f F "
+                     "logger=%02X:%02X:%02X:%02X:%02X:%02X",
+                     latestStageFeet, telemetry.variant.environment_metrics.distance, latestTemperatureC, latestTemperatureF,
+                     loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5]);
+        } else {
+            LOG_INFO("HOBO universal TELEMETRY TX model=%s temp=%.2f C / %.2f F "
+                     "logger=%02X:%02X:%02X:%02X:%02X:%02X",
+                     loggerTypeName(loggerType), latestTemperatureC, latestTemperatureF, loggerMac[0], loggerMac[1],
+                     loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5]);
         }
-
-        int32_t stageScaled = static_cast<int32_t>(lroundf(latestStageFeet * 10.0f));
-        int32_t tempScaled = static_cast<int32_t>(lroundf(latestTemperatureF * 10.0f));
-
-        if (stageScaled < -32768)
-            stageScaled = -32768;
-        if (stageScaled > 32767)
-            stageScaled = 32767;
-        if (tempScaled < -32768)
-            tempScaled = -32768;
-        if (tempScaled > 32767)
-            tempScaled = 32767;
-
-        const int16_t stageTenths = static_cast<int16_t>(stageScaled);
-        const int16_t tempTenths = static_cast<int16_t>(tempScaled);
-        const uint16_t stageBits = static_cast<uint16_t>(stageTenths);
-        const uint16_t tempBits = static_cast<uint16_t>(tempTenths);
-        const uint16_t raw16 = static_cast<uint16_t>(latestTemperatureRaw & 0xFFFFU);
-
-        measurementSequence++;
-        uint8_t *payload = packet->decoded.payload.bytes;
-
-        payload[0] = 'M';
-        payload[1] = 'X';
-        payload[2] = 1;
-        payload[3] = 0x03;
-        payload[4] = static_cast<uint8_t>(measurementSequence & 0xFF);
-        payload[5] = static_cast<uint8_t>((measurementSequence >> 8) & 0xFF);
-        payload[6] = static_cast<uint8_t>(stageBits & 0xFF);
-        payload[7] = static_cast<uint8_t>((stageBits >> 8) & 0xFF);
-        payload[8] = static_cast<uint8_t>(tempBits & 0xFF);
-        payload[9] = static_cast<uint8_t>((tempBits >> 8) & 0xFF);
-        payload[10] = static_cast<uint8_t>(raw16 & 0xFF);
-        payload[11] = static_cast<uint8_t>((raw16 >> 8) & 0xFF);
-        memcpy(&payload[12], loggerMac, 6);
-        payload[18] = static_cast<uint8_t>(loggerBleRssi);
-
-        packet->decoded.payload.size = 19;
-        packet->decoded.portnum = meshtastic_PortNum_PRIVATE_APP;
-        packet->decoded.want_response = false;
-        packet->to = NODENUM_BROADCAST;
-        packet->channel = 0;
-        packet->priority = meshtastic_MeshPacket_Priority_RELIABLE;
-
-        LOG_INFO("HOBO universal MX2001 TX sequence=%u level=%.1f ft temp=%.1f F logger=%02X:%02X:%02X:%02X:%02X:%02X",
-                 measurementSequence, stageTenths / 10.0f, tempTenths / 10.0f, loggerMac[0], loggerMac[1], loggerMac[2],
-                 loggerMac[3], loggerMac[4], loggerMac[5]);
 
         service->sendToMesh(packet, RX_SRC_LOCAL, true);
         return true;
@@ -1426,10 +1705,10 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 
     auto sendAutomaticMeasurement = [&]() -> bool {
         if (loggerType == LoggerType::MX2001 && measurementHasStage)
-            return sendMX2001MeasurementPacket();
+            return sendHoboTelemetry(true);
 
         if (loggerType == LoggerType::MX2201 || loggerType == LoggerType::MX2203)
-            return sendTemperatureTelemetry(latestTemperatureC);
+            return sendHoboTelemetry(false);
 
         return false;
     };
@@ -1442,86 +1721,99 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         return 500;
     }
 
+    if (serviceHandshakeWake(now)) {
+        if (connected || connecting)
+            triggerBleRecovery("handshake awake budget expired");
+        return 500;
+    }
+
     if (readFailureReplyPending && readRequester != 0) {
         sendTextReply(readRequester, readChannel, "HOBO READ failed");
         readFailureReplyPending = false;
         readRequester = 0;
     }
 
-    // A good STATUS reply is the health signal, not scanner=SCANNING or
-    // an intact LoRa link. Never disturb an actively healthy logger.
+    // Do not mistake a scanner that claims to be running, an advertisement, or
+    // a regular battery packet for a working HOBO link. The module advances its
+    // health clock only after an actual STATUS response below.
     const uint16_t resetMinutes = automaticBleResetMinutes.load();
-    const bool unhealthyFor15Min = bleHealthTimerStartMs != 0 &&
-                                   (uint32_t)(now - bleHealthTimerStartMs) >= FIRST_DEEP_BLE_RECOVERY_MS;
-    const bool timedRecoveryDue = resetMinutes != 0 && unhealthyFor15Min &&
+    const bool unhealthyFor15Minutes =
+        bleHealthStartedMs != 0 && !Throttle::isWithinTimespanMs(bleHealthStartedMs, FIRST_DEEP_BLE_RECOVERY_MS);
+    const bool timedRecoveryDue = resetMinutes != 0 && unhealthyFor15Minutes &&
                                   (!automaticBleResetPreviouslyAttempted ||
-                                   (uint32_t)(now - lastAutomaticBleResetMs) >=
-                                       (static_cast<uint32_t>(resetMinutes) * 60000UL));
-    bool autoRecoveryNow = false;
+                                   !Throttle::isWithinTimespanMs(
+                                       lastAutomaticBleResetMs, static_cast<uint32_t>(resetMinutes) * 60000UL));
+    bool automaticRecoveryNow = false;
     if (timedRecoveryDue) {
         if (autoBleResetDeferredSinceMs == 0)
             autoBleResetDeferredSinceMs = now;
-        const bool readBusy = readRequestInProgress || readRequestPending ||
-                              universalState == UniversalState::SEND_READ ||
+        const bool readBusy = readRequestInProgress || readRequestPending || universalState == UniversalState::SEND_READ ||
                               universalState == UniversalState::WAIT_READ;
-        autoRecoveryNow = !readBusy ||
-                          (uint32_t)(now - autoBleResetDeferredSinceMs) >= DEFER_BLE_RESET_WHILE_READ_MS;
+        automaticRecoveryNow = !readBusy ||
+                               !Throttle::isWithinTimespanMs(autoBleResetDeferredSinceMs, DEFER_BLE_RESET_WHILE_READ_MS);
     } else {
         autoBleResetDeferredSinceMs = 0;
     }
 
-    // Both DM and automatic resets are executed by this single HOBO worker.
     const bool manualRecoveryNow = manualBleRestartPending.exchange(false);
-    if (manualRecoveryNow || autoRecoveryNow) {
-        if (autoRecoveryNow && !manualRecoveryNow) {
+    if (manualRecoveryNow || automaticRecoveryNow) {
+        if (automaticRecoveryNow && !manualRecoveryNow) {
             lastAutomaticBleResetMs = now;
             automaticBleResetPreviouslyAttempted = true;
             automaticBleResetCount++;
             nrf52FieldDiagEvent(2, 4, static_cast<uint16_t>(automaticBleResetCount));
-            LOG_WARN("HOBO V5: timed BLE-only reset %lu after %lu seconds without STATUS",
+            LOG_WARN("HOBO V5: BLE-only recovery %lu after %lu seconds without STATUS",
                      static_cast<unsigned long>(automaticBleResetCount),
-                     static_cast<unsigned long>((now - bleHealthTimerStartMs) / 1000UL));
+                     static_cast<unsigned long>((now - bleHealthStartedMs) / 1000UL));
         } else {
-            bleHealthTimerStartMs = now; // Grant 15 minutes after an operator intervention.
+            // A deliberate operator restart earns a fresh 15-minute health
+            // window, but does not touch the persistent logger assignment.
+            bleHealthStartedMs = now;
             automaticBleResetPreviouslyAttempted = false;
             lastAutomaticBleResetMs = 0;
         }
         autoBleResetDeferredSinceMs = 0;
         totalBleOnlyResetCount++;
-        bleRecoveryCycles = 0; // Planned recovery must not trip the failure watchdog.
-        noteBleFailure(manualRecoveryNow ? "manual HOBO RESTART" : "15m/periodic BLE reset");
-        disconnectedSinceMs = now;
-        restoreNormalScan = true;
-        haveRejectedAddr = false;
-        if (connected && connectionHandle != BLE_CONN_HANDLE_INVALID) {
-            Bluefruit.disconnect(connectionHandle); // BLE callback clears GATT state.
-        } else if (connecting) {
-            (void)sd_ble_gap_connect_cancel();
-            connecting = false;
-            connectAttemptStartedMs = 0;
-            universalState = UniversalState::IDLE;
-            statusReady = false;
-        } else {
-            universalState = UniversalState::IDLE;
-            statusReady = false;
-            refreshDisconnectedScanner(false); // No SoftDevice teardown; LoRa stays up.
-        }
+        triggerBleRecovery(manualRecoveryNow ? "operator requested HOBO RESTART" : "15m stale STATUS");
         return 500;
     }
 
-    if (!connected) {
-        if (connecting) {
-            if (connectAttemptStartedMs != 0 && reached(now, connectAttemptStartedMs + CONNECT_ATTEMPT_TIMEOUT_MS)) {
-                noteBleFailure("connect timed out");
-                LOG_ERROR("HOBO universal: BLE connect attempt timed out");
-                triggerBleRecovery("connect timeout");
-                if (!Bluefruit.Scanner.isRunning())
-                    Bluefruit.Scanner.start(0);
-            }
+    // BLE-only recovery did not revive the protocol. A complete watchdog reset
+    // recreates both the nRF52 SoftDevice central state and the LoRa/radio
+    // stack—the same class of reset that a successful field button/USB event
+    // supplied—without erasing configuration. One retained guard is allowed
+    // until a valid STATUS proves recovery, preventing a dead logger from
+    // continuously rebooting an otherwise useful relay.
+    if (automaticBleResetPreviouslyAttempted && lastAutomaticBleResetMs != 0 && !hardwareResetScheduled &&
+        !hoboHardwareResetAlreadyUsed() &&
+        !Throttle::isWithinTimespanMs(lastAutomaticBleResetMs, HARDWARE_RESET_GRACE_MS)) {
+        if (nrf52ScheduleWatchdogReset(3000UL)) {
+            markHoboHardwareResetUsed();
+            hardwareResetScheduled = true;
+            nrf52FieldDiagEvent(2, 5, bleRecoveryCycles);
+            LOG_ERROR("HOBO V5: stale STATUS survived BLE recovery; watchdog reset armed (settings retained)");
             return 500;
         }
+        LOG_WARN("HOBO V5: whole-node recovery already scheduled elsewhere");
+    }
 
+    if (setupInProgress || recoveryPending)
+        return 500;
+
+    if (!connected) {
+        if (connecting) {
+            if (connectTimedOut ||
+                (connectAttemptStartedMs != 0 && reached(now, connectAttemptStartedMs + CONNECT_ATTEMPT_TIMEOUT_MS)))
+                triggerBleRecovery("connect timeout");
+            return 500;
+        }
         serviceDisconnectedScanner(now);
+        return 500;
+    }
+
+    if (bootstrapStartedMs != 0 && !haveStatusBaseline &&
+        !Throttle::isWithinTimespanMs(bootstrapStartedMs, BOOTSTRAP_TIMEOUT_MS)) {
+        triggerBleRecovery("HOBO initialization deadline");
         return 500;
     }
 
@@ -1616,28 +1908,36 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             consecutiveReadTimeouts = 0;
             measurementReady = false;
 
-            LOG_INFO("HOBO universal: READ complete model=%s logger=%02X:%02X:%02X:%02X:%02X:%02X", loggerTypeName(loggerType),
-                     loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5]);
+            LOG_INFO("HOBO universal: READ complete model=%s "
+                     "logger=%02X:%02X:%02X:%02X:%02X:%02X",
+                     loggerTypeName(loggerType), loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4],
+                     loggerMac[5]);
 
             if (readPurpose == ReadPurpose::ON_DEMAND && readRequestInProgress) {
                 char reply[190] = {};
 
                 if (loggerType == LoggerType::MX2001 && measurementHasStage) {
                     snprintf(reply, sizeof(reply),
-                             "MX2001\nLogger: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nLevel: %.2f ft\nTemp: %.1f F",
+                             "MX2001\nLogger: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d "
+                             "dBm\nLevel: %.2f ft\nTemp: %.1f F",
                              loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5], loggerBleRssi,
                              latestStageFeet, latestTemperatureF);
                 } else if (loggerType == LoggerType::MX2201) {
-                    snprintf(reply, sizeof(reply), "MX2201\nLogger: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nTemp: %.1f F",
+                    snprintf(reply, sizeof(reply),
+                             "MX2201\nLogger: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d "
+                             "dBm\nTemp: %.1f F",
                              loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5], loggerBleRssi,
                              latestTemperatureF);
                 } else if (loggerType == LoggerType::MX2203) {
                     snprintf(reply, sizeof(reply),
-                             "MX2203\nLogger: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d dBm\nTemp: %.2f F / %.2f C", loggerMac[0],
-                             loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5], loggerBleRssi,
+                             "MX2203\nLogger: %02X:%02X:%02X:%02X:%02X:%02X\nBLE: %d "
+                             "dBm\nTemp: %.2f F / %.2f C",
+                             loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5], loggerBleRssi,
                              latestTemperatureF, latestTemperatureC);
                 } else {
-                    snprintf(reply, sizeof(reply), "HOBO read completed; model unknown\nLogger: %02X:%02X:%02X:%02X:%02X:%02X",
+                    snprintf(reply, sizeof(reply),
+                             "HOBO read completed; model unknown\nLogger: "
+                             "%02X:%02X:%02X:%02X:%02X:%02X",
                              loggerMac[0], loggerMac[1], loggerMac[2], loggerMac[3], loggerMac[4], loggerMac[5]);
                 }
 
@@ -1650,7 +1950,9 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
             }
 
             if (readPurpose == ReadPurpose::PROBE) {
-                LOG_INFO("HOBO universal: probe identified model=%s; automatic TX waits for logger STATUS pointer advance",
+                rememberLoggerIdentity();
+                LOG_INFO("HOBO universal: probe identified model=%s; automatic TX "
+                         "waits for logger STATUS pointer advance",
                          loggerTypeName(loggerType));
 
                 readPurpose = ReadPurpose::AUTOMATIC;
@@ -1664,7 +1966,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
 
             if (readPurpose == ReadPurpose::AUTOMATIC) {
                 if (!haveStatusBaseline || pendingWritePointer == lastWritePointer) {
-                    LOG_WARN("HOBO universal: suppressing automatic TX without a confirmed new logger pointer");
+                    LOG_WARN("HOBO universal: suppressing automatic TX without a "
+                             "confirmed new logger pointer");
                     nextStatusCheckMs = now + POINTER_FINE_POLL_MS;
                     universalState = UniversalState::READY;
                     break;
@@ -1678,14 +1981,12 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                     const uint32_t pointerToTxMs = pendingPointerDetectedMs == 0 ? 0 : now - pendingPointerDetectedMs;
 
                     automaticTxCount++;
-                    totalAutomaticTxCount++;
-                    lastAnyAutomaticTxMs = now;
                     lastAutomaticTxMs = now;
                     lastWritePointer = pendingWritePointer;
                     intervalPhaseLocked = true;
 
-                    LOG_INFO("HOBO universal AUTO TX confirmed count=%lu pointer=0x%08lX interval=%u sec pointer_to_tx=%lu ms "
-                             "cadence=%lu ms",
+                    LOG_INFO("HOBO universal AUTO TX confirmed count=%lu pointer=0x%08lX "
+                             "interval=%u sec pointer_to_tx=%lu ms cadence=%lu ms",
                              static_cast<unsigned long>(automaticTxCount), static_cast<unsigned long>(lastWritePointer),
                              loggerIntervalSeconds, static_cast<unsigned long>(pointerToTxMs),
                              static_cast<unsigned long>(cadenceMs));
@@ -1695,15 +1996,16 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                         const uint32_t driftMs = cadenceMs > expectedMs ? cadenceMs - expectedMs : expectedMs - cadenceMs;
 
                         if (driftMs > 2000) {
-                            LOG_WARN("HOBO universal AUTO TX cadence differs from logger interval by %lu ms (pointer-gated; no "
-                                     "duplicate generated)",
+                            LOG_WARN("HOBO universal AUTO TX cadence differs from logger interval "
+                                     "by %lu ms (pointer-gated; no duplicate generated)",
                                      static_cast<unsigned long>(driftMs));
                         }
                     }
 
                     nextStatusCheckMs = now + nextRecordPrecheckDelayMs();
                 } else {
-                    LOG_WARN("HOBO universal: automatic mesh enqueue failed; retaining pointer for retry");
+                    LOG_WARN("HOBO universal: automatic mesh enqueue failed; retaining "
+                             "pointer for retry");
                     nextStatusCheckMs = now + 1000;
                 }
 
@@ -1735,7 +2037,7 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 loggerType = LoggerType::UNSUPPORTED;
                 LOG_WARN("HOBO universal: unsupported NEWREAD64 response");
                 rejectCurrentCandidate();
-                Bluefruit.disconnect(connectionHandle);
+                triggerBleRecovery("unsupported logger response");
                 break;
             }
 
@@ -1760,7 +2062,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
         } else {
             consecutiveStatusTimeouts++;
             if (consecutiveStatusTimeouts >= STATUS_TIMEOUT_LIMIT) {
-                LOG_ERROR("HOBO universal: STATUS writes failed repeatedly; rebuilding BLE link");
+                LOG_ERROR("HOBO universal: STATUS writes failed repeatedly; rebuilding "
+                          "BLE link");
                 triggerBleRecovery("STATUS write failures");
             } else {
                 nextStatusCheckMs = now + 1000;
@@ -1772,23 +2075,31 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
     case UniversalState::WAIT_STATUS:
         if (statusReady) {
             statusReady = false;
+            // This is the sole positive health proof used by recovery. Do not
+            // reset this timer merely because a scan, connection, or LoRa
+            // packet happened.
             lastGoodStatusMs = now;
-            bleHealthTimerStartMs = now;
+            bleHealthStartedMs = now;
             automaticBleResetPreviouslyAttempted = false;
             lastAutomaticBleResetMs = 0;
             autoBleResetDeferredSinceMs = 0;
+            hardwareResetScheduled = false;
+            clearHoboHardwareResetGuard();
             consecutiveStatusTimeouts = 0;
             consecutiveReadTimeouts = 0;
             bleRecoveryCycles = 0;
+            snprintf(lastBleFailure, sizeof(lastBleFailure), "none");
             statusTrackingAvailable = true;
 
             if (!haveStatusBaseline) {
                 haveStatusBaseline = true;
                 lastWritePointer = currentWritePointer;
                 intervalPhaseLocked = false;
+                releaseHandshakeWake(true, now);
+                requestHoboLedPattern(HoboLedPattern::SUCCESS_RGB);
 
-                LOG_INFO("HOBO universal: status baseline model=%s pointer=0x%08lX interval=%u sec; syncing to next true record "
-                         "boundary",
+                LOG_INFO("HOBO universal: status baseline model=%s pointer=0x%08lX "
+                         "interval=%u sec; syncing to next true record boundary",
                          loggerTypeName(loggerType), static_cast<unsigned long>(lastWritePointer), loggerIntervalSeconds);
 
                 nextStatusCheckMs = now + POINTER_INITIAL_SYNC_POLL_MS;
@@ -1803,7 +2114,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 // Half the logger interval tolerates the 30 s observation jitter.
                 if (lastAutomaticTxMs != 0 && loggerIntervalSeconds > 0 &&
                     (now - lastAutomaticTxMs) < (static_cast<uint32_t>(loggerIntervalSeconds) * 500UL)) {
-                    LOG_WARN("HOBO universal: early pointer advance suppressed; waiting for next 30s STATUS");
+                    LOG_WARN("HOBO universal: early pointer advance suppressed; waiting "
+                             "for next 30s STATUS");
                     nextStatusCheckMs = now + HOBO_STATUS_POLL_MS;
                     universalState = UniversalState::READY;
                     break;
@@ -1812,7 +2124,8 @@ int32_t HOBOMX2001MX2201MX2203TelemetryModule::runOnce()
                 pendingPointerDetectedMs = now;
                 readPurpose = ReadPurpose::AUTOMATIC;
 
-                LOG_INFO("HOBO universal: new logger record model=%s old=0x%08lX new=0x%08lX interval=%u sec phase=%s",
+                LOG_INFO("HOBO universal: new logger record model=%s old=0x%08lX "
+                         "new=0x%08lX interval=%u sec phase=%s",
                          loggerTypeName(loggerType), static_cast<unsigned long>(lastWritePointer),
                          static_cast<unsigned long>(currentWritePointer), loggerIntervalSeconds,
                          intervalPhaseLocked ? "LOCKED" : "SYNCING");

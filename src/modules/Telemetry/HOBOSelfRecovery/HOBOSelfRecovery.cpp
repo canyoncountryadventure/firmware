@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "RAK HOBO SAFE V5";
+static constexpr char FIRMWARE_LABEL[] = "RAK HOBO SAFE V5.1";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -111,7 +111,8 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     }
 
     if (isCommand(payload, payloadSize, "VERSION")) {
-        snprintf(reply, sizeof(reply), "%s\nHW:%s\nSensors:%s\nHOBO:30s | BLE reset:15m/120m | SYS:12h | DFU:ON",
+        snprintf(reply, sizeof(reply),
+                 "%s\nHW:%s\nSensors:%s\nHOBO:30s | standard telemetry | BLE reset:15m/120m | SYS:12h | DFU:ON",
                  FIRMWARE_LABEL, platformName(), "HOBO MX2001/2201/2203");
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
@@ -180,13 +181,14 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
     if (isCommand(payload, payloadSize, "STATS")) {
         const auto *radio = RadioLibInterface::instance;
         snprintf(reply, sizeof(reply),
-                 "STATS: radio_recover=%lu/%lu tx=%lu last_tx=%lus cmd_reboots=%lu reset=0x%08lX",
+                 "STATS: radio_recover=%lu/%lu tx=%lu last_tx=%lus cmd_reboots=%lu reset=0x%08lX hobo_wake=%u hobo_hf=%u",
                  radio ? static_cast<unsigned long>(radio->radioRecoverySuccesses) : 0UL,
                  radio ? static_cast<unsigned long>(radio->radioRecoveryAttempts) : 0UL,
                  radio ? static_cast<unsigned long>(radio->txGood) : 0UL,
                  radio && radio->lastTxCompleteMs ? static_cast<unsigned long>((millis() - radio->lastTxCompleteMs) / 1000UL) : 0UL,
                  static_cast<unsigned long>(commandRecoveryCount),
-                 static_cast<unsigned long>(resetReasonAtBoot));
+                 static_cast<unsigned long>(resetReasonAtBoot), nrf52HoboHandshakeAwake() ? 1U : 0U,
+                 nrf52HoboHandshakeHfclkRunning() ? 1U : 0U);
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;
     }
@@ -260,8 +262,6 @@ int32_t HOBOSelfRecoveryModule::runOnce()
         return 5000;
 
     // Scanner and central-link lifecycle intentionally belong to the HOBO telemetry state machine.
-    // This supervisor only exposes diagnostics/commands; exhausted BLE/radio recovery trips the
-    // independent field watchdog channel in the owning subsystem.
     return SUPERVISOR_INTERVAL_MS;
 }
 
