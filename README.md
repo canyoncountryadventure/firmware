@@ -78,17 +78,18 @@ LOGGER
 
 `HOBO RESTART` is **non-destructive**. It does not unlock a logger, erase data, or reboot the LoRa radio. `DIAG` in the old V4 module remains a local-serial diagnostic; use **BLE DIAG** for the new remote statistics.
 
-## Build and flash
+## Install and drone update
 
-The separate `build_hobo_v5.yml` GitHub Actions workflow builds `seeed_xiao_nrf52840_kit` and publishes after successful compilation:
+| Package | Goes on | Use |
+|---|---|---|
+| [USB UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-04.uf2) | This Chew can field node | USB bootloader installation or recovery |
+| [Nordic OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-04-OTA.zip) | This Chew can field node | Phone BLE update; select the unopened ZIP in Nordic nRF Connect |
+| [Dated Drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v5-2026-11-05.uf2) | Separate drone RAK4631 | Autonomous BLE update of a nearby Chew can HOBO Safe V5.1 target |
+| [Target build manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-04-BUILD.txt) and [Scout manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/Remote-Drone-Flashing-v2/downloads/Drone-Seeed-HOBO-Safe-v5-2026-11-05.uf2.txt) | Bench checklist | The target commit and OTA SHA-256 must match |
 
-- [Nordic DFU OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-04-OTA.zip)
-- [USB UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-04.uf2)
-- [SHA256 and source commit](https://raw.githubusercontent.com/canyoncountryadventure/firmware/field-self-recovery/downloads/Seeed-HOBO-Safe-v5-2026-11-04-BUILD.txt)
+The Drone Scout UF2 does **not** go on this Chew can. It belongs on the separate RAK4631 BLE flasher. Load it on the Scout, put the Scout near the field node, then direct-message the target `DFU`.
 
-**The links are valid only after GitHub Actions successfully publishes the artifacts.** Do not distribute or flash an unverified file. This is the normal field-node firmware, not the autonomous drone Scout image; no matching V5 drone Scout artifact has been produced.
-
-Do not unzip the OTA ZIP before selecting it in Nordic nRF Connect. Test on one disconnected station first; validate LOGGER matching, BLE reconnection, sensor readings, automatic telemetry across a real logger record boundary, and a complete sleep/wake or day/night cycle before wider deployment.
+Do not unzip the Nordic OTA ZIP before selecting it in nRF Connect. Test one accessible disconnected station first; validate `LOGGER`, BLE reconnection, a real automatic telemetry record, and one full drone DFU cycle before relying on it for an inaccessible node.
 
 ## Limits and recovery policy
 
