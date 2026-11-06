@@ -1,0 +1,14 @@
+Scout flasher: Drone-RAK-HOBO-Safe-v5-2026-11-05.uf2
+Scout board: RAK4631
+Embedded target: RAK-HOBO-Safe-v5
+Target branch: RAK-HOBO-Safe-v5
+Target source commit: a91eb63c94d71ca4eecedafccbdc11ea147d1542
+Target environment: rak4631
+Target OTA ZIP SHA-256: 9ce2c175b0b8c83f303aba60d424772403a63b7a052cdc6a52636886c16c2f46
+Target catalog commit: bf2c9ccdfa639596506f21b23ecaa1d7d75455ba
+Target OTA release date: 2026-11-05
+Drone source branch: Remote-Drone-Flashing-v2
+Drone source commit: 3a2ae2e6216bc313f88d35a80cb83dbd82d7b647
+Verified: nRF52840 UF2 + exact LZ4 application + Nordic init packet
+Scout UF2 bytes: 1392640
+dc54d80af529e010cc33a5cf49cb7579837152478f53f1c39b4e6c88799dcfa3  export/Drone-RAK-HOBO-Safe-v5-2026-11-05.uf2
