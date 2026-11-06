@@ -2,13 +2,13 @@ Scout flasher: Drone-Seeed-HOBO-Safe-v5-2026-11-05.uf2
 Scout board: RAK4631
 Embedded target: Seeed-HOBO-Safe-v5
 Target branch: Seeed-HOBO-Safe-v5
-Target source commit: d07061c29eadae1dbe007629836c2755a0cbd958
+Target source commit: 45281362e082f2a05d178364b1b035a11cc29c44
 Target environment: seeed_xiao_nrf52840_kit
-Target OTA ZIP SHA-256: d13e3020511d6fab4e10725c836f1beb0aea6830010b7ae123c7df073d9b700f
-Target catalog commit: bf2c9ccdfa639596506f21b23ecaa1d7d75455ba
+Target OTA ZIP SHA-256: 5003cee9ddcb01618a8f61a8888d996250538ce3951996dde1bbd396ec085c1d
+Target catalog commit: 29e832d1f9f79941e21c79a6ee6686a7715a6b49
 Target OTA release date: 2026-11-04
 Drone source branch: Remote-Drone-Flashing-v2
-Drone source commit: 3a2ae2e6216bc313f88d35a80cb83dbd82d7b647
+Drone source commit: 8927941d7f78c214e50e5a7646a1ade669855983
 Verified: nRF52840 UF2 + exact LZ4 application + Nordic init packet
 Scout UF2 bytes: 1338880
-91888fa7e45dde74e082b41384c72512bde25784671a28dfd063850e7229e9b5  export/Drone-Seeed-HOBO-Safe-v5-2026-11-05.uf2
+9d8bccd728ed82a44ca079265ab08938664d66f4b341d73ff2a7238478c22a69  export/Drone-Seeed-HOBO-Safe-v5-2026-11-05.uf2
