@@ -36,6 +36,7 @@ for token in (
     "BLE RESET AUTO",
     "HOBO RESTART",
     "AUTO STATUS",
+    "#if defined(HAS_RGB_LED) && !defined(RAK_4631)",
 ):
     assert token in SOURCE, token
 

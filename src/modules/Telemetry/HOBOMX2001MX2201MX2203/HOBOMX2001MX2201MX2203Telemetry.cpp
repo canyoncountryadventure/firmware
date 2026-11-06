@@ -12,7 +12,12 @@
 #include "SPILock.h"
 #include "main.h"
 #include "pb_encode.h"
-#if defined(HAS_RGB_LED)
+// The generic RAK build has an RGB-lighting class but does not expose the
+// temporary-lighting API used by the Seeed field build. Keep recovery LED
+// pulses where that API exists without making them part of the RAK protocol
+// or recovery path.
+#if defined(HAS_RGB_LED) && !defined(RAK_4631)
+#define HOBO_HAS_TEMPORARY_RGB_LIGHTING 1
 #include "AmbientLightingThread.h"
 extern AmbientLightingThread *ambientLightingThread;
 #endif
@@ -275,7 +280,7 @@ void serviceHoboLedPattern(uint32_t now)
     if (activeLedPattern == HoboLedPattern::NONE || !reached(now, nextLedTransitionMs))
         return;
 
-#if defined(HAS_RGB_LED)
+#if defined(HOBO_HAS_TEMPORARY_RGB_LIGHTING)
     if (ambientLightingThread != nullptr) {
         hoboLedOn = !hoboLedOn;
         if (hoboLedOn) {
@@ -291,7 +296,7 @@ void serviceHoboLedPattern(uint32_t now)
     if (ledTransitionsRemaining > 0)
         ledTransitionsRemaining--;
     if (ledTransitionsRemaining == 0) {
-#if defined(HAS_RGB_LED)
+#if defined(HOBO_HAS_TEMPORARY_RGB_LIGHTING)
         if (ambientLightingThread != nullptr)
             ambientLightingThread->restoreConfiguredLighting();
 #endif
