@@ -1,13 +1,17 @@
-# CCA Heltec Sensor Gateway V8
+# CCA Heltec Sensor Gateway V8.2
 
-**November 1, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
+**November 6, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | `heltec-v4`**
+
+### V8.1: standard HOBO telemetry compatibility
+
+RAK and Seeed HOBO V5.1 now send automatic MX2001 stage and temperature as normal Meshtastic `TELEMETRY_APP` environment metrics—the same standard transport family used by battery telemetry. For the known MX2001 stations only—**Pack Creek** `!742ecff5`, **Mill Creek** `!6459c5bf`, and **Matheson** `!77788479`—V8 recognizes a paired temperature plus `distance` field, converts stage millimetres back to feet, and uploads a normal `mx2001` observation with `payload.source="telemetry_app"`. It does not fabricate a logger MAC, raw temperature, sequence number, or BLE RSSI that the standard packet does not contain. Legacy private MX packets and manual `READ` replies remain supported unchanged.
 
 ### V8.1: standard HOBO telemetry compatibility
 
 RAK and Seeed HOBO V5.1 now send automatic MX2001 stage and temperature as normal Meshtastic `TELEMETRY_APP` environment metrics—the same standard transport family used by battery telemetry. For the known MX2001 stations only—**Pack Creek** `!742ecff5`, **Mill Creek** `!6459c5bf`, and **Matheson** `!77788479`—V8 recognizes a paired temperature plus `distance` field, converts stage millimetres back to feet, and uploads a normal `mx2001` observation with `payload.source="telemetry_app"`. It does not fabricate a logger MAC, raw temperature, sequence number, or BLE RSSI that the standard packet does not contain. Legacy private MX packets and manual `READ` replies remain supported unchanged.
 
 
-### Simple DM controls for rescue polling (V8)
+### V8.2: simple DM controls for rescue polling
 
 **These only change Heltec's missing-automatic fallback DMs.** Automatic radio transmissions, the gateway's sensor ingestion, temperature/stage measurement, relaying, and manual `POLL ...` DMs are unaffected. Send a direct message to Heltec from **any node ID** on the gateway's PKI or LongFast channel:
 
@@ -17,9 +21,10 @@ RAK and Seeed HOBO V5.1 now send automatic MX2001 stage and temperature as norma
 | `SOUTH COTTONWOOD OFF` | Stop Heltec rescue DMs to South Cottonwood; it relies only on its automatic transmission |
 | `AUTO !65165646 15 MIN` | Same South Cottonwood setting by numeric node ID |
 | `AUTO DM OFF` | Pause all automatic missing-reading rescue DMs; individual stations stay OFF until explicitly re-enabled |
-| `AUTO DM ON` | Resume rescue DMs for all monitored stations and clear individual pauses |
+| `AUTO DM ON` | Intentionally enable rescue DMs for all monitored stations and clear individual pauses |
 | `AUTO DM OFF MATHESON` | Exclude Matheson from rescue DMs; its normal AUTO transmissions continue |
 | `AUTO DM ON MATHESON` | Re-enable Matheson rescue DMs |
+| `AUTO DM ON MATHESON 180` | Re-enable Matheson and set its missing-AUTO rescue deadline to 180 minutes in one DM |
 | `AUTO DM ONLY MATHESON` | Permit rescue DMs **only** for Matheson |
 | `AUTO DM ON PACK CREEK` | Add Pack Creek to the allowed rescue group (both stage and HOBO) |
 | `AUTO DM STATUS` | Display global setting and paused stations |
@@ -27,19 +32,19 @@ RAK and Seeed HOBO V5.1 now send automatic MX2001 stage and temperature as norma
 | `AUTO DM INTERVAL MATHESON 30` | Rescue Matheson after 30 minutes without AUTO |
 | `AUTO DM INTERVAL PACK CREEK 20` | Rescue **both** Pack Creek sensor streams after 20 minutes |
 | `AUTO DM INTERVAL !65165646 10` | Rescue South Cottonwood after 10 minutes |
-| `AUTO DM INTERVAL MATHESON DEFAULT` | Reset Matheson to its original 60-minute default |
-| `AUTO DM INTERVAL ALL DEFAULT` | Restore all default intervals (15m Pack/Mill/CC01; 60m others) |
+| `AUTO DM INTERVAL MATHESON DEFAULT` | Reset Matheson to its 180-minute default |
+| `AUTO DM INTERVAL ALL DEFAULT` | Restore normal defaults: 60 minutes, except Matheson at 180 minutes |
 | `AUTO DM INTERVAL ALL 45` | Change all monitored station fallback deadlines to 45 minutes |
 
-`AUTO <station|node> <5..1440> MIN` and `<station|node> OFF` are the short forms. Station selectors accept Cottonwood/CC01/South Cottonwood, Matheson, Mill Creek/Power Dam, Pack Creek, Cottonwood Relay, Hidden Valley, Fishlake Hightop, Seed Relay, Thousand Lake Mountain, Mini Me, and numeric Meshtastic node IDs such as `!77788479`. The target must be one of the monitored sensor stations; battery-only relays remain excluded because there is no sensor to request. Adding an initial `DM ` to either short command is optional; the older `AUTO DM` and `FALLBACK` commands remain accepted. All settings persist through reboot.
+`AUTO <station|node> <5..1440> MIN` and `<station|node> OFF` are the short forms. `AUTO DM ON <station|node> <5..1440>` is the equivalent one-line form. Station selectors accept Cottonwood/CC01/South Cottonwood, Matheson, Mill Creek/Power Dam, Pack Creek, Cottonwood Relay, Hidden Valley, Fishlake Hightop, Seed Relay, Thousand Lake Mountain, Mini Me, and numeric Meshtastic node IDs such as `!77788479`. The target must be one of the monitored sensor stations; battery-only relays remain excluded because there is no sensor to request. Adding an initial `DM ` to either short command is optional; the older `AUTO DM` and `FALLBACK` commands remain accepted. All settings persist through reboot.
 
 ### Manual READ replies are also recorded
 
 When you send a direct `READ` or `WATER READ` from Heltec's Meshtastic app to a monitored station, an authentic, correctly formatted sensor reply **addressed to Heltec** is accepted for cloud ingestion even if Heltec did not originate the command through its internal `POLL` scheduler. This covers Mill Creek MX2001 replies, Pack Creek stage/HOBO replies, and supported temperature-only stations. The reply preserves its original source node and packet ID and carries `payload.source=heltec_dm`, so Vercel can distinguish manual DM readings from automatic sensor telemetry. Informational chat, `HOBO unavailable`, and malformed replies do not generate sensor readings. Only messages from known monitored nodes on the expected DM channel are eligible, and duplicate packets remain suppressed. Read-only `/json/gateway` diagnostics include `manual_dm_received`, `manual_dm_queued`, and `manual_dm_rejected`. Existing per-node AUTO rescue enable/disable settings still affect **rescue requests only**, not manual sensor replies.
 
-## V8: missing-automatic-telemetry rescue
+## V8.2: missing-automatic-telemetry rescue
 
-Heltec **does not** proactively poll Cottonwood or Matheson on a fixed schedule anymore. It listens for each station's own, correctly decoded automatic stage and temperature packets. **Pack Creek, Mill Creek, and South Cottonwood have 15-minute missing-AUTO thresholds; all other watched stations have 60-minute thresholds.** When a stream misses its deadline, Heltec requests only that sensor by encrypted DM once the LoRa request queue is free. Valid automatic packets reset their own sensor's freshness clock; battery-only and invalid stage packets do not. DM rescue replies are stored as `heltec_dm`, but do **not** reset the automatic telemetry clock. If AUTO stays missing, the next rescue cycle is held for that station's current default or DM-customized fallback interval. Maximum **three attempts** per rescue cycle, separated by 30 seconds, one node at a time and shared 3-second packet spacing. No infinite retries or unconditional reboots. These are **gateway fallback thresholds**, not changes to a field logger's transmission cadence.
+Heltec **does not** proactively poll Cottonwood or Matheson on a fixed schedule. It listens for each station's own, correctly decoded automatic stage and temperature packets. On a fresh V8.2 install—and once when an existing V8 gateway first starts V8.2—the only enabled fallback stations are **Pack Creek** (both streams), **Mill Creek**, **Cottonwood Relay**, and **Fishlake Hightop**. Each has a 60-minute missing-AUTO deadline. **Matheson begins OFF**; when you enable it, its default deadline is 180 minutes because its logger reports every three hours. South Cottonwood, Hidden Valley, Seed Relay 1, Thousand Lake Mountain, and Mini Me are also OFF until specifically enabled. When an enabled stream misses its deadline, Heltec requests only that sensor by encrypted DM once the LoRa request queue is free. Valid automatic packets reset their own sensor's freshness clock; battery-only and invalid stage packets do not. DM rescue replies are stored as `heltec_dm`, but do **not** reset the automatic telemetry clock. If AUTO stays missing, the next rescue cycle is held for that station's current default or DM-customized fallback interval. Maximum **three attempts** per rescue cycle, separated by 30 seconds, one node at a time and shared 3-second packet spacing. No infinite retries or unconditional reboots. These are **gateway fallback thresholds**, not changes to a field logger's transmission cadence.
 
 - **Pack Creek** `!742ecff5`: missing ultrasonic stage → `WATER READ`; missing HOBO MX2001 stage/temperature → `READ`, separately.
 - **South Cottonwood** `!65165646`: missing MB7388 stage → `WATER READ`. **No HOBO sensor; no HOBO DM.**
@@ -49,18 +54,18 @@ Heltec **does not** proactively poll Cottonwood or Matheson on a fixed schedule 
 
 Pack Creek SEN0313 DM stage is tagged as sensor type 3 (not MB7388 type 5). Sensor errors from other stations are never falsely recorded as South Cottonwood maintenance events.
 
-The 15-minute threshold applies independently to **both Pack Creek sensor streams** (SEN0313 stage and MX2001 stage/temperature), Mill Creek's MX2001, and South Cottonwood's MB7388. All other watched streams, including Matheson, remain at 60 minutes. `AUTO DM OFF`, `ON`, `ONLY`, and per-station pause commands retain precedence over these timings.
+Pack Creek's two streams remain independent: a missing ultrasonic packet requests `WATER READ`, while missing MX2001 stage/temperature requests `READ`. Their normal fallback deadlines are both 60 minutes. `AUTO DM OFF`, `ON`, `ONLY`, station-specific OFF, and a station-specific interval override retain precedence over the defaults.
 
 The remote node **must implement** its matching `READ` or `WATER READ` command for rescue to work; ordinary Meshtastic environment telemetry by itself doesn't guarantee that. V8 parses MX2001, MX2201 and MX2203 replies; no synthetic sensor values are generated. Automatic telemetry and battery packets still upload normally. Owner-authorized manual `POLL ...` commands remain available, but V7 recurring poll schedules are cleared once on V8 migration to prevent unnecessary DMs. V7 unconditional Cottonwood/Matheson polling is retired, even if an old interval override is saved.
 
-The read-only `http://192.168.1.147/json/gateway` diagnostic reports `firmware_fix: v8-dm-http-recovery-2026-11-01`, `auto_fallback.watched` per-stream timestamps/counters, Wi-Fi RSSI, the last HTTPS error and time, and Wi-Fi recovery counts. Two negative HTTPS transport failures force a Wi-Fi reconnect; if HTTPS remains negative for 15 minutes, the health supervisor reboots the gateway. HTTPS timeouts are 12 seconds. The V8 source/build branch is [Heltec-Gateway-v8](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v8). Builds are published into `downloads/Heltec-Gateway-v8/` **only after** tests and the ESP32-S3 build pass.
+The read-only `http://192.168.1.147/json/gateway` diagnostic reports `firmware_fix: v8.2-auto-fallback-policy-2026-11-06`, `auto_fallback.default_missing_minutes`, `auto_fallback.matheson_missing_minutes`, and per-stream `auto_fallback.watched` timestamps/counters, plus Wi-Fi RSSI, the last HTTPS error and recovery counts. Two negative HTTPS transport failures force a Wi-Fi reconnect; if HTTPS remains negative for 15 minutes, the health supervisor reboots the gateway. HTTPS timeouts are 12 seconds. The V8 source/build branch is [Heltec-Gateway-v8](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v8). Builds are published into `downloads/Heltec-Gateway-v8/` **only after** tests and the ESP32-S3 build pass.
 
-### VS Code PowerShell Wi-Fi OTA (after a verified V8 build)
+### VS Code PowerShell Wi-Fi OTA (after the verified V8.2 build)
 
 ```powershell
 $ip = "192.168.1.147"
-$fw = "C:\\HeltecUpdate\\Heltec-Gateway-v8-11-01-26.bin"
-Invoke-WebRequest "https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v8/downloads/Heltec-Gateway-v8/Heltec-Gateway-v8-11-01-26.bin" -OutFile $fw
+$fw = "C:\\HeltecUpdate\\Heltec-Gateway-v8-11-06-26.bin"
+Invoke-WebRequest "https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v8/downloads/Heltec-Gateway-v8/Heltec-Gateway-v8-11-06-26.bin" -OutFile $fw
 py -m meshtastic --host $ip --ota-update $fw
 Invoke-RestMethod "http://$ip/json/gateway" | ConvertTo-Json -Depth 6
 ```

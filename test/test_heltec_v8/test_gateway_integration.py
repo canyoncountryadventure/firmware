@@ -27,9 +27,11 @@ assert "cc01NextConfigMs=now+120000UL" in poller or "cc01NextConfigMs = now + 12
 assert "const uint8_t i = order == 0 ? AUTO_FALLBACK_POLL_SLOT : order - 1;" in poller
 assert "REPLY_TIMEOUT_MS = 30000UL" in policy
 assert "MISSING_AUTO_MS = 60UL * 60UL * 1000UL" in policy
-assert "FAST_MISSING_AUTO_MS = 15UL * 60UL * 1000UL" in policy
+assert "MATHESON_MISSING_AUTO_MS = 3UL * 60UL * 60UL * 1000UL" in policy
+assert "DEFAULT_ENABLED_MASK" in policy
+assert "applyStationDefaults" in policy
 assert "static_cast<uint32_t>(intervalMinutes(index)) * 60000UL" in policy
-for station in ("1949224949UL", "1683604927UL", "1695962694UL"):
+for station in ("1949224949UL", "1683604927UL", "2425602407UL", "1577197109UL"):
     assert station in policy
 assert "CONFIGURED_POLL_SLOTS = CONFIGURED_POLL_PERSISTENT_SLOTS + 2" in header
 assert "v8_fallback" in gateway
@@ -52,13 +54,14 @@ assert 'return minutes >= 5 && minutes <= 1440;' in poller
 assert 'DM AUTO <station|node> <5..1440> MIN' in poller
 assert 'DM target is not a monitored station' in poller
 assert 'operation == "ONLY"' in poller
-assert 'AUTO DM STATUS' in poller
+assert 'operation == "STATUS"' in poller
 assert 'autoFallback.nodeEnabled(fallback.node)' in poller
 assert 'if (!isEnabled(index)) return false;' in policy
 assert 'HTTPS_TRANSPORT_RECOVERY_FAILURES = 2' in header
 assert 'WiFi.reconnect();' in gateway
 assert 'last_http_error' in gateway
-assert 'v8-dm-http-recovery-2026-11-01' in gateway
+assert 'v8.2-auto-fallback-policy-2026-11-06' in gateway
+assert 'v9_fallback_defaults' in gateway
 
 assert 'autoFallback.intervalOverridesMinutes.data()' in gateway
 assert 'getBytesLength("auto_dm_int")' in gateway
@@ -69,6 +72,8 @@ assert 'autoFallback.setNodeIntervalMinutes(selected, minutes)' in poller
 assert 'autoFallback.setAllIntervalMinutes(minutes)' in poller
 assert 'String(autoFallback.nodeIntervalMinutes(node))' in poller
 assert 'intervalMinutes(index)) * 60000UL' in policy
+assert 'if (operation == "ON" && !target.isEmpty())' in poller
+assert 'onIntervalMinutes' in poller
 
 for station in ('"COTTONWOOD RELAY"', '"HIDDEN VALLEY"', '"FISHLAKE HIGHTOP"', '"SEED RELAY"', '"THOUSAND LAKE MOUNTAIN"', '"MINI ME"'):
     assert station in poller

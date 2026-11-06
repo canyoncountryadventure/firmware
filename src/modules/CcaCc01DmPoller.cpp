@@ -673,6 +673,7 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         bool valid = true;
         bool persist = false;
         uint32_t node = 0;
+        uint16_t onIntervalMinutes = 0;
         if (operation == "INTERVAL") {
             // AUTO DM INTERVAL <station|ALL> <5..1440|DEFAULT>
             // This is a missing-AUTO watchdog deadline, not the remote
@@ -715,6 +716,28 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
             sendCc01Text(getFrom(&mp), reply.c_str());
             return;
         }
+        // Consume a final interval only when the remaining text is a known node.
+        // This preserves station names such as "SEED RELAY 1".
+        if (operation == "ON" && !target.isEmpty()) {
+            const String originalTarget = target;
+            String minutesText = popPollToken(target);
+            if (minutesText == "MIN" || minutesText == "MINS" ||
+                minutesText == "MINUTE" || minutesText == "MINUTES") {
+                minutesText = popPollToken(target);
+            }
+            char *end = nullptr;
+            const char *number = minutesText.c_str();
+            const unsigned long n = *number >= '0' && *number <= '9'
+                ? strtoul(number, &end, 10) : 0;
+            const bool numeric = end && end != number && *end == '\0' && n <= 1440 &&
+                cca_auto_fallback::Policy::validIntervalMinutes(static_cast<uint16_t>(n));
+            const uint32_t selected = numeric ? pollNodeForName(target) : 0;
+            if (selected && autoFallback.isKnownNode(selected)) {
+                onIntervalMinutes = static_cast<uint16_t>(n);
+            } else {
+                target = originalTarget;
+            }
+        }
         if (!target.isEmpty()) {
             node = pollNodeForName(target);
             valid = node != 0 && autoFallback.isKnownNode(node);
@@ -725,7 +748,7 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
                 return;
             }
             String reply = String("Auto DM ") + (autoFallback.enabled ? "ON" : "OFF") +
-                           " (defaults Pack/Mill/CC01 15m, others 60m).";
+                           " (defaults Pack/Mill/CC02/Fishlake 60m; Matheson 180m when enabled).";
             if (node) {
                 reply += " !" + String(node, HEX) + " " +
                          (autoFallback.nodeEnabled(node) ? "ON" : "OFF");
@@ -759,6 +782,8 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
                 autoFallback.setNodeEnabled(node, true);
                 // Explicitly selecting a station also enables global rescue.
                 autoFallback.enabled = true;
+                if (onIntervalMinutes)
+                    autoFallback.setNodeIntervalMinutes(node, onIntervalMinutes);
             } else autoFallback.setNodeEnabled(node, false);
             persist = true;
         } else if (operation == "ON") {
@@ -770,14 +795,15 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         }
         if (!valid) {
             sendCc01Text(getFrom(&mp),
-                "Use AUTO DM ON|OFF [station], AUTO DM ONLY <station>, AUTO DM STATUS");
+                "Use AUTO DM ON <station> [5..1440], OFF [station], ONLY <station>, or STATUS");
             return;
         }
         if (persist) {
             // Prevent another transmission or retry from an already queued
             // rescue. Auto telemetry remains accepted without interruption.
             ConfiguredPoll &fallback = configuredPolls[AUTO_FALLBACK_POLL_SLOT];
-            if (fallback.node && !autoFallback.nodeEnabled(fallback.node)) {
+            if (fallback.node && (!autoFallback.nodeEnabled(fallback.node) ||
+                (node && onIntervalMinutes && fallback.node == node))) {
                 fallback = ConfiguredPoll{};
                 if (configuredPollActive == AUTO_FALLBACK_POLL_SLOT)
                     configuredPollActive = -1;
@@ -787,6 +813,8 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         String reply = String("Auto DM ") + (autoFallback.enabled ? "ON" : "OFF");
         reply += node ? " !" + String(node, HEX) : " all";
         reply += ": " + operation + ". AUTO telemetry unchanged.";
+        if (node && onIntervalMinutes)
+            reply += " Rescue deadline " + String(onIntervalMinutes) + " min.";
         sendCc01Text(getFrom(&mp), reply.c_str());
         return;
     }
@@ -883,7 +911,7 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
         return;
     }
     if (text!="POLL STATUS" && (changed || text.startsWith("PAUSE") || text.startsWith("RESUME"))) persistCc01Settings();
-    String result = String("V8 auto DM 15m Pack/Mill/CC01, 60m others; legacy Cottonwood ") +
+    String result = String("V8.2 fallback defaults Pack/Mill/CC02/Fishlake 60m; Matheson 180m when enabled; legacy Cottonwood ") +
                     (cc01IntervalOverrideMinutes ? String(cc01IntervalOverrideMinutes) : String(cc01FastMode ? 15 : 60)) +
                     " min" + (cc01IntervalOverrideMinutes ? " fixed" : " auto") +
                     ", Matheson " + String(mathesonIntervalMinutes) + " min; sensor " +

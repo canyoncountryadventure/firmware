@@ -1,5 +1,5 @@
 #pragma once
-// V8: per-sensor automatic-telemetry watchdog, independent of Wi-Fi/Neon.
+// V8.2: per-sensor automatic-telemetry watchdog, independent of Wi-Fi/Neon.
 // No dynamic allocation, timestamps stored in wrapping uint32_t millis.
 #include <array>
 #include <cstdint>
@@ -19,7 +19,7 @@ struct Watch {
 class Policy {
 public:
     static constexpr uint32_t MISSING_AUTO_MS = 60UL * 60UL * 1000UL;
-    static constexpr uint32_t FAST_MISSING_AUTO_MS = 15UL * 60UL * 1000UL;
+    static constexpr uint32_t MATHESON_MISSING_AUTO_MS = 3UL * 60UL * 60UL * 1000UL;
     // One stream per independent data source. MX2001 READ contains BOTH
     // water level and temperature, so it has a single combined watchdog.
     static constexpr size_t WATCH_COUNT = 11;
@@ -30,7 +30,7 @@ public:
     // Compact enough for the existing ESP32 Preferences namespace (11 bits).
     bool enabled = true;
     uint16_t pausedMask = 0;
-    // 0 = use the site's built-in 15/60-minute default. Each station has
+    // 0 = use the site's built-in default. Each station has
     // one interval shared by all its watched sensor streams.
     std::array<uint16_t, WATCH_COUNT> intervalOverridesMinutes = {};
 
@@ -50,14 +50,23 @@ public:
 
     static constexpr uint16_t ALL_MASK = (1U << WATCH_COUNT) - 1U;
 
-    // Fast stations monitor each independent stage/temperature stream every 15m.
-    // All other monitored stations use 60m. This controls gateway fallback
-    // requests, not the sampling interval programmed into the field logger.
+    // Default automatic-rescue stations: Pack Creek (both streams), Mill
+    // Creek, Cottonwood Relay, and Fishlake Hightop. Every other station,
+    // including Matheson, is available only after a remote enable command.
+    static constexpr uint16_t DEFAULT_ENABLED_MASK =
+        (1U << 0) | (1U << 1) | (1U << 3) | (1U << 5) | (1U << 7);
+
+    // All normal streams use one hour. Matheson is three hours because its
+    // logger records every three hours. This controls only the gateway's
+    // missing-AUTO rescue deadline, never field logger sampling.
     static constexpr uint32_t thresholdMs(uint32_t node) {
-        return node == 1949224949UL || // Pack Creek: ultrasonic + HOBO
-               node == 1683604927UL || // Mill Creek: MX2001
-               node == 1695962694UL    // South Cottonwood: MB7388
-            ? FAST_MISSING_AUTO_MS : MISSING_AUTO_MS;
+        return node == 2004386937UL ? MATHESON_MISSING_AUTO_MS : MISSING_AUTO_MS;
+    }
+
+    void applyStationDefaults() {
+        enabled = true;
+        pausedMask = static_cast<uint16_t>(ALL_MASK & ~DEFAULT_ENABLED_MASK);
+        intervalOverridesMinutes.fill(0);
     }
 
     static constexpr bool validIntervalMinutes(uint16_t minutes) {

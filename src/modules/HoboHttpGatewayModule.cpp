@@ -154,6 +154,8 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
     uploadQueue.setReader(this);
     Preferences saved;
     bool migrateLegacyPolls = false;
+    // One-time migration prevents V8's all-stations fallback from persisting.
+    bool migrateV9FallbackDefaults = true;
     if (saved.begin("cca_cc01", true)) {
         cc01WaterEnabled = saved.getBool("water", true);
         cc01HoboEnabled = saved.getBool("hobo", true);
@@ -163,6 +165,7 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         cc01IntervalOverrideMinutes = saved.getUShort("cc01_interval", 0);
         mathesonIntervalMinutes = saved.getUShort("matheson_interval", 60);
         migrateLegacyPolls = !saved.getBool("v8_fallback", false);
+        migrateV9FallbackDefaults = !saved.getBool("v9_fallback_defaults", false);
         autoFallback.enabled = saved.getBool("auto_dm_on", true);
         autoFallback.pausedMask = saved.getUShort("auto_dm_mask", 0) & cca_auto_fallback::Policy::ALL_MASK;
         // One compact, version-tolerant blob for per-stream interval values.
@@ -201,6 +204,17 @@ HoboHttpGatewayModule::HoboHttpGatewayModule()
         }
         for (uint8_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i)
             configuredPolls[i] = ConfiguredPoll{};
+    }
+    if (migrateV9FallbackDefaults) {
+        autoFallback.applyStationDefaults();
+        // Persist before marking the migration complete.
+        persistCc01Settings();
+        Preferences defaults;
+        if (defaults.begin("cca_cc01", false)) {
+            defaults.putBool("v9_fallback_defaults", true);
+            defaults.end();
+        }
+        LOG_INFO("CCA V8.2 fallback defaults: Pack/Mill/CC02/Fishlake enabled hourly; Matheson disabled (3h when enabled)");
     }
     setInterval(1000);
     LOG_INFO("CCA clean gateway enabled: immediate independent forwarding -> %s", HOBO_HTTP_GATEWAY_URL);
@@ -862,7 +876,7 @@ String HoboHttpGatewayModule::statusJson()
     const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
                         cc01Phase == Cc01Phase::Hobo ? "waiting_hobo" :
                         cc01Phase == Cc01Phase::Done ? "done" : "idle";
-    String body = "{\"firmware_fix\":\"v8-dm-http-recovery-2026-11-01\"";
+    String body = "{\"firmware_fix\":\"v8.2-auto-fallback-policy-2026-11-06\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -943,7 +957,7 @@ String HoboHttpGatewayModule::statusJson()
         body += ",\"mode\":" + String(static_cast<uint8_t>(configuredPolls[i].mode)) + "}";
     }
     body += ']';
-    body += "},\"auto_fallback\":{\"missing_minutes\":60,\"fast_missing_minutes\":15,\"enabled\":" +
+    body += "},\"auto_fallback\":{\"default_missing_minutes\":60,\"matheson_missing_minutes\":180,\"enabled\":" +
         String(autoFallback.enabled ? "true" : "false");
     body += ",\"paused_mask\":" + String(autoFallback.pausedMask);
     body += ",\"queued\":" + String(autoFallbackQueued);
@@ -968,10 +982,10 @@ String HoboHttpGatewayModule::statusJson()
 int32_t HoboHttpGatewayModule::runOnce()
 {
     ++healthLoopCycles;
-    // V8: rescue missing automatic stage/temperature after 15m (Pack,
-    // Mill, South Cottonwood) or 60m (all other watched stations).
-    // No unconditional Cottonwood or Matheson polling. LoRa still works
-    // without Wi-Fi; captured DM replies queue for later upload.
+    // V8.2: rescue only enabled stations when their automatic data is missing.
+    // Default stations are Pack, Mill, Cottonwood Relay, and Fishlake at 60m;
+    // Matheson is off by default and uses 180m when explicitly enabled.
+    // LoRa still works without Wi-Fi; captured DM replies queue for upload.
     pollMissingAutomatic();
     pollConfiguredStations();
     refreshCc01CloudControl();

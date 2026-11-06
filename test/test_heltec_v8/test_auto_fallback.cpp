@@ -7,33 +7,43 @@ int main() {
     using namespace cca_auto_fallback;
     Policy p;
     assert(p.watches.size() == 11);
-    assert(Policy::thresholdMs(1949224949UL) == 900000); // Pack Creek, both sensors
-    assert(Policy::thresholdMs(1683604927UL) == 900000); // Mill Creek
-    assert(Policy::thresholdMs(1695962694UL) == 900000); // South Cottonwood
-    assert(Policy::thresholdMs(2004386937UL) == 3600000); // Matheson
+    assert(Policy::thresholdMs(1949224949UL) == 3600000); // Pack Creek, both sensors
+    assert(Policy::thresholdMs(1683604927UL) == 3600000); // Mill Creek
+    assert(Policy::thresholdMs(1695962694UL) == 3600000); // South Cottonwood
+    assert(Policy::thresholdMs(2004386937UL) == 10800000); // Matheson
     assert(Policy::thresholdMs(2425602407UL) == 3600000); // Other stations
-    assert(p.nodeIntervalMinutes(1949224949UL) == 15);
-    assert(p.nodeIntervalMinutes(1683604927UL) == 15);
-    assert(p.nodeIntervalMinutes(1695962694UL) == 15);
-    assert(p.nodeIntervalMinutes(2004386937UL) == 60);
+    assert(p.nodeIntervalMinutes(1949224949UL) == 60);
+    assert(p.nodeIntervalMinutes(1683604927UL) == 60);
+    assert(p.nodeIntervalMinutes(1695962694UL) == 60);
+    assert(p.nodeIntervalMinutes(2004386937UL) == 180);
+    // Fresh V8.2 defaults enable only Pack, Mill, Cottonwood Relay, and
+    // Fishlake; Matheson is available but intentionally starts disabled.
+    p.applyStationDefaults();
+    assert(p.enabled);
+    assert(p.isEnabled(0) && p.isEnabled(1) && p.isEnabled(3));
+    assert(p.isEnabled(5) && p.isEnabled(7));
+    assert(!p.isEnabled(2) && !p.isEnabled(4) && !p.isEnabled(6));
+    assert(!p.isEnabled(8) && !p.isEnabled(9) && !p.isEnabled(10));
+    assert(p.pausedMask == static_cast<uint16_t>(Policy::ALL_MASK & ~Policy::DEFAULT_ENABLED_MASK));
     assert(!p.setNodeIntervalMinutes(1949224949UL, 4)); // prevent mesh flooding
     assert(!p.setNodeIntervalMinutes(1949224949UL, 1441));
     assert(!p.setNodeIntervalMinutes(1222051909UL, 30)); // battery-only relay
     assert(p.setNodeIntervalMinutes(1949224949UL, 20));
     assert(p.intervalMinutes(0) == 20 && p.intervalMinutes(1) == 20);
     assert(!p.due(0, 1199999) && p.due(0, 1200000));
-    p.setNodeIntervalMinutes(1949224949UL, 0); // DEFAULT restores 15-minute interval
-    assert(p.intervalMinutes(0) == 15 && p.intervalMinutes(1) == 15);
+    p.setNodeIntervalMinutes(1949224949UL, 0); // DEFAULT restores 60-minute interval
+    assert(p.intervalMinutes(0) == 60 && p.intervalMinutes(1) == 60);
+    assert(p.setNodeEnabled(2004386937UL, true));
     assert(p.setNodeIntervalMinutes(2004386937UL, 30));
     assert(!p.due(4, 1799999) && p.due(4, 1800000));
     assert(p.nodeHasIntervalOverride(2004386937UL));
     p.setNodeIntervalMinutes(2004386937UL, 0);
     assert(!p.nodeHasIntervalOverride(2004386937UL));
-    assert(p.intervalMinutes(4) == 60);
+    assert(p.intervalMinutes(4) == 180);
     p.setAllIntervalMinutes(45);
     for (size_t i = 0; i < p.watches.size(); ++i) assert(p.intervalMinutes(i) == 45);
     p.setAllIntervalMinutes(0);
-    assert(p.intervalMinutes(0) == 15 && p.intervalMinutes(4) == 60);
+    assert(p.intervalMinutes(0) == 60 && p.intervalMinutes(4) == 180);
     // Pausing fallback does not erase the interval selection.
     p.setNodeIntervalMinutes(1683604927UL, 90);
     p.setNodeEnabled(1683604927UL, false);
@@ -41,6 +51,7 @@ int main() {
     p.setNodeEnabled(1683604927UL, true);
     assert(p.intervalMinutes(3) == 90);
     p.setNodeIntervalMinutes(1683604927UL, 0);
+    p.enableAll();
     for (size_t i = 0; i < p.watches.size(); ++i) {
         const uint32_t threshold = Policy::thresholdMs(p.watches[i].node);
         assert(!p.due(i, threshold - 1));
@@ -67,9 +78,9 @@ int main() {
     assert(p.due(0, 7200001));
     assert(!p.setNodeEnabled(1222051909UL, false)); // battery-only
     p.setOnlyNode(2004386937UL);
-    assert(!p.due(0, 7200001) && p.due(4, 7200001));
+    assert(!p.due(0, 10800001) && p.due(4, 10800001));
     p.setNodeEnabled(1683604927UL, true);
-    assert(p.due(3, 7200001));
+    assert(p.due(3, 10800001));
     p.enableAll();
     assert(p.pausedMask == 0 && p.enabled);
     // Fresh Pack Creek ultrasonic telemetry does NOT silence its HOBO watchdog.
@@ -77,17 +88,17 @@ int main() {
     assert(!p.due(0, 3600002));
     assert(p.due(1, 3600002));
     p.attemptedAt(1, 3600002);
-    assert(!p.due(1, 4500001));
-    assert(p.due(1, 4500002)); // Pack retries only once per 15-minute missing interval
+    assert(!p.due(1, 7200001));
+    assert(p.due(1, 7200002)); // Pack retries only once per one-hour missing interval
     assert(!p.receivedAuto(1222051909UL, Kind::Water, 7200002)); // battery-only relay
     // MX2001 covers stage+temp with ONE request.
     assert(p.receivedAuto(2004386937UL, Kind::Mx2001, 7200002));
     assert(!p.due(4, 7200003));
-    assert(p.due(4, 10800002));
-    // Matheson cannot request again earlier than its one-hour interval.
-    p.attemptedAt(4, 10800002);
-    assert(!p.due(4, 14399999));
-    assert(p.due(4, 14400002));
+    assert(p.due(4, 18000002));
+    // Matheson cannot request again earlier than its three-hour interval.
+    p.attemptedAt(4, 18000002);
+    assert(!p.due(4, 28800001));
+    assert(p.due(4, 28800002));
     // Distinguish environmental temperature from MX2001 on the same node.
     assert(!p.receivedAuto(1695962694UL, Kind::Temperature, 7200002));
     cca_cc01_dm::HoboTemperatureReading t;
