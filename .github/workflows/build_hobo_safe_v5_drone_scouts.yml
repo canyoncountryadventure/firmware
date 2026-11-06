@@ -29,18 +29,18 @@ jobs:
           - name: Seeed-HOBO-Safe-v5
             target_branch: Seeed-HOBO-Safe-v5
             target_env: seeed_xiao_nrf52840_kit
-            target_sha: d07061c29eadae1dbe007629836c2755a0cbd958
-            target_catalog_sha: bf2c9ccdfa639596506f21b23ecaa1d7d75455ba
+            target_sha: 45281362e082f2a05d178364b1b035a11cc29c44
+            target_catalog_sha: 29e832d1f9f79941e21c79a6ee6686a7715a6b49
             target_release_date: 2026-11-04
-            ota_sha256: d13e3020511d6fab4e10725c836f1beb0aea6830010b7ae123c7df073d9b700f
+            ota_sha256: 5003cee9ddcb01618a8f61a8888d996250538ce3951996dde1bbd396ec085c1d
             output_name: Drone-Seeed-HOBO-Safe-v5-2026-11-05.uf2
           - name: RAK-HOBO-Safe-v5
             target_branch: RAK-HOBO-Safe-v5
             target_env: rak4631
-            target_sha: a91eb63c94d71ca4eecedafccbdc11ea147d1542
-            target_catalog_sha: bf2c9ccdfa639596506f21b23ecaa1d7d75455ba
+            target_sha: b9862cd15fcb090174564dc803aa71d9f24e2186
+            target_catalog_sha: 29e832d1f9f79941e21c79a6ee6686a7715a6b49
             target_release_date: 2026-11-05
-            ota_sha256: 9ce2c175b0b8c83f303aba60d424772403a63b7a052cdc6a52636886c16c2f46
+            ota_sha256: a140e1b4a1f63244d66ff0ddce652afda7a7a78a872bc8d58596aeb505c7564d
             output_name: Drone-RAK-HOBO-Safe-v5-2026-11-05.uf2
     steps:
       - name: Checkout proven RAK4631 Scout implementation
