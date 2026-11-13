@@ -16,6 +16,7 @@
 | Fishlake Hightop | !5e021e35 | 1577197109 | Temperature |
 | It's a Swell Day | !742ecff5 | 1949224949 | Temperature |
 | Thousand Lake Mountain | !9df66d7e | 2650172798 | Temperature |
+| Whitepine | !eb145a43 | 3943979587 | Device battery |
 
 The retired Hidden Valley !b57d051f/3044869407 is **not** allowed to upload. The Heltec does not need hard-coded station names: HTTPS requests include the numeric sender and canonical labels are assigned by Vercel. The Heltec may still retain historical mesh NodeDB names for display and normal Meshtastic operation.
 
