@@ -34,6 +34,7 @@ constexpr uint32_t CC02_NODE = 2425602407UL; // !9093c167
 constexpr uint32_t MILL_CREEK_NODE = 1683604927UL; // !6459c5bf
 constexpr uint32_t SEED_RELAY_1_NODE = 647393146UL; // !26966f7a
 constexpr uint32_t COTTONWOOD_RELAY_2_NODE = 1222051909UL; // !48d70845, CWR2
+constexpr uint32_t WHITEPINE_NODE = 3943979587UL; // !eb145a43, battery-only relay
 
 uint16_t readLE16(const uint8_t *p)
 {
@@ -322,7 +323,8 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
         from != SWELL_NODE && from != HELTEC_HOME_NODE && from != MOAB_NODE &&
         from != MINI_ME_NODE && from != MATHESON_NODE && from != CLIFF_SENSOR_NODE &&
         from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE &&
-        from != SEED_RELAY_1_NODE && from != COTTONWOOD_RELAY_2_NODE)
+        from != SEED_RELAY_1_NODE && from != COTTONWOOD_RELAY_2_NODE &&
+        from != WHITEPINE_NODE)
         return false;
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     if (!nodeDB->isFavorite(from))
