@@ -59,18 +59,18 @@ bool shaFlash(const esp_partition_t *part, uint32_t offset, size_t length, const
     uint8_t actual[32] = {};
     mbedtls_sha256_context ctx;
     mbedtls_sha256_init(&ctx);
-    if (mbedtls_sha256_starts(&ctx, 0) != 0) { mbedtls_sha256_free(&ctx); return false; }
+    mbedtls_sha256_starts(&ctx, 0);
     for (size_t pos = 0; pos < length; pos += CHUNK_BYTES) {
         const size_t n = (length - pos < CHUNK_BYTES) ? length - pos : CHUNK_BYTES;
-        if (esp_partition_read(part, offset + pos, buffer, n) != ESP_OK ||
-            mbedtls_sha256_update(&ctx, buffer, n) != 0) {
+        if (esp_partition_read(part, offset + pos, buffer, n) != ESP_OK) {
             mbedtls_sha256_free(&ctx);
             return false;
         }
+        mbedtls_sha256_update(&ctx, buffer, n);
         delay(0);
     }
-    const bool ok = mbedtls_sha256_finish(&ctx, actual) == 0 &&
-                    memcmp(actual, expected, sizeof(actual)) == 0;
+    mbedtls_sha256_finish(&ctx, actual);
+    const bool ok = memcmp(actual, expected, sizeof(actual)) == 0;
     mbedtls_sha256_free(&ctx);
     return ok;
 }
@@ -225,7 +225,8 @@ bool stageAndReboot(const String &version, const String &url, const String &sha2
     uint8_t buffer[CHUNK_BYTES] = {};
     mbedtls_sha256_context sha;
     mbedtls_sha256_init(&sha);
-    bool ok = mbedtls_sha256_starts(&sha, 0) == 0;
+    mbedtls_sha256_starts(&sha, 0);
+    bool ok = true;
     size_t copied = 0;
     while (ok && copied < static_cast<size_t>(length)) {
         const size_t wanted = (static_cast<size_t>(length) - copied < CHUNK_BYTES)
@@ -234,9 +235,7 @@ bool stageAndReboot(const String &version, const String &url, const String &sha2
         // Do not round/interleave short network reads: every flash offset
         // must remain 4-byte aligned until the very last chunk.
         if (got != wanted) { ok = false; reason = "download short read"; break; }
-        if (mbedtls_sha256_update(&sha, buffer, got) != 0) {
-            ok = false; reason = "hash computation failed"; break;
-        }
+        mbedtls_sha256_update(&sha, buffer, got);
         // Flash writes are 4-byte aligned. Pad only the final chunk, while the
         // integrity hash covers precisely the Content-Length image bytes.
         const size_t aligned = (got + 3) & ~size_t(3);
@@ -248,8 +247,10 @@ bool stageAndReboot(const String &version, const String &url, const String &sha2
         delay(0);
     }
     uint8_t actual[32] = {};
-    if (ok) ok = mbedtls_sha256_finish(&sha, actual) == 0 &&
-                 memcmp(actual, expected, sizeof(actual)) == 0;
+    if (ok) {
+        mbedtls_sha256_finish(&sha, actual);
+        ok = memcmp(actual, expected, sizeof(actual)) == 0;
+    }
     mbedtls_sha256_free(&sha);
     http.end();
     if (!ok || copied != static_cast<size_t>(length) ||
