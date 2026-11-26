@@ -24,6 +24,16 @@ export default {
     const url=new URL(request.url);
     if(url.pathname==="/healthz"&&request.method==="GET")
       return json({service:"cces-mesh-remote",status:"ready",schema:1});
+    // Immutable opaque download link; the URL token is 256 bits of entropy.
+    // Only signed, SHA-pinned firmware manifests point gateways to this file.
+    const fwMatch=url.pathname.match(/^\/v10\/firmware\/([a-f0-9]{64})$/);
+    if(fwMatch&&request.method==="GET"){
+      if(!env.FW_BIN)return json({error:"firmware storage unavailable"},503);
+      const bytes=await env.FW_BIN.get("heltec-v10/"+fwMatch[1],"arrayBuffer");
+      if(!bytes)return json({error:"firmware not found"},404);
+      if(bytes.byteLength<4096||new Uint8Array(bytes)[0]!==0xe9)return json({error:"invalid firmware object"},500);
+      return new Response(bytes,{status:200,headers:{"content-type":"application/octet-stream","content-length":String(bytes.byteLength),"cache-control":"no-store","x-content-type-options":"nosniff"}});
+    }
     if(!await sameKey(request.headers.get("x-ingest-key")||"",env.GATEWAY_KEY||""))
       return json({error:"unauthorized"},401);
     try{
@@ -35,7 +45,7 @@ export default {
         ]);
         if(!gate) return json({error:"config missing"},503);
         const candidate={enabled:!!gate.ota_enabled,version:String(gate.ota_version||""),url:String(gate.ota_url||""),sha256:String(gate.ota_sha256||"").toLowerCase(),signature:""};
-        if(candidate.enabled&&/^https:\/\/(raw\.githubusercontent\.com|github\.com)\//.test(candidate.url)&&/^[0-9a-f]{64}$/.test(candidate.sha256)&&candidate.version.length<90){
+        if(candidate.enabled&&(/^https:\/\/(raw\.githubusercontent\.com|github\.com)\//.test(candidate.url)||/^https:\/\/cces-mesh-remote\.raspy-lake-a7f4\.workers\.dev\/v10\/firmware\/[a-f0-9]{64}$/.test(candidate.url))&&/^[0-9a-f]{64}$/.test(candidate.sha256)&&candidate.version.length<90){
           candidate.signature=await signedManifest(env.GATEWAY_KEY,candidate.version,candidate.url,candidate.sha256);
         }else candidate.enabled=false;
         return json({gateway:"heltec-moab",version:Number(gate.version),poll_seconds:300,
