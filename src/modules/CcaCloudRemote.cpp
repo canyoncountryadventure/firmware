@@ -158,7 +158,7 @@ String CcaCloudRemote::statusJson()
     revision = dmRevision;
     canStage = otaAvailable;
     portEXIT_CRITICAL(&cloudLock);
-    String s = "{\"build\":\"heltec-gateway-v10\",\"remote_config_version\":" + String(v) +
+    String s = "{\"build\":\"heltec-gateway-v11\",\"remote_config_version\":" + String(v) +
                ",\"cloud_nodes\":" + String(stations) +
                ",\"remote_dm_revision\":" + String(revision) +
                ",\"sync_ok\":" + String(successCount) +
@@ -181,7 +181,16 @@ bool CcaCloudRemote::verifyOtaManifest(const String &version, const String &url,
     // scheme before OTA install is enabled in a later audited release.
     if (version.isEmpty() || version.length() > 63 || sha.length() != 64 ||
         signature.length() != 64) return false;
-    if (!url.startsWith("https://raw.githubusercontent.com/canyoncountryadventure/firmware/") &&
+    const String cloudPrefix = "https://cces-mesh-remote.raspy-lake-a7f4.workers.dev/v10/firmware/";
+    bool cloudAllowed = url.startsWith(cloudPrefix) && url.length() == cloudPrefix.length() + 64;
+    if (cloudAllowed) {
+        for (size_t i = cloudPrefix.length(); i < url.length(); ++i) {
+            uint8_t unused = 0;
+            if (!hexDigit(url[i], unused)) { cloudAllowed = false; break; }
+        }
+    }
+    if (!cloudAllowed &&
+        !url.startsWith("https://raw.githubusercontent.com/canyoncountryadventure/firmware/") &&
         !url.startsWith("https://github.com/canyoncountryadventure/firmware/")) return false;
     for (size_t i = 0; i < sha.length(); ++i) {
         uint8_t unused = 0;
@@ -333,7 +342,7 @@ void CcaCloudRemote::postHealth()
     http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
     const uint32_t queue = hoboHttpGatewayModule ? hoboHttpGatewayModule->healthQueueUsed() : 0;
     const int httpStatus = hoboHttpGatewayModule ? hoboHttpGatewayModule->healthLastHttpStatus() : 0;
-    const String body = "{\"firmware\":\"HELTEC-GATEWAY-V10\",\"uptime_seconds\":" +
+    const String body = "{\"firmware\":\"HELTEC-GATEWAY-V11\",\"uptime_seconds\":" +
         String(millis() / 1000UL) + ",\"queue_depth\":" + String(queue) +
         ",\"last_http_status\":" + String(httpStatus) +
         ",\"config_version\":" + String(configVersion()) +
