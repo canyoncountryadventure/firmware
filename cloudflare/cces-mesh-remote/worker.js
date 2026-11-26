@@ -28,9 +28,10 @@ export default {
       return json({error:"unauthorized"},401);
     try{
       if(url.pathname==="/v10/config"&&request.method==="GET"){
-        const [stations,gate]=await Promise.all([
+        const [stations,gate,dm]=await Promise.all([
           env.DB.prepare("SELECT node_num,node_id,long_name,sensor_type,report_interval_minutes FROM mesh_stations WHERE enabled=1 ORDER BY node_num LIMIT 24").all(),
-          env.DB.prepare("SELECT version,ota_enabled,ota_version,ota_url,ota_sha256 FROM mesh_gateway_config WHERE gateway_id='heltec-moab'").first()
+          env.DB.prepare("SELECT version,ota_enabled,ota_version,ota_url,ota_sha256 FROM mesh_gateway_config WHERE gateway_id='heltec-moab'").first(),
+          env.DB.prepare("SELECT node_num,enabled,interval_minutes FROM mesh_gateway_dm_overrides ORDER BY node_num LIMIT 16").all()
         ]);
         if(!gate) return json({error:"config missing"},503);
         const candidate={enabled:!!gate.ota_enabled,version:String(gate.ota_version||""),url:String(gate.ota_url||""),sha256:String(gate.ota_sha256||"").toLowerCase(),signature:""};
@@ -39,6 +40,7 @@ export default {
         }else candidate.enabled=false;
         return json({gateway:"heltec-moab",version:Number(gate.version),poll_seconds:300,
           nodes:(stations.results||[]).map(s=>({id:Number(s.node_num),name:s.long_name,sensor_type:Number(s.sensor_type),destination:"cloudflare"})),
+          auto_dm:(dm.results||[]).map(s=>({id:Number(s.node_num),enabled:!!s.enabled,interval_minutes:Number(s.interval_minutes)})),
           ota:candidate});
       }
       if(url.pathname==="/v10/ingest"&&request.method==="POST"){
