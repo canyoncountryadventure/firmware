@@ -1,22 +1,58 @@
-# RAK Water Distance + HOBO V7 — FINAL WORKING RELEASE FOR THE TWO ORIGINAL SENSORS
+# RAK Water Distance + HOBO V8 — Three Ultrasonic Sensors
 
-**Status: established field-working version; frozen for the original two ultrasonic stations.**  
-**Target hardware:** RAK4631 on RAK19007. **Successor under development:** [RAK-Water-Distance-HOBO-v8](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v8).
+**Status: V8 source development and integration build; DYP hardware bench validation pending.**  
+**Target hardware:** RAK4631 + RAK19007. **Base:** [final working V7](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v7).
 
-V7 is the **last firmware update in the original two-sensor series** and is the **working firmware used for the first two ultrasonic monitoring stations**. Preserve this branch as the known-good rollback/reference rather than replacing it with experimental DYP code.
+V8 retains the proven V7 Meshtastic, HOBO, calibration, recovery, sensor sampling, normal routing and power management logic, and adds the DYP-A08 **UART Controlled** ultrasonic driver. **V7 remains the final established working image for the two original deployed stations.** Do not replace those stations just to test the new driver.
 
-| Original station sensor | Exact firmware sensor name | Operation in V7 |
-| --- | --- | --- |
-| DFRobot SEN0313 / A01NYUB | `SEN0313` / `A01NYUB` | Automatic 9600-baud UART, existing Pololu 2810 switched sensor power |
-| MaxBotix MB7388 | `MB7388` / `MAXBOTIX` | Automatic serial ranging, existing Pololu 2810 switched sensor power |
+## Supported three-sensor field configuration
 
-V7 uses one unified RAK image with persistent per-station sensor selection. It retains the water-distance processing, HOBO functions, Meshtastic settings, DM commands, calibration, sampling and recovery behavior from the deployed two-sensor system. **Do not flash V8 on either original station merely because V8 exists.** V8 adds a third driver for the DYP-A08 UART Controlled test units.
+| Sensor | Firmware DM selection | Interface | Power strategy |
+| --- | --- | --- | --- |
+| DFRobot SEN0313 / A01NYUB | `WATER SENSOR SEN0313` | Auto-streaming UART 9600 (4-byte binary) | Existing Pololu 2810, IO1-controlled eight-second warm-up, OFF between jobs |
+| MaxBotix MB7388 | `WATER SENSOR MB7388` | Auto-streaming UART 9600 (ASCII R####\\r) | Existing Pololu 2810, IO1-controlled eight-second warm-up, OFF between jobs |
+| **DYP-A08ANYTB-V1.0** (tentative exact ordered part) | **`WATER SENSOR DYP-A08`** | **UART Controlled 9600**, falling-edge trigger, 4-byte binary | **Direct regulated 3.3 V; no Pololu needed**, sensor idles between triggers |
 
-**Important:** V7's earlier V6 release links and notes below are retained as historical development documentation. They are not a claim that V6 artifacts are the latest V7 build. For V7, use the unified V7 workflow/artifact and confirm its build status and files before installation.
+The existing SEN0311/A02YYUW, SEN0590 and generic UART driver paths remain available from the V7 source, but the table lists the **three field sensors in this release's scope**, not every legacy driver compiled in.
+
+The new DYP sensor's marking `A0811AT67U0141` is not proof of its output-mode suffix. **Confirm the sensor actually is UART Controlled (ANYTB) rather than UART Auto (ANYUB) before installation.**
+
+## DYP-A08 controlled wiring and protocol
+
+On the **RAK19007** (with the RAK4631 seated), connect DYP VCC to the regulated 3.3 V supply and DYP GND to common ground. Connect **sensor TX to RAK RX1**, and **sensor RX trigger input to RAK TX1**. The four conductors on the currently discussed unit are red, black, white and yellow respectively **only if the seller confirms the color-to-function assignment**. Do not assume a cable color guarantees its function. This setup bypasses the Pololu entirely on the new stations.
+
+Per [DYP A08 output interface specification](https://www.dypcn.com/uploads/A08-Output-Interfaces.pdf), the trigger is a falling-edge low pulse approximately 10 microseconds to 2 milliseconds wide; a new result is returned on TX at 9600 baud with the bytes `0xFF, distance_hi, distance_lo, checksum`. The checksum is the low eight bits of their sum. V8 sends a single `0x00` byte on RAK TX1 at 9600 baud, producing **one approximately 0.94-millisecond LOW pulse** after the falling start edge and ending at the STOP bit. The response parser checks frame alignment, checksum, and the A08A range of 250–8,000 mm. Consecutive DYP triggers are separated by at least 150 ms (normally 200 ms) to protect the manufacturer's minimum cycle time.
+
+The original V7 sensors retain their continuous-stream readers and Pololu power cycling. **DYP must remain connected to the RAK 3.3 V rail and does not switch off between samples.** IO1 stays low for the DYP mode. V8 does not attempt to auto-identify the DYP protocol from random UART traffic: select it explicitly per station.
+
+## Configure the two new ultrasonic test stations
+
+For each new RAK station, connect to Meshtastic and DM its own node:
+
+```text
+WATER SENSOR DYP-A08
+WATER INTERVAL 15M
+WATER SAMPLES 5
+WATER SENSOR
+WATER READ
+WATER STATUS
+VERSION
+```
+
+Selection, interval and sample count are saved in the existing CRC-protected A/B configuration slots. An application-only update retains Meshtastic identity/channels and calibration, assuming the prior stored configuration remains valid; changing sensor model while calibration is locked requires the existing explicit unlock/reset step. For the DYP test, **five valid readings** are collected per 15-minute report; the median is transmitted and sample spread is available in the existing diagnostic DMs. The firmware's unchanged default interval and sample count are **1 hour and 10**, respectively, so send the commands above on each new station.
+
+The new mode sends its measurements in the **existing V7 water telemetry payload** so a receiving Heltec can keep parsing the same format. Separate Cloudflare/Neon routing is a *gateway change*, not built into the sensor RAK V8.
+
+## Validation and release handling
+
+- Build the unified V8 target: `rak4631_water_unified_v8` with GitHub Actions workflow `build_rak_water_v8.yml`.
+- Confirm the downloaded UF2 and OTA ZIP are from the same passing build. Only flash the **field** image onto the sensor RAK. Preserve the existing working V7 binary as rollback.
+- Run bench tests with the **actual** DYP-A08 sensor before unattended deployment: five triggers per burst, 15-minute timing, valid distances, bad checksums, no-return timeouts, reboots, power draw, and overnight reception. Source checks or successful compilation are **not** a substitute for this.
+- Use the same sensor-side firmware on both new DYP test radios, with separate radio identities; do not flash either original SEN0313/MB7388 station just to join the test.
 
 ---
 
-## Historical V6 development notes retained from V7's previous README
+## V6 historical development notes (retained for lineage)
 
 # CCA RAK Water Distance + HOBO V6
 **Release date: October 17, 2026 · Target: RAK4631 on RAK19007**
