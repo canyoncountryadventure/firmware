@@ -17,6 +17,7 @@ enum class DistanceSensorType : uint8_t
     SEN0313_A01NYUB = 3,
     UART_GENERIC = 4,
     MB7388 = 5,
+    DYP_A08_CONTROLLED = 6, // appended: preserve the V7 persistent sensor IDs
     NONE = 255
 };
 
