@@ -33,7 +33,8 @@ jobs:
           python3 test/test_hobo_v5/test_nonblocking_water.py
           python3 test/test_hobo_v5/test_water_jobs.py
           python3 test/test_hobo_v6/test_new_features.py
-          python3 test/test_hobo_v8/test_unified_firmware.py
+          python3 test/test_hobo_v7/test_unified_firmware.py
+          python3 test/test_hobo_v8/test_dyp_a08.py
   build:
     needs: source-tests
     runs-on: ubuntu-latest
