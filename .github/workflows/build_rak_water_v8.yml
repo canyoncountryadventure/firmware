@@ -20,7 +20,7 @@ concurrency:
 env:
   PLATFORMIO_SETTING_ENABLE_TELEMETRY: "false"
 permissions:
-  contents: read
+  contents: write
 jobs:
   source-tests:
     runs-on: ubuntu-latest
@@ -69,3 +69,17 @@ jobs:
           path: export/*
           if-no-files-found: error
           retention-days: 30
+      - name: Publish permanent direct-download files
+        run: |
+          set -euo pipefail
+          mkdir -p downloads/RAK-HOBO-v8
+          cp export/*.uf2 export/*.zip export/SHA256SUMS.txt downloads/RAK-HOBO-v8/
+          cp "$(find export -maxdepth 1 -name '*.uf2' -print -quit)" downloads/RAK-HOBO-v8/field-rak-water-hobo-v8-unified.uf2
+          cp "$(find export -maxdepth 1 -name '*.zip' -print -quit)" downloads/RAK-HOBO-v8/field-rak-water-hobo-v8-unified-OTA.zip
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add downloads/RAK-HOBO-v8
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish verified V8 unified UF2 and OTA firmware [skip ci]"
+            git push origin HEAD:RAK-Water-Distance-HOBO-v8
+          fi
