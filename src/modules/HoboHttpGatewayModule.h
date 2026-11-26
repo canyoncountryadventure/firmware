@@ -79,6 +79,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     struct UploadJob {
         JobType type;
         uint8_t retries;
+        uint32_t nextAttemptMs;
+        bool cloudOnly;
         uint8_t channel;
         uint8_t hopStart;
         uint8_t hopLimit;
@@ -139,6 +141,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     static constexpr uint8_t HTTPS_TRANSPORT_RECOVERY_FAILURES = 2;
 
     TypedQueue<UploadJob> uploadQueue;
+    TypedQueue<UploadJob> cloudQueue; // 32 independent Cloudflare jobs; legacy Vercel has priority
     SeenPacket seenPackets[SEEN_PACKET_SLOTS] = {};
     uint8_t seenPacketIndex = 0;
     uint32_t localPacketCounter = 0;
