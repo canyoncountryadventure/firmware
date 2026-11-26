@@ -11,6 +11,7 @@
 #include <WiFiClientSecure.h>
 #include <mbedtls/md.h>
 #include <memory>
+#include <freertos/task.h>
 #include <cstring>
 #include <cstdio>
 
@@ -35,6 +36,7 @@ char otaReason[48] = "not authorized";
 int lastCloudCode = 0;
 uint32_t successCount = 0;
 uint32_t failCount = 0;
+uint32_t loopStackMinFreeBytes = 0; // ESP-IDF stack high-water mark, bytes
 
 bool numericValue(JSONValue *v, uint32_t &out)
 {
@@ -161,6 +163,7 @@ String CcaCloudRemote::statusJson()
                ",\"remote_dm_revision\":" + String(revision) +
                ",\"sync_ok\":" + String(successCount) +
                ",\"sync_failed\":" + String(failCount) +
+               ",\"loop_stack_min_free_bytes\":" + String(loopStackMinFreeBytes) +
                ",\"last_http_status\":" + String(lastCloudCode) +
                ",\"ota_manifest_verified\":" + String(canStage ? "true" : "false") +
                ",\"ota_install_enabled\":" + String((canStage && CcaRemoteOtaStage::loaderReady()) ? "true" : "false") +
@@ -349,6 +352,9 @@ int32_t CcaCloudRemote::runOnce()
         lastHealthPost = now;
         postHealth();
     }
+    // This is the actual Arduino loopTask, so the high-water mark captures
+    // the minimum stack remaining after the HTTPS handshake and JSON parse.
+    loopStackMinFreeBytes = static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr));
     return 2000;
 }
 #endif
