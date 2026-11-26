@@ -4,12 +4,14 @@
 
 **Base:** [V9 Clock](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v9-hour-boundary), the **last verified firmware before Cloudflare and remote management**. V9 Clock's firmware code, deployment binary, mesh routing, scheduled DMs and recovery remain the rollback reference. V10 does not replace the existing station systems merely because a Cloudflare pilot exists.
 
-> **Release status:** New source under validation. The dated V10 non-factory BIN is published only after GitHub Actions tests and compilation pass. Do not flash a nonexistent or unverified release link.
+> **Release status: GITHUB CI PASSED (November 25, 2026).** Source/compatibility tests, ESP32-S3 compilation, and dated release publication passed. **Physical gateway/cloud field validation is still pending.** Verified build source: `8bf417dbe9935e3d9768ffd9742eb0e6044216e8`. [Passing run](https://github.com/canyoncountryadventure/firmware/actions/runs/45743899971).
 
 ## 1. V10 firmware downloads
 
 - [V10 GitHub Actions: build and verification](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_heltec_gateway_v10.yml)
-- [Browse dated V10 OTA application BIN, ZIP and SHA-256 manifest](downloads/Heltec-Gateway-v10/)
+- **[Download V10 non-factory OTA application BIN (November 25, 2026)](downloads/Heltec-Gateway-v10/Heltec-Gateway-v10-11-25-26.bin)**
+- [Download V10 release ZIP](downloads/Heltec-Gateway-v10/Heltec-Gateway-v10-11-25-26.zip)
+- [V10 source SHA and SHA-256 checksum manifest](downloads/Heltec-Gateway-v10/BUILD.txt)
 - [V9 Clock verified rollback BIN and checksum](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v9-hour-boundary/downloads/Heltec-Gateway-v9-Clock)
 
 After CI completes, download **`Heltec-Gateway-v10-11-25-26.bin`**, verify its SHA-256 against `BUILD.txt`, and flash through the existing Meshtastic Wi-Fi OTA method. The BIN is an **application-only file, not factory firmware**. Do not erase NVS, Wi-Fi credentials, channels, radio identity, HOBO settings, or keys.
@@ -21,7 +23,7 @@ $dir = "C:\HeltecUpdate"
 New-Item -Path $dir -ItemType Directory -Force | Out-Null
 $file = Join-Path $dir "Heltec-Gateway-v10-11-25-26.bin"
 Invoke-WebRequest "https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v10/downloads/Heltec-Gateway-v10/Heltec-Gateway-v10-11-25-26.bin" -OutFile $file
-# Compare (Get-FileHash $file -Algorithm SHA256).Hash with V10 BUILD.txt before installing.
+if ((Get-FileHash $file -Algorithm SHA256).Hash -ne "6C4B2C95B4DE93C1FCBFCEA7D8025A96F886F089784303404ED3DA4C739D9B80") { throw "Wrong firmware hash - DO NOT FLASH" }
 py -m meshtastic --host $ip --ota-update $file
 Invoke-RestMethod "http://$ip/json/gateway" | ConvertTo-Json -Depth 8
 ```
