@@ -1,78 +1,55 @@
-# CCES Heltec Gateway V12 | Reset Diagnosis and Auto-DM Reporting
+# CCES Heltec Gateway V13 | Stable auto-DM and recovery repair
 
-**Candidate firmware • November 26, 2026 • Heltec WiFi LoRa 32 V4 / ESP32-S3 / PlatformIO `heltec-v4`**
+**Heltec WiFi LoRa 32 V4 (ESP32-S3) | PlatformIO `heltec-v4` | November 26, 2026**
 
-V12 extends [field-booted V11](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v11) with two observability features. It is **not** installed by publishing this branch; an operator must separately approve an exact CI-verified release through Cloudflare.
+**Status:** CI build candidate. Publishing this GitHub branch **does not** authorize or install firmware. The field gateway remains on **verified V12** unless an operator separately approves an exact SHA-256-pinned release in Cloudflare.
 
-## Why V12 exists
+## Downloads, checksums, and build provenance
 
-V11 successfully installed remotely and reached OTA phase 4, but Cloudflare subsequently received health messages at approximately 15-minute intervals with **only ~30 seconds of uptime each**. Because `uptime_seconds` derives from ESP32 `millis()`, those are **application/device restarts, not merely HTTP reconnects**. We do not yet know whether resets are due to a software reboot, watchdog, crash, brownout or power loss.
+- [V13 application-only .BIN](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/Heltec-Gateway-v13/downloads/Heltec-Gateway-v13/Heltec-Gateway-v13-11-26-26.bin)
+- [V13 ZIP with companion firmware files](https://github.com/canyoncountryadventure/firmware/raw/refs/heads/Heltec-Gateway-v13/downloads/Heltec-Gateway-v13/Heltec-Gateway-v13-11-26-26.zip)
+- [V13 BUILD.txt with SHA-256, exact source commit, and Actions run](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v13/downloads/Heltec-Gateway-v13/BUILD.txt)
+- [V13 firmware release notes](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v13/downloads/Heltec-Gateway-v13/README.md)
+- [V13 GitHub Actions build and publish workflow](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v13/.github/workflows/build_cca_heltec_gateway_v13.yml)
+- [Last field-confirmed V12 release](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v12/downloads/Heltec-Gateway-v12)
+- [V9 Clock, the last build before Cloudflare remote integration](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v9-hour-boundary)
 
-V11 already records its last ESP32 reset reason in the `heltecdiag` subsystem but only surfaces it locally. V12 adds remote authenticated transmission of that **existing reset evidence**, without disabling any recovery or changing reboot policies.
+**Do not use download links until CI has published the actual files and BUILD.txt.** Validate the BIN hash against BUILD.txt and Cloudflare's release record. The built BIN is application-only; never factory erase NVS or overwrite the independent `CCA_PULL_1` recovery loader in OTA_1.
 
-## Download and build
+## Why V13
 
-- [V12 GitHub Actions workflow](.github/workflows/build_cca_heltec_gateway_v12.yml)
-- [V12 dated release directory](downloads/Heltec-Gateway-v12/README.md)
-- [Expected V12 application BIN](downloads/Heltec-Gateway-v12/Heltec-Gateway-v12-11-26-26.bin) **(usable only when CI successfully publishes it)**
-- [V12 ZIP](downloads/Heltec-Gateway-v12/Heltec-Gateway-v12-11-26-26.zip) **(only after publication)**
-- [V12 `BUILD.txt` for exact SHA-256 and compiled source](downloads/Heltec-Gateway-v12/BUILD.txt) **(must exist before authorizing)**
-- [V11 field-confirmed binary and checksum](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v11/downloads/Heltec-Gateway-v11)
-- [V9 Clock, last firmware before Cloudflare/remote integration](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v9-hour-boundary)
+Cloudflare V12 boot/reset diagnostics showed repeated `TASK_WDT(6)` resets, including a loop stall near 930 seconds, around the 15-minute health reporting boundary. Vercel/Neon packet supervisor telemetry also showed `last_recovery_reason=5` (custom `UploadStalled`), and ESP32 reported a separate `SOFTWARE(3)` reset after ~3614 seconds. These are distinct root causes, and the specific network call behind TASK_WDT was not established in V12.
 
-**Do not download by guessed filename.** The CI run must be green and the published release `BUILD.txt` must exist and identify the intended source SHA/firmware BIN hash. Firmware is application-only; never factory erase or rewrite the independent OTA_1 loader.
+A full gateway reboot interrupts LoRa reception, flushes in-memory scheduling, and delays missing-AUTO rescue DMs at least another 60 minutes. A network failure should not reset a still-functional mesh radio.
 
-## V12 changes
+## Changes compared with V12
 
-| Function | V11 | V12 |
-| --- | --- | --- |
-| Cloudflare health | Firmware, uptime, queue, config, OTA state | Also `reset_reason_code` and `reset_diagnostic`, derived from existing `esp_reset_reason()` and retained `esp32FieldDiagFormat()` |
-| Auto-DM visibility | Local-only `auto_fallback.watched` and saved NVS settings | Also authenticated `auto_dm_state` snapshots of **actual effective** station switches, per-stream interval, missing-AUTO policy, last AUTO/armed age and DM attempt age |
-| Recurring DMs | Local-only configured poll slots | Four local recurring poll slots reported to Cloudflare |
-| Remote DM changes | Cloudflare `mesh_gateway_dm_overrides`, checked by Heltec | Same existing implementation and supported intervals, no new DM behavior |
-| Firmware OTA | Approved GitHub and KV images; signed manifest and protected recovery loader | Unchanged |
-| Legacy Vercel/Neon and DYP Cloudflare routing | Working and separate | Unchanged |
-| Local HTTPS diagnosis | TLS errors, heap and RSSI | Unchanged |
+1. **Keep the ESP32's 90-second task watchdog.** It still resets a truly hung Arduino loop task; do not hide stalls by lengthening it.
+2. **Repair HTTPS/Wi-Fi without reboot.** The custom V7 supervisor's `UploadStalled` and `WifiStalled` signals now cause throttled Wi-Fi-only reconnects (minimum five minutes apart), without rebooting the MCU, LoRa stack, or sensor scheduler. `ModuleStalled` and genuine mesh RF failures keep their existing guarded recovery.
+3. **Prevent false recovery-counter rearm.** Reboot protection is cleared only after a full hour of uptime with *recent* radio RX and an accepted Vercel/Neon POST in the last five minutes. Old successes no longer count.
+4. **Bound TLS handshakes separately from HTTP reads.** Cloudflare config GET (12 sec), health POST (8 sec), and legacy/Cloudflare sensor POST (12 sec) have explicit WiFiClientSecure handshake limits, connect limits, and existing read limits. These are intentionally much shorter than the 90-second watchdog.
+5. **Retain the currently active HTTPS operation across watchdog resets.** Reset diagnostics can now say `CLOUD_CONFIG_TLS`, `CLOUD_HEALTH_TLS`, or `SENSOR_UPLOAD_TLS` when the task dies while one of those synchronous calls is active.
+6. **Expose recovery evidence.** Cloudflare `mesh_gateway_health.note` adds `v13_net_repair`, last network recovery cause, HTTP status, queue depth, and last successful upload age; Vercel/Neon supervisor telemetry adds the equivalent counters.
+7. **Keep OTA and sensor behavior intact.** No change to the OTA loader, partitions, NVS, sensor allowlist, BLE, DM commands/intervals, RF modem settings, LoRa hop behavior, Vercel and Cloudflare upload routing, or the 60-minute missing-AUTO gate.
 
-Heltec still waits **60 continuous minutes without the relevant automatic sensor packet** before a missing-AUTO rescue DM. Configured 15/30/45/60/360/720/1440 minute intervals are the **repeat cadence after missing AUTO**, not the sensor's own reporting interval. Pack Creek has two independently watched streams. Auto-DM is opt-in per watched node; Cloudflare's requested setting is not evidence it was applied until the gateway reports it.
+## Remote auto-DM and expected behavior
 
-### Watched auto-DM nodes
+Auto-DM rescue is opt-in for Pack Creek water and HOBO, Mill Creek HOBO, Matheson HOBO, Cottonwood Relay temperature, and Fishlake Hightop temperature as configured on the radio. Other watched stations are controlled through their existing saved presets or Cloudflare overrides. **A rescue only qualifies after a continuous full hour without a true automatic sensor packet**, then fires at the selected wall-clock boundary; an interval change can restart that hour for the affected station. Automatic battery/device packets are **not** substitutes for missing sensor telemetry. Replies received through a manual or automatic DM are tagged `heltec_dm` in the Vercel/Neon data path.
 
-| Node | Node number | Stream |
-| --- | --- | --- |
-| Pack Creek | 1949224949 | Water and HOBO MX2001 |
-| South Cottonwood (lost) | 1695962694 | Water |
-| Mill Creek | 1683604927 | HOBO |
-| Matheson Groundwater | 2004386937 | HOBO |
-| Cottonwood Relay | 2425602407 | Temperature |
-| Hidden Valley | 3044869407 | Temperature |
-| Fishlake Hightop | 1577197109 | Temperature |
-| Seed Relay 1 | 647393146 | Temperature |
-| Thousand Lake Mountain | 2650172798 | Temperature |
-| Mini Me | 4241345683 | Temperature |
+The new network recovery intentionally preserves all radio-side timers. A genuine watchdog reset still resets those timers; V13 logs the in-flight TLS operation to help locate its cause.
 
-**Do not enable lost South Cottonwood.** The `DYPA08 1` (`!55ca0677`) and `DYPA08 2` (`!636eb002`) are Cloudflare data collection nodes, not V9 auto-DM rescue targets.
+## Tests and acceptance
 
-## Cloudflare page and data contract
+V13 GitHub Actions must pass existing V5–V12 compatibility/OTA tests, the host C++ supervisor scenario tests, and V13 source guardrails, before publishing the date-stamped BIN and BUILD.txt. A successful build **does not** prove a field fix.
 
-[CCES Monitor → Auto DM](https://cces-monitor.raspy-lake-a7f4.workers.dev/#dm) is owner-only. It deliberately separates:
+After an explicitly approved remote installation, confirm in Cloudflare:
+- `firmware=HELTEC-GATEWAY-V13`, with the applied release identifier and OTA authorization automatically disabled.
+- Continuous uptime **over 90 minutes** through multiple 15-minute Cloudflare heartbeats, with no new `TASK_WDT`.
+- An enabled station missing automatic sensor data for at least an hour receives rescue DMs on its chosen interval.
+- Vercel/Neon accepts `heltec_dm` packets, and Cloudflare/Vercel network recovery counters remain bounded.
 
-- **Heltec reported**: effective state after the radio posted `auto_dm_state`, timestamped in D1 `mesh_gateway_dm_state`.
-- **Cloudflare requested**: stored desired override in `mesh_gateway_dm_overrides`, with D1 config version increment.
-- **Pending / stale**: override has been written but not yet confirmed by a new effective report; V11 does not report this field and must never be shown as confirmed.
+If the gateway still resets, inspect `mesh_gateway_reset_diag` for the new retained TLS operation name; do not blindly increase watchdog timeout. A reliable V12 binary/BUILD.txt remain available for deliberate rollback, through the same protected OTA process.
 
-`POST /api/mesh/dm` accepts only the ten firmware-known rescue node numbers, boolean enabled and the supported repeat intervals. Each change records an audit action; it does **not** trigger firmware OTA, factory reset, calibration change or a RAK reflash.
+## Safe deployment
 
-D1 `mesh_gateway_reset_diag` stores reported reset reason and formatted, retained diagnostic data. V12 reports to the existing authenticated `POST /v10/health` and does not require a new gateway URL or inbound port.
-
-ESP32 codes include `POWERON`, `SOFTWARE`, `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT`, `BROWNOUT`, and `DEEPSLEEP`. A 15-minute cloud health interval does not reset `millis()`, but power interruption or an ESP32 software/hardware reset does. Diagnose before modifying the supervisor. The existing system also has a 15-minute failed-upload recovery threshold, a 90-second task watchdog and an intentional 12-hour preventive reboot. The **actual reset reason is necessary** before blaming any one of them.
-
-## Data flow and recovery limits
-
-V12 keeps the Heltec Cloudflare client’s 12-second connect/HTTP timeouts, bounded 30/60/120/240-second config retry cadence, independent Cloudflare and Vercel upload queues, HOBO BLE and existing V9 DM controls.
-
-Authenticated health payload is constrained below the existing Worker 4096-character limit. The Worker validates exactly 11 supported sensor-watch entries, four or fewer recurring polls, interval bounds and node numbers before storing the effective state. A malformed optional snapshot is ignored without blocking the essential OTA health acknowledgment.
-
-As before, an explicitly approved signed, SHA-256-checked application BIN is staged **beyond the first 0xA0000 bytes** of the `CCA_PULL_1` loader in OTA_1, then installed into OTA_0. On a verified boot, Cloudflare disables remote OTA. **There is no complete automatic rollback for a syntactically valid app that later boot-loops.** Remote flashing is not a substitute for testing and a recovery route.
-
-[Existing V11 diagnostic/OTA runbook](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v11/README.md) · [Cloudflare firmware manager](cloudflare/cces-monitor/README-FIRMWARE-MANAGEMENT.md) · [V12 Cloudflare Worker](cloudflare/cces-mesh-remote/worker.js).
+**No auto-deploy:** Publishing code or CI artifacts does not update Cloudflare `mesh_gateway_config` or approve OTA. Only explicitly authorized operator workflow may stage the signed SHA-256 image. Use the existing Cloudflare [Firmware Management](https://monitor.canyoncountryecological.com/#firmware) panel after reviewing BUILD.txt. Never erase the recovery partition or factory-reset field settings.

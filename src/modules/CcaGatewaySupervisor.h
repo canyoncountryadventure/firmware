@@ -123,6 +123,16 @@ class CcaGatewaySupervisor {
     uint32_t rfAgeMs(uint32_t now) const { return initialized ? static_cast<uint32_t>(now - lastRfMs) : 0; }
     uint32_t moduleAgeMs(uint32_t now) const { return initialized ? static_cast<uint32_t>(now - lastModuleMs) : 0; }
     bool provenHealthy() const { return rxObserved && hadAcceptedUpload; }
+    // Unlike the historic lifetime latch, recovery must be rearmed only when
+    // both RF and a successful Vercel/Neon POST are RECENT.
+    bool recentlyHealthy(uint32_t now, uint32_t maxAgeMs) const {
+        return rxObserved && hadAcceptedUpload &&
+               static_cast<uint32_t>(now - lastRxMs) <= maxAgeMs &&
+               static_cast<uint32_t>(now - lastAcceptedMs) <= maxAgeMs;
+    }
+    uint32_t acceptedAgeMs(uint32_t now) const {
+        return hadAcceptedUpload ? static_cast<uint32_t>(now - lastAcceptedMs) : UINT32_MAX;
+    }
     bool softRecoveryAttempted() const { return softRecovered; }
 
   private:

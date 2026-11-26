@@ -19,6 +19,14 @@
 #include <cstdint>
 #include <cctype>
 
+#if defined(HELTEC_V4)
+extern void esp32FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint32_t error);
+struct CcaV13UploadOp {
+    CcaV13UploadOp() { esp32FieldDiagEvent(7, 3, 0); }
+    ~CcaV13UploadOp() { esp32FieldDiagEvent(0, 0, 0); }
+};
+#endif
+
 namespace
 {
 constexpr uint32_t HIDDEN_VALLEY_NODE = 1252758033UL; // !4aab9211 (replacement)
@@ -829,10 +837,15 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
         return false;
     }
 
+#if defined(HELTEC_V4)
+    CcaV13UploadOp operation; // Survives a TASK_WDT as SENSOR_UPLOAD_TLS.
+#endif
     WiFiClientSecure client;
     client.setInsecure();
+    client.setHandshakeTimeout(12);
     HTTPClient http;
     client.setTimeout(12000);
+    http.setConnectTimeout(12000);
     http.setTimeout(12000);
     const bool cloudOnly = job.cloudOnly;
     const String destination = cloudOnly ? String(CCA_CLOUD_URL) + "/v10/ingest" : String(HOBO_HTTP_GATEWAY_URL);

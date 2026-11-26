@@ -48,6 +48,11 @@ CcaGatewaySupervisor ccaV7Supervisor;
 uint32_t ccaV7LastCheckMs = 0;
 bool ccaV7RebootPending = false;
 uint32_t ccaV7BlockedReason = 0;
+uint32_t ccaV13LastNetRepairMs = 0;
+uint32_t ccaV13NetRepairs = 0;
+uint32_t ccaV13LastNetReason = 0;
+int32_t ccaV13LastNetHttpStatus = 0;
+uint32_t ccaV13LastNetQueueDepth = 0;
 }
 String ccaHeltecGatewaySupervisorJson()
 {
@@ -60,8 +65,29 @@ String ccaHeltecGatewaySupervisorJson()
     result += ",\"recovery_reboots_since_healthy\":" + String(ccaV7RecoveryRetained.consecutiveRecoveryBoots);
     result += ",\"last_recovery_reason\":" + String(ccaV7RecoveryRetained.lastRecoveryReason);
     result += ",\"recovery_blocked_reason\":" + String(ccaV7BlockedReason);
+    result += ",\"network_repair_count\":" + String(ccaV13NetRepairs);
+    result += ",\"last_network_repair_reason\":" + String(ccaV13LastNetReason);
+    result += ",\"last_network_http_status\":" + String(ccaV13LastNetHttpStatus);
+    result += ",\"last_network_queue_depth\":" + String(ccaV13LastNetQueueDepth);
+    const uint32_t okAge = ccaV7Supervisor.acceptedAgeMs(now);
+    result += ",\"last_accepted_upload_age_seconds\":";
+    result += okAge == UINT32_MAX ? "null" : String(okAge / 1000UL);
     result += "}";
     return result;
+}
+// Keep this brief; the Cloudflare Worker persists note text up to 300 chars.
+// The full per-packet supervisor record still goes to Vercel/Neon.
+String ccaHeltecGatewaySupervisorHealthNote()
+{
+    const uint32_t now = millis();
+    const uint32_t age = ccaV7Supervisor.acceptedAgeMs(now);
+    String s = "v13_net_repair=" + String(ccaV13NetRepairs) +
+               ",net_reason=" + String(ccaV13LastNetReason) +
+               ",net_http=" + String(ccaV13LastNetHttpStatus) +
+               ",net_queue=" + String(ccaV13LastNetQueueDepth) +
+               ",upload_age_s=";
+    s += age == UINT32_MAX ? "none" : String(age / 1000UL);
+    return s;
 }
 #endif
 
@@ -136,6 +162,18 @@ const char *heltecEventName(uint8_t subsystem, uint8_t operation)
         return "RADIO_RECOVERY";
     if (subsystem == 5 && operation == 1)
         return "12H_REBOOT";
+    if (subsystem == 6 && operation == 5)
+        return "GATEWAY_UPLOAD_STALL";
+    if (subsystem == 6 && operation == 6)
+        return "GATEWAY_WIFI_STALL";
+    if (subsystem == 6)
+        return "GATEWAY_RECOVERY";
+    if (subsystem == 7 && operation == 1)
+        return "CLOUD_CONFIG_TLS";
+    if (subsystem == 7 && operation == 2)
+        return "CLOUD_HEALTH_TLS";
+    if (subsystem == 7 && operation == 3)
+        return "SENSOR_UPLOAD_TLS";
     if (subsystem == 0)
         return "NONE";
     return "OTHER";
@@ -499,6 +537,26 @@ void esp32Loop()
                 LOG_WARN("CCA V7: 90-minute RX silence; requesting guarded radio reinit");
                 if (!radio->recoverRadioForHealth())
                     LOG_WARN("CCA V7: radio reinit deferred/failed; 3-hour backstop remains armed");
+            } else if (action == CcaGatewayRecovery::UploadStalled ||
+                       action == CcaGatewayRecovery::WifiStalled) {
+                // Internet trouble must not reset the LoRa mesh, AUTO-DM timers,
+                // or offline sensor queue. The upload worker already reconnects
+                // Wi-Fi after transport failures; this is a bounded backstop.
+                constexpr uint32_t NET_REPAIR_COOLDOWN_MS = 5UL * 60UL * 1000UL;
+                if (ccaV13LastNetRepairMs == 0 ||
+                    (uint32_t)(ccaNow - ccaV13LastNetRepairMs) >= NET_REPAIR_COOLDOWN_MS) {
+                    ccaV13LastNetRepairMs = ccaNow;
+                    ++ccaV13NetRepairs;
+                    ccaV13LastNetReason = static_cast<uint32_t>(action);
+                    ccaV13LastNetHttpStatus = snapshot.lastHttpStatus;
+                    ccaV13LastNetQueueDepth = snapshot.queueUsed;
+                    LOG_WARN("CCA V13: network-only recovery reason=%lu http=%ld queue=%lu (no MCU reboot)",
+                             static_cast<unsigned long>(ccaV13LastNetReason),
+                             static_cast<long>(ccaV13LastNetHttpStatus),
+                             static_cast<unsigned long>(ccaV13LastNetQueueDepth));
+                    WiFi.disconnect(false);
+                    WiFi.reconnect();
+                }
             } else if (action != CcaGatewayRecovery::None) {
                 const uint32_t reason = static_cast<uint32_t>(action);
                 if (ccaV7RecoveryRetained.consecutiveRecoveryBoots < 2) {
@@ -515,8 +573,10 @@ void esp32Loop()
                     ccaV7BlockedReason = reason;
                 }
             }
-            // Re-arm after proven radio RX + cloud upload and one hour of stable uptime.
-            if (ccaV7Supervisor.provenHealthy() && ccaNow >= 60UL * 60UL * 1000UL &&
+            // Re-arm only after RF activity AND an accepted POST in the last
+            // five minutes; a single old success must not clear the reboot guard.
+            if (ccaV7Supervisor.recentlyHealthy(ccaNow, 5UL * 60UL * 1000UL) &&
+                ccaNow >= 60UL * 60UL * 1000UL &&
                 ccaV7RecoveryRetained.consecutiveRecoveryBoots) {
                 ccaV7RecoveryRetained.consecutiveRecoveryBoots = 0;
                 ccaV7BlockedReason = 0;

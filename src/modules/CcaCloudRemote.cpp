@@ -17,6 +17,14 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 extern void esp32FieldDiagFormat(char *out, size_t outSize);
+extern void esp32FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint32_t error);
+extern String ccaHeltecGatewaySupervisorHealthNote();
+// Record the in-flight TLS operation in retained RAM. If the loopTask stalls
+// until TASK_WDT, the next boot reports which network operation was active.
+struct CcaV13TlsOp {
+    explicit CcaV13TlsOp(uint8_t op) { esp32FieldDiagEvent(7, op, 0); }
+    ~CcaV13TlsOp() { esp32FieldDiagEvent(0, 0, 0); }
+};
 
 namespace {
 constexpr size_t MAX_CLOUD_NODES = 24;
@@ -167,7 +175,7 @@ String CcaCloudRemote::statusJson()
     revision = dmRevision;
     canStage = otaAvailable;
     portEXIT_CRITICAL(&cloudLock);
-    String s = "{\"build\":\"heltec-gateway-v12\",\"remote_config_version\":" + String(v) +
+    String s = "{\"build\":\"heltec-gateway-v13\",\"remote_config_version\":" + String(v) +
                ",\"cloud_nodes\":" + String(stations) +
                ",\"remote_dm_revision\":" + String(revision) +
                ",\"sync_ok\":" + String(successCount) +
@@ -228,8 +236,10 @@ bool CcaCloudRemote::syncConfig()
     // signed manifest.  stageAndReboot() opens a second HTTPS connection
     // (GitHub) and must not overlap the Cloudflare TLS heap allocation.
     {
+        CcaV13TlsOp operation(1); // Cloudflare config GET + response parse.
         WiFiClientSecure client;
         client.setInsecure(); // Mirrors V9 gateway transport.
+        client.setHandshakeTimeout(12); // seconds, independent of HTTP read timeout
         HTTPClient http;
         client.setTimeout(12000);
         http.setConnectTimeout(12000);
@@ -373,9 +383,13 @@ bool CcaCloudRemote::syncConfig()
 void CcaCloudRemote::postHealth()
 {
     if (!WiFi.isConnected() || strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) return;
+    CcaV13TlsOp operation(2); // Cloudflare health POST.
     WiFiClientSecure client;
     client.setInsecure();
+    client.setHandshakeTimeout(8);
+    client.setTimeout(8000);
     HTTPClient http;
+    http.setConnectTimeout(8000);
     http.setTimeout(8000);
     const String endpoint = String(CCA_CLOUD_URL) + "/v10/health";
     if (!http.begin(client, endpoint)) return;
@@ -383,11 +397,12 @@ void CcaCloudRemote::postHealth()
     http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
     const uint32_t queue = hoboHttpGatewayModule ? hoboHttpGatewayModule->healthQueueUsed() : 0;
     const int httpStatus = hoboHttpGatewayModule ? hoboHttpGatewayModule->healthLastHttpStatus() : 0;
-    String body = "{\"firmware\":\"HELTEC-GATEWAY-V12\",\"uptime_seconds\":" +
+    String body = "{\"firmware\":\"HELTEC-GATEWAY-V13\",\"uptime_seconds\":" +
         String(millis() / 1000UL) + ",\"queue_depth\":" + String(queue) +
         ",\"last_http_status\":" + String(httpStatus) +
         ",\"config_version\":" + String(configVersion()) +
-        ",\"note\":" + safeJsonString(CcaRemoteOtaStage::healthNote());
+        ",\"note\":" + safeJsonString(CcaRemoteOtaStage::healthNote() + "; " +
+                                             ccaHeltecGatewaySupervisorHealthNote());
     char diag[530] = {};
     esp32FieldDiagFormat(diag, sizeof(diag));
     String diagnostic(diag);
