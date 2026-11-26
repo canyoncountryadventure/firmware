@@ -143,7 +143,7 @@ WATER CAL STATUS
 | `DIAG`, `STATS`, `WATCHDOG` | Recovery breadcrumbs, radio status and watchdog |
 | `HUB`, `HUB AUTO` | Telemetry destination / normal broadcast |
 | `HUB SET !1234ABCD` | Optional node-specific telemetry destination |
-| `REBOOT` | Hardware watchdog reset while preserving configuration |
+| `REBOOT` | watchdog-origin hardware reset while preserving configuration |
 | `SOFT REBOOT`, `RADIO RESET` | Software reset of radio CPU and associated state |
 | `LAST RESORT` | **Destructive** factory reset; clears identity, channels/bonds and calibration |
 
