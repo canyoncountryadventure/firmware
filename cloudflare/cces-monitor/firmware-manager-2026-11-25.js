@@ -268,9 +268,12 @@ function drawFirmware(){
   tags.append(el('span','fw-tag'+(same?' live':''),same?(g.ota_enabled?'Approved for install':'Last selected'):'Available'));
   tags.append(el('span','fw-tag'+(release.storage==='github'?'':' off'),release.storage==='github'?'GitHub':'Cloudflare KV'));
   info.append(tags,el('small','','SHA-256: '+release.sha256),el('small','',Number(release.size_bytes).toLocaleString()+' bytes · '+fwWhen(release.created_at)),el('small','',release.storage==='github'?'Ready for V10 remote download':'Cloudflare-hosted: Heltec firmware host support required'));
-  const actions=el('div'),btn=el('button','',release.storage==='github'?'Approve & install':'Upload saved');
-  btn.type='button';btn.disabled=g.ota_enabled||release.storage!=='github'||!fresh||!h.note?.includes('loader_ready=1');
-  if(release.storage==='github')btn.onclick=()=>fwDeploy(release);
+  const cloudReady=release.storage==='cloudflare_kv'&&fresh&&h.note?.includes('fw_kv=1');
+  const sourceReady=release.storage==='github'||cloudReady;
+  const installed=String(h.note||'').includes('applied='+release.version);
+  const actions=el('div'),btn=el('button','',installed?'Installed':sourceReady?'Approve & install':'Gateway V11 required');
+  btn.type='button';btn.disabled=g.ota_enabled||!sourceReady||!fresh||!h.note?.includes('loader_ready=1')||installed;
+  if(sourceReady&&!installed)btn.onclick=()=>fwDeploy(release);
   actions.append(btn);item.append(info,actions);list.append(item);
  }
  if(!d.releases.length)list.append(el('p','fw-hint','No firmware releases registered.'));
@@ -609,12 +612,21 @@ async function firmwareApi(request,env,actor,url){
    return json({ok:true,version:update.version});
   }
   if(v.action!=='deploy'||v.confirm!=='DEPLOY')return fail('Explicit DEPLOY confirmation required',400);
-  const release=await env.DB.prepare("SELECT id,version,sha256,file_url,storage FROM mesh_firmware_releases WHERE gateway_id='heltec-moab' AND id=?").bind(v.release_id).first();
+  const release=await env.DB.prepare("SELECT id,version,sha256,file_url,storage,created_at FROM mesh_firmware_releases WHERE gateway_id='heltec-moab' AND id=?").bind(v.release_id).first();
   if(!release)return fail('Release does not exist',404);
-  if(release.storage!=='github')return fail('Cloudflare KV releases require a gateway firmware update to permit Cloudflare download URLs. Register the BIN on GitHub for the current gateway.',409);
   const h=await env.DB.prepare("SELECT received_at,note FROM mesh_gateway_health WHERE gateway_id='heltec-moab' ORDER BY id DESC LIMIT 1").first();
   const age=h?Date.now()-Date.parse(String(h.received_at).replace(' ','T')+'Z'):Infinity;
   if(age>1800000||!h?.note?.includes('loader_ready=1'))return fail('CCA recovery loader has not checked in during the past 30 minutes',409);
+  if(String(h.note).includes('applied='+release.version))return fail('This release is already installed and verified',409);
+  if(release.storage==='cloudflare_kv'){
+   if(!h.note.includes('fw_kv=1'))return fail('Gateway V11 with Cloudflare firmware download support is required',409);
+   const readyAt=Date.parse(String(release.created_at).replace(' ','T')+'Z')+120000;
+   if(Date.now()<readyAt)return fail('New Cloudflare KV upload must propagate for two minutes before installation',409);
+   const token=release.file_url.split('/').at(-1);
+   if(!/^[a-f0-9]{64}$/.test(token)||!env.FW_BIN)return fail('Cloudflare firmware store unavailable',503);
+   const bytes=await env.FW_BIN.get('heltec-v10/'+token,'arrayBuffer');
+   if(!bytes||fwHex(await crypto.subtle.digest('SHA-256',bytes))!==release.sha256)return fail('Cloudflare BIN is missing or failed SHA-256 verification',409);
+  }else if(release.storage!=='github')return fail('Unrecognized firmware storage',409);
   const update=await env.DB.prepare("UPDATE mesh_gateway_config SET ota_enabled=1,ota_version=?,ota_url=?,ota_sha256=?,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE gateway_id='heltec-moab' AND ota_enabled=0 RETURNING version")
    .bind(release.version,release.file_url,release.sha256).first();
   if(!update)return fail('Remote OTA already enabled. Disable it before approving another release.',409);
