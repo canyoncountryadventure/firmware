@@ -89,6 +89,31 @@ export default {
         const note=String(d.note||"").slice(0,300);
         await env.DB.prepare("INSERT INTO mesh_gateway_health(gateway_id,firmware,uptime_seconds,queue_depth,last_http_status,config_version,note) VALUES (?,?,?,?,?,?,?)")
           .bind("heltec-moab",String(d.firmware||"").slice(0,90),Number.isFinite(uptime)?uptime:null,Number.isFinite(queue)?queue:null,Number.isFinite(status)?status:null,Number.isFinite(ver)?ver:null,note).run();
+        // Optional V12+ effective auto-DM snapshot, authenticated with the same
+        // gateway ingest secret as health. V11 continues posting health unchanged.
+        // Incomplete/malformed snapshots never block remote-OTA boot confirmation.
+        const dm=d.auto_dm_state;
+        if(dm&&typeof dm==="object"){
+          const allowed=new Set([1949224949,1695962694,1683604927,2004386937,2425602407,3044869407,1577197109,647393146,2650172798,4241345683]);
+          const cadence=new Set([15,30,45,60,360,720,1440]);
+          const valid=dm.schema===1&&typeof dm.global_enabled==="boolean"&&Number(dm.minimum_missing_minutes)===60&&
+            typeof dm.clock_synchronized==="boolean"&&Array.isArray(dm.watches)&&dm.watches.length===11&&
+            Array.isArray(dm.configured_polls)&&dm.configured_polls.length<=4&&
+            dm.watches.every(w=>allowed.has(w.node)&&Number.isInteger(w.kind)&&w.kind>=0&&w.kind<=2&&
+              typeof w.enabled==="boolean"&&cadence.has(w.interval_minutes)&&typeof w.custom_interval==="boolean"&&
+              (w.last_auto_age_seconds===null||(Number.isInteger(w.last_auto_age_seconds)&&w.last_auto_age_seconds>=0))&&
+              (w.last_request_age_seconds===null||(Number.isInteger(w.last_request_age_seconds)&&w.last_request_age_seconds>=0)))&&
+            dm.configured_polls.every(x=>Number.isInteger(x.node)&&x.node>=0&&x.node<=4294967295&&
+              Number.isInteger(x.interval_minutes)&&x.interval_minutes>=0&&x.interval_minutes<=1440&&
+              Number.isInteger(x.mode)&&x.mode>=0&&x.mode<=2);
+          const snapshot=valid?JSON.stringify(dm):"";
+          if(valid&&snapshot.length<=6000){
+            try {
+              await env.DB.prepare("INSERT INTO mesh_gateway_dm_state(gateway_id,reported_at,firmware,config_version,snapshot_json) VALUES ('heltec-moab',CURRENT_TIMESTAMP,?,?,?) ON CONFLICT(gateway_id) DO UPDATE SET reported_at=CURRENT_TIMESTAMP,firmware=excluded.firmware,config_version=excluded.config_version,snapshot_json=excluded.snapshot_json")
+                .bind(String(d.firmware||"").slice(0,90),Number.isInteger(ver)?ver:0,snapshot).run();
+            }catch(_ignored){console.warn("Optional auto-DM snapshot storage failed")}
+          }
+        }
         // Close the release authorization only after a matching installed image
         // boots far enough to authenticate and post its first cloud heartbeat.
         const verified=note.match(/^remote-ota: loader_ready=1,phase=(3|4),attempts=0,applied=([a-zA-Z0-9._-]{3,63})(?:,|$)/);
