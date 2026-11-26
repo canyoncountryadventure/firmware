@@ -391,7 +391,7 @@ void CcaCloudRemote::postHealth()
     char diag[530] = {};
     esp32FieldDiagFormat(diag, sizeof(diag));
     String diagnostic(diag);
-    diagnostic.replace("\\n", " | ");
+    diagnostic.replace("\n", " | ");
     body += ",\"reset_reason_code\":" + String(static_cast<int>(esp_reset_reason()));
     body += ",\"reset_diagnostic\":" + safeJsonString(diagnostic);
     body += ",\"auto_dm_state\":" + (hoboHttpGatewayModule ? hoboHttpGatewayModule->autoDmSnapshotJson() : String("null"));
