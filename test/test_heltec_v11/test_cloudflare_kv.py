@@ -12,6 +12,11 @@ for src in [cloud,stage]:
     assert "github.com/canyoncountryadventure/firmware/" in src
 assert "unpackSha(url.substring(cloudPrefix.length()), opaqueKey)" in stage
 assert "fw_kv=1" in stage
+assert "last_config_error" in cloud
+assert "tls_largest_heap_block" in cloud
+assert "http.setConnectTimeout(12000)" in cloud
+assert "const uint32_t retryMs = 30000UL" in cloud
+assert "lastHealthCode" in cloud
 assert "loaderReady()" in stage
 assert "LOADER_RESERVED_BYTES = 0xA0000" in stage
 assert "esp_partition_write(loader, LOADER_RESERVED_BYTES + copied" in stage
