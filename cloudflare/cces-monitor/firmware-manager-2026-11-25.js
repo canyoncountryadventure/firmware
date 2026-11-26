@@ -642,6 +642,41 @@ async function api(request, env, actor, url) {
   if (method !== 'GET' && (request.headers.get('origin') !== url.origin)) return fail('Origin mismatch', 403);
   if(path.startsWith('/api/firmware'))return firmwareApi(request,env,actor,url);
   
+const DM_WATCH_NODES=new Set([1949224949,1695962694,1683604927,2004386937,2425602407,3044869407,1577197109,647393146,2650172798,4241345683]);
+if(path==='/api/mesh/dm'&&method==='GET'){
+ if(actor.role!=='admin')return fail('Forbidden',403);
+ const [g,h,overrides,reported,actions]=await Promise.all([
+  env.DB.prepare("SELECT gateway_id,version,ota_enabled FROM mesh_gateway_config WHERE gateway_id='heltec-moab'").first(),
+  env.DB.prepare("SELECT received_at,firmware,config_version FROM mesh_gateway_health WHERE gateway_id='heltec-moab' ORDER BY id DESC LIMIT 1").first(),
+  env.DB.prepare("SELECT node_num,enabled,interval_minutes,updated_at FROM mesh_gateway_dm_overrides ORDER BY node_num").all(),
+  env.DB.prepare("SELECT reported_at,firmware,config_version,snapshot_json FROM mesh_gateway_dm_state WHERE gateway_id='heltec-moab'").first(),
+  env.DB.prepare("SELECT node_num,enabled,interval_minutes,config_version,actor_email,created_at FROM mesh_gateway_dm_actions ORDER BY created_at DESC LIMIT 20").all()
+ ]);
+ let snap=null;
+ if(reported){try{snap=JSON.parse(reported.snapshot_json)}catch{}}
+ return json({gateway:g,health:h,overrides:overrides.results||[],reported:reported?{reported_at:reported.reported_at,firmware:reported.firmware,config_version:reported.config_version,snapshot:snap}:null,actions:actions.results||[]});
+}
+if(path==='/api/mesh/dm'&&method==='POST'){
+ if(actor.role!=='admin')return fail('Forbidden',403);
+ const v=await body(request),node=Number(v.node_num),minutes=Number(v.interval_minutes);
+ if(!Number.isInteger(node)||!DM_WATCH_NODES.has(node)||typeof v.enabled!=='boolean'||![15,30,45,60,360,720,1440].includes(minutes))return fail('Only known Heltec V9 rescue-watch nodes and supported intervals are allowed',400);
+ const [old,g,amount]=await Promise.all([
+  env.DB.prepare("SELECT enabled,interval_minutes FROM mesh_gateway_dm_overrides WHERE node_num=?").bind(node).first(),
+  env.DB.prepare("SELECT version FROM mesh_gateway_config WHERE gateway_id='heltec-moab'").first(),
+  env.DB.prepare("SELECT count(*) AS n FROM mesh_gateway_dm_overrides").first()
+ ]);
+ if(!g)return fail('Gateway config missing',503);
+ if(old&&Number(old.enabled)===(v.enabled?1:0)&&Number(old.interval_minutes)===minutes)return json({ok:true,version:g.version,unchanged:true});
+ if(!old&&Number(amount?.n||0)>=16)return fail('Maximum sixteen remote DM overrides',409);
+ const changes=await env.DB.batch([
+  env.DB.prepare("INSERT INTO mesh_gateway_dm_overrides(node_num,enabled,interval_minutes,updated_at) VALUES (?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(node_num) DO UPDATE SET enabled=excluded.enabled,interval_minutes=excluded.interval_minutes,updated_at=CURRENT_TIMESTAMP").bind(node,v.enabled?1:0,minutes),
+  env.DB.prepare("UPDATE mesh_gateway_config SET version=version+1,updated_at=CURRENT_TIMESTAMP WHERE gateway_id='heltec-moab' RETURNING version")
+ ]);
+ const version=changes[1]?.results?.[0]?.version;
+ await env.DB.prepare("INSERT INTO mesh_gateway_dm_actions(id,gateway_id,node_num,enabled,interval_minutes,config_version,actor_email) VALUES (?,'heltec-moab',?,?,?,?,?)")
+   .bind(crypto.randomUUID(),node,v.enabled?1:0,minutes,version,actor.email||'owner').run();
+ return json({ok:true,version,unchanged:false});
+}
 if(path==='/api/mesh/remote'&&method==='GET'){
  if(actor.role!=='admin')return fail('Forbidden',403);
  const [g,h,stations,dm]=await Promise.all([
