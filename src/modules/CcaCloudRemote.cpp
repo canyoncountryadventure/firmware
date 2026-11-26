@@ -14,6 +14,7 @@
 #include <freertos/task.h>
 #include <cstring>
 #include <cstdio>
+#include <esp_heap_caps.h>
 
 namespace {
 constexpr size_t MAX_CLOUD_NODES = 24;
@@ -34,6 +35,12 @@ bool otaAvailable = false;
 char otaVersion[64] = {};
 char otaReason[48] = "not authorized";
 int lastCloudCode = 0;
+int lastHealthCode = 0;
+char lastConfigError[128] = "not attempted";
+uint8_t configFailureStreak = 0;
+uint32_t tlsFreeHeap = 0;
+uint32_t tlsLargestHeapBlock = 0;
+int tlsWiFiRssi = 0;
 uint32_t successCount = 0;
 uint32_t failCount = 0;
 uint32_t loopStackMinFreeBytes = 0; // ESP-IDF stack high-water mark, bytes
@@ -165,6 +172,11 @@ String CcaCloudRemote::statusJson()
                ",\"sync_failed\":" + String(failCount) +
                ",\"loop_stack_min_free_bytes\":" + String(loopStackMinFreeBytes) +
                ",\"last_http_status\":" + String(lastCloudCode) +
+               ",\"last_health_http_status\":" + String(lastHealthCode) +
+               ",\"last_config_error\":" + safeJsonString(String(lastConfigError)) +
+               ",\"tls_free_heap\":" + String(tlsFreeHeap) +
+               ",\"tls_largest_heap_block\":" + String(tlsLargestHeapBlock) +
+               ",\"tls_wifi_rssi_dbm\":" + String(tlsWiFiRssi) +
                ",\"ota_manifest_verified\":" + String(canStage ? "true" : "false") +
                ",\"ota_install_enabled\":" + String((canStage && CcaRemoteOtaStage::loaderReady()) ? "true" : "false") +
                ",\"ota_status\":" +
@@ -201,7 +213,14 @@ bool CcaCloudRemote::verifyOtaManifest(const String &version, const String &url,
 
 bool CcaCloudRemote::syncConfig()
 {
-    if (!WiFi.isConnected() || strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) return false;
+    if (!WiFi.isConnected() || strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) {
+        snprintf(lastConfigError, sizeof(lastConfigError), "WiFi disconnected or gateway key missing");
+        lastCloudCode = -100;
+        return false;
+    }
+    tlsFreeHeap = ESP.getFreeHeap();
+    tlsLargestHeapBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    tlsWiFiRssi = WiFi.RSSI();
     String response;
     // Complete and destroy the Cloudflare TLS client before processing the
     // signed manifest.  stageAndReboot() opens a second HTTPS connection
@@ -210,17 +229,36 @@ bool CcaCloudRemote::syncConfig()
         WiFiClientSecure client;
         client.setInsecure(); // Mirrors V9 gateway transport.
         HTTPClient http;
-        http.setTimeout(10000);
+        client.setTimeout(12000);
+        http.setConnectTimeout(12000);
+        http.setTimeout(12000);
         const String endpoint = String(CCA_CLOUD_URL) + "/v10/config";
-        if (!http.begin(client, endpoint)) return false;
+        if (!http.begin(client, endpoint)) {
+            lastCloudCode = -101;
+            snprintf(lastConfigError, sizeof(lastConfigError), "HTTP setup failed heap=%lu maxblock=%lu rssi=%d",
+                     static_cast<unsigned long>(tlsFreeHeap), static_cast<unsigned long>(tlsLargestHeapBlock), tlsWiFiRssi);
+            return false;
+        }
         http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
         const int status = http.GET();
         lastCloudCode = status;
-        if (status != 200) { http.end(); return false; }
+        if (status != 200) {
+            const String detail = http.errorToString(status);
+            snprintf(lastConfigError, sizeof(lastConfigError),
+                     "HTTP %d %s heap=%lu maxblock=%lu rssi=%d", status,
+                     detail.c_str(), static_cast<unsigned long>(tlsFreeHeap),
+                     static_cast<unsigned long>(tlsLargestHeapBlock), tlsWiFiRssi);
+            LOG_WARN("CCA V11 Cloudflare config: %s", lastConfigError);
+            http.end();
+            return false;
+        }
         response = http.getString();
         http.end();
     }
-    if (response.length() < 30 || response.length() > 8192) return false;
+    if (response.length() < 30 || response.length() > 8192) {
+        snprintf(lastConfigError, sizeof(lastConfigError), "Invalid config response length: %lu", static_cast<unsigned long>(response.length()));
+        return false;
+    }
 
     std::unique_ptr<JSONValue> root(JSON::Parse(response.c_str()));
     if (!root || !root->IsObject()) return false;
@@ -323,7 +361,8 @@ bool CcaCloudRemote::syncConfig()
                                           authorizedHash, stageReason);
         snprintf(otaReason, sizeof(otaReason), "%s", stageReason.c_str());
     }
-    LOG_INFO("CCA V10 remote: config v%lu, %u cloud station(s), %u DM override(s), ota_manifest=%s",
+    snprintf(lastConfigError, sizeof(lastConfigError), "none");
+    LOG_INFO("CCA V11 remote: config v%lu, %u cloud station(s), %u DM override(s), ota_manifest=%s",
              static_cast<unsigned long>(version), static_cast<unsigned>(count),
              static_cast<unsigned>(newDmCount), approved ? "VERIFIED" : "OFF");
     return true;
@@ -348,8 +387,9 @@ void CcaCloudRemote::postHealth()
         ",\"config_version\":" + String(configVersion()) +
         ",\"note\":" + safeJsonString(CcaRemoteOtaStage::healthNote()) + "}";
     const int rc = http.POST(body);
+    lastHealthCode = rc;
     if (rc == 200) CcaRemoteOtaStage::markCloudConfirmed();
-    else LOG_WARN("CCA V10 remote: health HTTP %d", rc);
+    else LOG_WARN("CCA V11 remote: health HTTP %d: %s", rc, http.errorToString(rc).c_str());
     http.end();
 }
 
@@ -360,8 +400,17 @@ int32_t CcaCloudRemote::runOnce()
     if (!WiFi.isConnected()) return 10000; // preserve cached configuration offline
     if (!lastConfigPoll || (now - lastConfigPoll) >= CONFIG_INTERVAL_MS) {
         lastConfigPoll = now;
-        if (syncConfig()) ++successCount;
-        else ++failCount;
+        if (syncConfig()) {
+            ++successCount;
+            configFailureStreak = 0;
+        } else {
+            ++failCount;
+            if (configFailureStreak < 5) ++configFailureStreak;
+            // Retry at 30, 60, 120, then 240 seconds; normal 5-minute
+            // configuration cadence resumes on the next successful GET.
+            const uint32_t retryMs = 30000UL << (configFailureStreak < 4 ? configFailureStreak - 1 : 3);
+            lastConfigPoll = now + retryMs - CONFIG_INTERVAL_MS;
+        }
     }
     if (!lastHealthPost || (now - lastHealthPost) >= HEALTH_INTERVAL_MS) {
         lastHealthPost = now;
