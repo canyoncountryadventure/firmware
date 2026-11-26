@@ -92,6 +92,14 @@ export default {
         // Optional V12+ effective auto-DM snapshot, authenticated with the same
         // gateway ingest secret as health. V11 continues posting health unchanged.
         // Incomplete/malformed snapshots never block remote-OTA boot confirmation.
+        // Retain last boot reset reason from ESP32 diagnostics; V11 omits these.
+        if(typeof d.reset_diagnostic==="string"&&d.reset_diagnostic.startsWith("HELTEC V4 DIAG")&&d.reset_diagnostic.length<=650&&
+           Number.isInteger(d.reset_reason_code)&&d.reset_reason_code>=0&&d.reset_reason_code<256){
+          try{
+            await env.DB.prepare("INSERT INTO mesh_gateway_reset_diag(gateway_id,firmware,uptime_seconds,reset_reason,detail) VALUES ('heltec-moab',?,?,?,?)")
+              .bind(String(d.firmware||"").slice(0,90),Number.isFinite(uptime)?uptime:null,d.reset_reason_code,d.reset_diagnostic).run();
+          }catch(_ignored){console.warn("Reset diagnostics storage unavailable")}
+        }
         const dm=d.auto_dm_state;
         if(dm&&typeof dm==="object"){
           const allowed=new Set([1949224949,1695962694,1683604927,2004386937,2425602407,3044869407,1577197109,647393146,2650172798,4241345683]);
