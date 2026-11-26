@@ -1,5 +1,6 @@
 #include "HoboHttpGatewayModule.h"
 #include "CcaCc01DmParser.h"
+#include "CcaCloudRemote.h"
 
 #if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
 
@@ -324,7 +325,7 @@ bool HoboHttpGatewayModule::wantPacket(const meshtastic_MeshPacket *p)
         from != MINI_ME_NODE && from != MATHESON_NODE && from != CLIFF_SENSOR_NODE &&
         from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE &&
         from != SEED_RELAY_1_NODE && from != COTTONWOOD_RELAY_2_NODE &&
-        from != WHITEPINE_NODE)
+        from != WHITEPINE_NODE && !CcaCloudRemote::isCloudNode(from))
         return false;
 #if HOBO_HTTP_GATEWAY_FAVORITES_ONLY
     if (!nodeDB->isFavorite(from))
@@ -550,7 +551,8 @@ bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp
 {
     const uint32_t from = getFrom(&mp);
     // Accept distance packets from the configured water-station IDs.
-    if (from != SWELL_NODE && from != MINI_ME_NODE && from != CLIFF_SENSOR_NODE && from != CC01_NODE)
+    if (from != SWELL_NODE && from != MINI_ME_NODE && from != CLIFF_SENSOR_NODE && from != CC01_NODE &&
+        !CcaCloudRemote::isCloudNode(from))
         return false;
     // DistanceSensorModule v3 sends a 24-byte DS/version-1 water packet.
     if (mp.decoded.payload.size != 24)
@@ -830,7 +832,9 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     HTTPClient http;
     client.setTimeout(12000);
     http.setTimeout(12000);
-    if (!http.begin(client, HOBO_HTTP_GATEWAY_URL)) {
+    const bool cloudOnly = CcaCloudRemote::isCloudNode(job.from);
+    const String destination = cloudOnly ? String(CCA_CLOUD_URL) + "/v10/ingest" : String(HOBO_HTTP_GATEWAY_URL);
+    if (!http.begin(client, destination)) {
         LOG_WARN("CCA clean gateway: could not initialize HTTPS request");
         return false;
     }
@@ -893,7 +897,7 @@ String HoboHttpGatewayModule::statusJson()
     const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
                         cc01Phase == Cc01Phase::Hobo ? "waiting_hobo" :
                         cc01Phase == Cc01Phase::Done ? "done" : "idle";
-    String body = "{\"firmware_fix\":\"v9-hour-boundary-2026-11-04\"";
+    String body = "{\"firmware_fix\":\"v10-cloudflare-remote-2026-11-25\"";
     // Exercise the actual embedded parser without queuing synthetic observations.
     cca_cc01_dm::WaterReading water;
     cca_cc01_dm::HoboReading hobo;
@@ -1011,6 +1015,27 @@ String HoboHttpGatewayModule::statusJson()
 int32_t HoboHttpGatewayModule::runOnce()
 {
     ++healthLoopCycles;
+    // Apply Cloudflare overrides only when a new signed-in remote config
+    // version arrives. All legacy V9 Clock station policies remain otherwise.
+    static uint32_t lastRemoteDmRevision = 0;
+    const uint32_t remoteRevision = CcaCloudRemote::remoteDmRevision();
+    if (remoteRevision && remoteRevision != lastRemoteDmRevision) {
+        CcaRemoteDmSetting values[16] = {};
+        const size_t n = CcaCloudRemote::readRemoteDmSettings(values, 16);
+        bool changed = false;
+        for (size_t i = 0; i < n; ++i) {
+            if (!autoFallback.isKnownNode(values[i].node)) continue;
+            autoFallback.setNodeIntervalMinutes(values[i].node, values[i].minutes);
+            autoFallback.setNodeEnabled(values[i].node, values[i].enabled);
+            if (values[i].enabled) {
+                autoFallback.enabled = true;
+                autoFallback.armNode(values[i].node, millis());
+            } else hourlyRescue.cancelNode(values[i].node, autoFallback);
+            changed = true;
+        }
+        if (changed) persistCc01Settings();
+        lastRemoteDmRevision = remoteRevision;
+    }
     // V9: opt-in rescue only after 60 minutes without AUTO by default.
     // No unconditional Cottonwood or Matheson polling. LoRa still works
     // without Wi-Fi; captured DM replies queue for later upload.
