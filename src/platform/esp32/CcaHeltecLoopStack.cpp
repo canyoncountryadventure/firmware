@@ -15,7 +15,7 @@
 // reported ~164 KiB free before the TLS request). No repartition or erase.
 #include <stddef.h>
 #include "configuration.h"
-#if defined(ARCH_ESP32) && defined(HELTEC_V4) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+#if defined(ARCH_ESP32) && defined(HELTEC_V4) && HAS_WIFI
 size_t getArduinoLoopTaskStackSize(void)
 {
     return 32U * 1024U;
