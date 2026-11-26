@@ -86,8 +86,20 @@ export default {
       if(url.pathname==="/v10/health"&&request.method==="POST"){
         const raw=await request.text();if(raw.length>4096)return json({error:"too large"},413);
         const d=JSON.parse(raw),uptime=Number(d.uptime_seconds),queue=Number(d.queue_depth),status=Number(d.last_http_status),ver=Number(d.config_version);
+        const note=String(d.note||"").slice(0,300);
         await env.DB.prepare("INSERT INTO mesh_gateway_health(gateway_id,firmware,uptime_seconds,queue_depth,last_http_status,config_version,note) VALUES (?,?,?,?,?,?,?)")
-          .bind("heltec-moab",String(d.firmware||"").slice(0,90),Number.isFinite(uptime)?uptime:null,Number.isFinite(queue)?queue:null,Number.isFinite(status)?status:null,Number.isFinite(ver)?ver:null,String(d.note||"").slice(0,300)).run();
+          .bind("heltec-moab",String(d.firmware||"").slice(0,90),Number.isFinite(uptime)?uptime:null,Number.isFinite(queue)?queue:null,Number.isFinite(status)?status:null,Number.isFinite(ver)?ver:null,note).run();
+        // Close the release authorization only after a matching installed image
+        // boots far enough to authenticate and post its first cloud heartbeat.
+        const verified=note.match(/^remote-ota: loader_ready=1,phase=(3|4),attempts=0,applied=([a-zA-Z0-9._-]{3,63})(?:,|$)/);
+        if(verified){
+          const done=await env.DB.prepare("UPDATE mesh_gateway_config SET ota_enabled=0,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE gateway_id='heltec-moab' AND ota_enabled=1 AND ota_version=? RETURNING version").bind(verified[2]).first();
+          if(done){
+            const release=await env.DB.prepare("SELECT id FROM mesh_firmware_releases WHERE gateway_id='heltec-moab' AND version=?").bind(verified[2]).first();
+            await env.DB.prepare("INSERT INTO mesh_firmware_actions(id,gateway_id,action,release_id,config_version,actor_email,note) VALUES (?,'heltec-moab','verified-boot',?,?,?,?)")
+              .bind(crypto.randomUUID(),release?.id||null,done.version,'gateway','Gateway boot confirmed; OTA authorization disabled').run();
+          }
+        }
         return json({ok:true});
       }
       return json({error:"not found"},404);
