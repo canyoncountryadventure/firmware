@@ -1,126 +1,98 @@
 # Heltec Gateway V10 | Cloudflare + Remote Management
 
-**Release target:** November 25, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3 | PlatformIO `heltec-v4`
+**Historical V10 gateway firmware • November 25, 2026 • Heltec WiFi LoRa 32 V4 / ESP32-S3**
 
-**Base:** [V9 Clock](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v9-hour-boundary), the **last verified firmware before Cloudflare and remote management**. V9 Clock's firmware code, deployment binary, mesh routing, scheduled DMs and recovery remain the rollback reference. V10 does not replace the existing station systems merely because a Cloudflare pilot exists.
+**Status:** V10 is the **previous** Heltec gateway generation. The actual gateway remotely upgraded to [V11 on November 26, 2026](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v11). V9 Clock is the **last firmware before Cloudflare and remote configuration**; V10 added the Cloudflare D1 pilot and the tested CCA remote-upgrade path. Do not confuse historical claims from early V10 experiments with the later confirmed V10/V11 field installations.
 
-> **Release history:** The original V10 image from source `8bf417d` passed CI and is running on the field Heltec. Subsequent commits on this **same V10 branch** add experimental self-hosted OTA staging and an independent loader. These newer commits are NOT an approved field release until both CI workflows pass and the loader is bench-tested. Physical autonomous update and recovery validation remains pending.
+## Firmware downloads, provenance and critical hash warning
 
-## 1. V10 firmware downloads
+- [V10 application-only BIN](downloads/Heltec-Gateway-v10/Heltec-Gateway-v10-11-25-26.bin)
+- [V10 ZIP](downloads/Heltec-Gateway-v10/Heltec-Gateway-v10-11-25-26.zip)
+- [**V10 release README**](downloads/Heltec-Gateway-v10/README.md)
+- [`BUILD.txt` with SHA-256, build run and source SHA](downloads/Heltec-Gateway-v10/BUILD.txt)
+- [V10 Build 45762097828](https://github.com/canyoncountryadventure/firmware/actions/runs/45762097828)
+- [V11 release and updated troubleshooting](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v11/downloads/Heltec-Gateway-v11)
+- [V9 Clock, last verified pre-Cloudflare](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v9-hour-boundary)
 
-- [V10 GitHub Actions: build and verification](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_heltec_gateway_v10.yml)
-- **[Download V10 non-factory OTA application BIN (November 25, 2026)](downloads/Heltec-Gateway-v10/Heltec-Gateway-v10-11-25-26.bin)**
-- [Download V10 release ZIP](downloads/Heltec-Gateway-v10/Heltec-Gateway-v10-11-25-26.zip)
-- [V10 source SHA and SHA-256 checksum manifest](downloads/Heltec-Gateway-v10/BUILD.txt)
-- [V9 Clock verified rollback BIN and checksum](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v9-hour-boundary/downloads/Heltec-Gateway-v9-Clock)
+The **currently published** V10 file `Heltec-Gateway-v10-11-25-26.bin` is a 2,231,856-byte application image with SHA-256:
 
-After CI completes, download **`Heltec-Gateway-v10-11-25-26.bin`**, verify its SHA-256 against `BUILD.txt`, and flash through the existing Meshtastic Wi-Fi OTA method. The BIN is an **application-only file, not factory firmware**. Do not erase NVS, Wi-Fi credentials, channels, radio identity, HOBO settings, or keys.
+`45b4218ee591d142d1193918e16cc6e18e5343520761ed1c352e1573d46979fe`
 
-```powershell
-$ErrorActionPreference = "Stop"
-$ip = "192.168.1.147" # replace if the Heltec address changed
-$dir = "C:\HeltecUpdate"
-New-Item -Path $dir -ItemType Directory -Force | Out-Null
-$file = Join-Path $dir "Heltec-Gateway-v10-11-25-26.bin"
-Invoke-WebRequest "https://raw.githubusercontent.com/canyoncountryadventure/firmware/Heltec-Gateway-v10/downloads/Heltec-Gateway-v10/Heltec-Gateway-v10-11-25-26.bin" -OutFile $file
-if ((Get-FileHash $file -Algorithm SHA256).Hash -ne "6C4B2C95B4DE93C1FCBFCEA7D8025A96F886F089784303404ED3DA4C739D9B80") { throw "Wrong firmware hash - DO NOT FLASH" }
-py -m meshtastic --host $ip --ota-update $file
-Invoke-RestMethod "http://$ip/json/gateway" | ConvertTo-Json -Depth 8
-```
+`BUILD.txt` lists compiled source commit `b666ce18207acb2a3d391e5c170a3ea47b7a099f`. Use an image verified by the matching SHA and build, **never the factory image or a guessed binary**.
 
-Expected `firmware_fix`: `v10-cloudflare-remote-2026-11-25`. The JSON includes a new `cloudflare` object with config version, sync success/failure, registered node count, remote-DM revision, latest cloud HTTP status and OTA manifest status.
+**Important: a different V10 build 24 was actually installed and remote-tested** before V11, release name `heltec-v10-downloaderfix-cloud-test-b24`, SHA-256:
 
-## 2. What changes from V9 Clock
+`33551a8376cc3e391743c27b417932f28efc064a4a3d11ba24f2b39fd7ee87f3`
+
+Those two hashes **do not match**, despite similar filenames/source branches. A rollback to the historically installed build 24 requires an independently verified copy of that artifact; simply downloading this branch's current dated BIN is **not** an exact build-24 rollback.
+
+## How V10 differs from V9 Clock
 
 | Feature | V9 Clock | V10 |
 | --- | --- | --- |
-| Existing Pack/Mill/Matheson/White Pine/relays | Vercel/Neon | **Still Vercel/Neon, unchanged** |
-| First DYP station | Not accepted | `DYPA08 1` `!55ca0677` / `1439303287` → Cloudflare |
-| Second DYP station | Not accepted | `DYPA08 2` `!636eb002` / `1668198402` → Cloudflare |
-| Dynamic Cloudflare station list | None | Pull every 5 minutes; validated and cached in ESP32 NVS |
-| Remote station assignments | None | Change in Cloudflare D1, then gateway sync, without reflashing |
-| Remote V9 auto-DM settings | Local/DM | Optional Cloudflare overrides of the existing V9 watched stations |
-| Gateway health | Local JSON | Local JSON plus Cloudflare health every 15 minutes |
-| Firmware updates | Local/Meshtastic Wi-Fi OTA | Same working OTA **plus signed remote-manifest checks** |
-| Unattended remote OTA install | Not present | **Experimental source only: gated by a separately installed CCA loader and Cloudflare approval** |
+| Legacy Vercel/Neon station routing | Yes | **Preserved** |
+| V9 missing-automatic/clock DMs, manual READ and saved intervals | Yes | **Preserved** |
+| HOBO BLE and standard station telemetry | Yes | **Preserved** |
+| New Cloudflare-only ultrasonic nodes | Not in V9 | **DYPA08 1, DYPA08 2** |
+| Cloudflare D1 remote config | None | Validated, cached and polled every five minutes |
+| Remote DM overrides | Local/DM | Optional overrides for existing watched stations |
+| Remote health | Local JSON | Additional Cloudflare health POST nominally every 15 minutes |
+| Cloudflare release approval | None | HMAC-SHA256 OTA manifest and pinned firmware SHA |
+| Unattended OTA application install | Not part of V9 Clock | Supported on the later V10 + separately installed `CCA_PULL_1` loader |
+| Cloudflare KV-hosted firmware downloads | Not supported | Not supported until V11 |
 
-V10 **does not reprogram or reflash your RAK4631 V8 nodes**. They continue to trigger their own DYP-A08 sensors, use `WATER INTERVAL 15M` and `WATER SAMPLES 5`, and transmit 24-byte `DS` water packets. The Heltec is a receiving/forwarding gateway.
+## Sensor identities and calibration
 
-## 3. Cloudflare server
+- `DYPA08 1`: node ID `!55ca0677`, node number `1439303287`.
+- `DYPA08 2`: node ID `!636eb002`, node number `1668198402`.
 
-**Dedicated Worker:** `cces-mesh-remote`  \
-**URL:** `https://cces-mesh-remote.raspy-lake-a7f4.workers.dev`  \
-**D1 database:** `cces-monitor`, in distinct `mesh_*` tables.
+Only these Cloudflare pilot nodes are forwarded through the Cloudflare-only route in the original V10 configuration; all pre-existing monitored station traffic remains on the Vercel/Neon path. The DYP RAK4631 sensors broadcast 24-byte `DS` distance packets. **Uncalibrated distance is not water stage.** Stage must remain NULL/unknown until a real reference is recorded. Updating Heltec V10 never reflashes the RAK radios.
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /v10/config` | Authenticated 5-minute pull for node IDs, destinations, auto-DM overrides and OTA manifest |
-| `POST /v10/ingest` | Authenticated water distance and device/battery telemetry |
-| `POST /v10/health` | Authenticated gateway health every 15 minutes |
-| `GET /healthz` | Public service health only |
+## Cloudflare gateway architecture
 
-**Credential requirement:** The Cloudflare Worker must have a secret binding named `GATEWAY_KEY` with the same value as the Heltec build's existing `HOBO_HTTP_GATEWAY_INGEST_KEY`. The latter comes from the GitHub Actions repository secret. **Do not commit either key to GitHub.** Cloudflare rejects requests with HTTP 401 until the matching secret is provisioned. The original Vercel URL and credential still operate independently.
+Dedicated Worker `cces-mesh-remote` at `https://cces-mesh-remote.raspy-lake-a7f4.workers.dev`. D1 database `cces-monitor` contains `mesh_stations`, `mesh_gateway_config`, `mesh_gateway_dm_overrides`, `mesh_gateway_health`, `mesh_observations` and `mesh_device_telemetry`.
 
-The Cloudflare D1 tables are `mesh_stations`, `mesh_observations`, `mesh_device_telemetry`, `mesh_gateway_config`, `mesh_gateway_dm_overrides`, and `mesh_gateway_health`.
+- `GET /v10/config`: gateway-initiated config pull, normally every five minutes. Validates station destinations, versions and optional DM overrides; cached settings preserve remote station IDs during Wi-Fi outages.
+- `POST /v10/ingest`: distance/device telemetry from Cloudflare-assigned nodes.
+- `POST /v10/health`: periodic gateway health status, plus OTA loader readiness/installation phase.
+- `GET /healthz`: Worker-only availability check, **not** evidence Heltec connected.
 
-**Routing rule:** If a node is on the authorized, cached Cloudflare pilot list, forward its water and device telemetry to Cloudflare; otherwise all existing V9 nodes use the original Vercel/Neon destination. In particular, **the two DYP nodes never create duplicate Neon/Vercel records**.
+The Cloudflare Worker needs its `GATEWAY_KEY` secret matching the Heltec build secret `HOBO_HTTP_GATEWAY_INGEST_KEY`. Never commit either. The gateway initiates outbound requests, so no public router port is needed.
 
-## 4. Remote configuration without reflashing
+Optional DM overrides in `mesh_gateway_dm_overrides` apply only to supported V9 watched nodes. Allowed timeout values are **15, 30, 45, 60, 360, 720, 1440 minutes**. Existing local DM settings, node allowlist, scheduler and safety safeguards remain. A remote configuration version increment makes updated settings eligible at the next successful poll.
 
-The gateway initiates an **outbound** Cloudflare config request every five minutes. It parses registered node IDs and their Cloudflare destinations, rejects malformed/rollback configurations, and saves valid IDs and their version in ESP32 NVS. Wi-Fi failure leaves the last good IDs in place. DYPA08 1 and DYPA08 2 are built into V10 as initial defaults.
+## What was verified in the field
 
-Cloudflare's `mesh_gateway_config.version` must advance when the operator changes remote DM overrides. An optional `mesh_gateway_dm_overrides` entry can set an *existing V9 watched station* ON/OFF or set its missing-automatic timeout to **15, 30, 45, 60, 360, 720, or 1440 minutes**. Without an override the V9 Clock behavior remains. V10 does not silently turn on fallback DMs for the new DYP nodes.
+1. V10 with the companion recovery loader `CCA_PULL_1` installed successfully performed a Cloudflare-triggered V10 application OTA in November 2026. The local OTA status reached `verified-boot` and cloud configuration was disabled after the installation.
+2. Cloudflare later showed intermittent configuration GET errors including `HTTP -1`, with eight failed vs four successful GET attempts on one reboot. This indicates an HTTPS client/transport problem; it does **not** prove Cloudflare returned a 401/403/500.
+3. At the same time, actual Heltec-origin packets still arrived through **SE Utah Watersheds Vercel/Neon**, independently of the Cloudflare pilot.
+4. [V11](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v11) was built, remotely installed and first-boot acknowledged on **November 26, 2026**, extending host support and improving TLS diagnostics and retry intervals. This is the current gateway generation.
 
-To add an additional Cloudflare DYP node later: add a validated/enabled `mesh_stations` entry and increment the gateway configuration version. Once the next five-minute pull succeeds, it can upload automatically without a Heltec flash.
+## Remote OTA, recovery and safety
 
-## 5. Remote firmware capability, boundaries, and safety
+The V10 gateway validates an explicit HMAC-signed release manifest, approved GitHub firmware host and SHA-256, then stages an application image into OTA_1 after the first **`0xA0000`** bytes used by the independent loader. The loader occupies OTA_1 at base `0x650000`, reads the verified staged firmware and writes OTA_0. It has bounded retry behavior; do **not** erase flash, NVS, keys, loader or the partition table during normal updates.
 
-V10 checks a versioned Cloudflare OTA manifest with an approved HTTPS URL belonging to the firmware repository, a 64-character firmware SHA-256 and an **HMAC-SHA256 signature**. The D1 option `ota_enabled` defaults to **false**.
+**No full automatic rollback exists for a validly flashed application that later crashes.** Physical recovery may still be required. The loader supports local recovery separately, but that is not a guarantee of unattended fault recovery.
 
-**Important distinction:** The **currently deployed** Heltec V10 validates remote manifests only; it cannot install new firmware itself. The updated source on this same branch implements a guarded downloader/stager that requires a new companion OTA_1 recovery loader with app descriptor `CCA_PULL_1`. It rejects unattended installation until the matching loader is installed and Cloudflare approves a signed release. The default D1 switch remains OFF. Do not install or enable the experimental updater until its source and loader builds pass and it passes physical tests of retry/power-loss/recovery behavior. No full autonomous rollback of a bootable-but-crashing application is implemented.
+Transport uses `WiFiClientSecure::setInsecure()` and does not validate the TLS server certificate; OTA manifest HMAC and image SHA-256 provide separate release integrity checks. Ordinary remote node config is not protected by that OTA HMAC.
 
-The remote service does not open inbound ports or expose Cloudflare admin actions to the public. Operational Cloudflare configuration changes are performed through authenticated account administration, not an unauthenticated web form.
+## Read-only gateway troubleshooting
 
-## 6. Checks after V10 flash
+On the Heltec LAN or VPN:
 
-1. Open `http://192.168.1.147/json/gateway` (use the actual Heltec IP); verify V10 marker, Wi-Fi health, and `cloudflare` status.
-2. Confirm existing V9 stations **still upload to Vercel/Neon**. Confirm their automatic-DM clock settings remain as configured.
-3. On `DYPA08 1` and `DYPA08 2`, separately DM `WATER TELEMETRY NOW` and check Cloudflare `mesh_observations`. A raw `distance_mm` is valid before calibration; **never manufacture stage from raw distance**.
-4. Check device/battery packets in `mesh_device_telemetry` and periodic gateway health in `mesh_gateway_health`.
-5. Leave unattended OTA disabled. Roll back to [V9 Clock](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v9-hour-boundary) if the existing legacy pipeline regresses.
+~~~powershell
+$c = (Invoke-RestMethod "http://192.168.1.147/json/gateway").cloudflare
+$c | Select-Object remote_config_version,sync_ok,sync_failed,last_http_status,ota_stage,loop_stack_min_free_bytes
+~~~
 
-| Symptom | First check |
-| --- | --- |
-| Cloudflare 401 | Missing/mismatched Worker `GATEWAY_KEY` secret binding |
-| Remote config version 0 | First successful remote sync has not occurred; built-in DYP node IDs still exist |
-| DYP packets reach radio but not D1 | Check V10 source/firmware identity, receiver packet upload, and Cloudflare authentication |
-| Distances present but water stage absent | Calibrate a real reference stage on each RAK at its actual installation |
-| Existing Neon data missing | Inspect the untouched legacy Vercel path separately; do not disable it |
-| OTA does not install from Cloudflare | Expected: manifest checks available; automatic installer deliberately disabled |
+V10 does **not** expose V11's additional `last_config_error`, `last_health_http_status` or heap/RSSI diagnostic fields. `sync_ok` and `sync_failed` reset on reboot. Server `mesh_gateway_health.last_http_status` reflects the **telemetry uploader's** latest HTTP status, not the config GET. Confirm actual SE Utah Watersheds uploads from its `moab_watersheds.creek_observations` table rather than by the unrelated main Meshtastic website.
 
-## 7. Source and rollback
+## Related source
 
-- [V10 source](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v10)
-- [V10 Cloudflare Worker](cloudflare/cces-mesh-remote/worker.js)
-- [V10 gateway/Cloudflare regression tests](test/test_heltec_v10/test_cloud_remote.py)
-- [V10 build and dated releases](.github/workflows/build_cca_heltec_gateway_v10.yml)
-- [V10 self-update companion OTA loader workflow](.github/workflows/build_cca_remote_loader.yml)
-- [V10 CCA remote-loader design, requirements and recovery caveats](tools/cca_remote_ota/README.md)
-- [V9 Clock last pre-Cloudflare release](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v9-hour-boundary)
-
-**V9 Clock is the established rollback reference.** Changing V10 gateway firmware must not require reflashing, factory-resetting, or repartitioning working field RAK radios.
-
-## 8. Experimental Heltec-only autonomous OTA (source under review)
-
-The **same** `Heltec-Gateway-v10` source now contains two separately compiled components:
-
-1. Main V10 app: `src/modules/CcaRemoteOtaStage.cpp`, validates approved signed Cloudflare policy, downloads the BIN and verifies its SHA-256, then stages the image in spare flash in OTA_1 after the loader's first 640 KiB.
-2. Independent CCA OTA_1 companion loader: built from the pinned official Meshtastic Wi-Fi/BLE loader with the `tools/cca_remote_ota/` patch. The loader reads the verified staged image and writes OTA_0, with at most 10 recovery attempts. It preserves TCP port 3232 and BLE recovery.
-
-**Do not flash the companion loader while still unvalidated.** The loader requires a one-time targeted USB flash at offset `0x650000` on Heltec V4, without erasing flash, changing partitions or deleting NVS. Flashing an unverified loader at the wrong offset could make the radio unusable. The current app-only Wi-Fi OTA update does not install the separate loader.
-
-The [CCES monitoring website](https://monitor.canyoncountryecological.com/#mesh) includes admin-only **Remote Management** controls for registering Cloudflare DYP nodes, setting watched-station automatic-DM overrides, and saving approved firmware metadata. Cloudflare rejects **enabling** unattended OTA until a fresh Heltec health report confirms the matching CCA recovery loader is installed. New firmware is never automatically enabled merely by publishing to GitHub.
-
-**Recovery limitations:** The loader can recover a partial write to OTA_0 while it stays bootable in OTA_1, and can accept a local port 3232 upload if automatic retry fails. But a new app that passes image validation then crashes may require onsite repair because there is no retained old app image for a true automatic rollback. Until physically bench-tested, the entire update system must stay disabled in production.
-
-Use the [app build action](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_heltec_gateway_v10.yml) and [companion loader build action](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_cca_remote_loader.yml) to verify current source. A dated downloadable firmware is trustworthy only when its BUILD.txt SOURCE_COMMIT matches the current intended source and CI is green.
+- [V10 Cloudflare client](src/modules/CcaCloudRemote.cpp)
+- [V10 OTA staging and loader protections](src/modules/CcaRemoteOtaStage.cpp)
+- [V10 original telemetry router](src/modules/HoboHttpGatewayModule.cpp)
+- [V10 worker](cloudflare/cces-mesh-remote/worker.js)
+- [V10 routing/OTA regression tests](test/test_heltec_v10/test_cloud_remote.py)
+- [V10 build workflow](.github/workflows/build_cca_heltec_gateway_v10.yml)
+- [CCA loader design](tools/cca_remote_ota/README.md)
