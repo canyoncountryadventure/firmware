@@ -36,6 +36,22 @@ class DFRobotUARTDistanceDriver : public DistanceSensorDriver
     uint32_t maximumMm() const;
 };
 
+// DYP-A08ANYTB UART Controlled: one falling edge on RX requests one reading.
+// Power stays connected for this sensor; the driver uses Serial1 TX to trigger.
+class DYPA08ControlledDistanceDriver : public DistanceSensorDriver
+{
+  public:
+    bool begin() override;
+    DistanceReading read() override;
+    const char *name() const override { return "DYP-A08-CONTROLLED"; }
+    const char *interfaceName() const override { return "UART 9600 trigger"; }
+    DistanceSensorType type() const override { return DistanceSensorType::DYP_A08_CONTROLLED; }
+
+  private:
+    bool initialized = false;
+    uint32_t lastTriggerMs = 0;
+};
+
 class MaxBotixMB7388DistanceDriver : public DistanceSensorDriver
 {
   public:
