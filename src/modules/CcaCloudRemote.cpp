@@ -193,18 +193,24 @@ bool CcaCloudRemote::verifyOtaManifest(const String &version, const String &url,
 bool CcaCloudRemote::syncConfig()
 {
     if (!WiFi.isConnected() || strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) return false;
-    WiFiClientSecure client;
-    client.setInsecure(); // Mirrors V9 gateway transport; OTA install deliberately disabled.
-    HTTPClient http;
-    http.setTimeout(10000);
-    const String endpoint = String(CCA_CLOUD_URL) + "/v10/config";
-    if (!http.begin(client, endpoint)) return false;
-    http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
-    const int status = http.GET();
-    lastCloudCode = status;
-    if (status != 200) { http.end(); return false; }
-    const String response = http.getString();
-    http.end();
+    String response;
+    // Complete and destroy the Cloudflare TLS client before processing the
+    // signed manifest.  stageAndReboot() opens a second HTTPS connection
+    // (GitHub) and must not overlap the Cloudflare TLS heap allocation.
+    {
+        WiFiClientSecure client;
+        client.setInsecure(); // Mirrors V9 gateway transport.
+        HTTPClient http;
+        http.setTimeout(10000);
+        const String endpoint = String(CCA_CLOUD_URL) + "/v10/config";
+        if (!http.begin(client, endpoint)) return false;
+        http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
+        const int status = http.GET();
+        lastCloudCode = status;
+        if (status != 200) { http.end(); return false; }
+        response = http.getString();
+        http.end();
+    }
     if (response.length() < 30 || response.length() > 8192) return false;
 
     std::unique_ptr<JSONValue> root(JSON::Parse(response.c_str()));
