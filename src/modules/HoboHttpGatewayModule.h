@@ -47,6 +47,8 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
   public:
     HoboHttpGatewayModule();
     String statusJson();
+    // Bounded, read-only snapshot of actual local auto-DM watchdog + poll slots.
+    String autoDmSnapshotJson() const;
     uint32_t healthCycles() const { return healthLoopCycles; }
     uint32_t healthHttpAttempts() const { return healthPostAttempts; }
     uint32_t healthHttpAccepted() const { return uploadedJobs; }
