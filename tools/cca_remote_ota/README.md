@@ -1,3 +1,5 @@
+> **Historical V10 design document, updated November 26, 2026:** The loader described below has since been **installed and tested on the field Heltec**. It remotely upgraded the gateway to V10 build 24 and subsequently V11, which authenticated its first boot on November 26, 2026 at 10:36:23 AM MST. Cloudflare recorded `verified-boot` and disabled OTA in config V8. Earlier wording below saying the design has *not* yet been physically deployed, bench-tested, or allowed to install is **outdated historical planning guidance**, not the current device status. These successful tests do **not** establish complete autonomous rollback or guarantee recovery from every interrupted flash or later application crash. For current operations, use [V11's updated recovery-loader runbook](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v11/tools/cca_remote_ota/README.md).
+
 # Heltec V10 standalone self-update loader
 
 This is an overlay for the official Meshtastic unified ESP32 OTA loader.
