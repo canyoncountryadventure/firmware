@@ -9,12 +9,16 @@
 // V10: outbound-only Cloudflare management and per-node destination routing.
 // Cached station IDs survive Wi-Fi outages and reboots. Existing V9 node list,
 // AUTO DM clock policy, HOBO/mesh behavior and Vercel routing are unaffected.
+struct CcaRemoteDmSetting { uint32_t node; uint16_t minutes; bool enabled; };
+
 class CcaCloudRemote : private concurrency::OSThread {
   public:
     CcaCloudRemote();
     static bool isCloudNode(uint32_t id);
     static uint32_t configVersion();
     static String statusJson();
+    static uint32_t remoteDmRevision();
+    static size_t readRemoteDmSettings(CcaRemoteDmSetting *out, size_t capacity);
   protected:
     int32_t runOnce() override;
   private:
@@ -27,7 +31,7 @@ class CcaCloudRemote : private concurrency::OSThread {
     uint32_t lastHttpStatus = 0;
     bool syncConfig();
     void postHealth();
-    bool applyOta(const String &version, const String &url, const String &sha, const String &signature);
+    bool verifyOtaManifest(const String &version, const String &url, const String &sha, const String &signature);
 };
 
 extern CcaCloudRemote *ccaCloudRemote;
