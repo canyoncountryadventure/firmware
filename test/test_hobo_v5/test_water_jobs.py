@@ -63,7 +63,7 @@ namespace concurrency {
 struct Lock {};
 struct LockGuard { explicit LockGuard(Lock *) {} };
 }
-enum class DistanceSensorType { NONE, MB7388, UART_GENERIC };
+enum class DistanceSensorType { NONE, MB7388, UART_GENERIC, DYP_A08_CONTROLLED };
 enum class DistanceReadStatus { OK, TIMEOUT };
 struct DistanceReading {
     DistanceReadStatus status = DistanceReadStatus::OK;
