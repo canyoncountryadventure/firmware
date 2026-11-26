@@ -22,13 +22,13 @@ cmake.write_text(text)
 for path in ("cca_remote_stage.h", "cca_remote_stage.cpp"):
     shutil.copy2(overlay/path, upstream/"src"/path)
 # App descriptor is checked by the V10 staging code before touching OTA_1.
-(upstream/"version.txt").write_text("CCA_PULL_1\\n")
+(upstream/"version.txt").write_text("CCA_PULL_1\n")
 # Upstream references esp-nimble-cpp but clean CI checkouts do not vendor it.
 # Pin the managed ESP-IDF component so Bluetooth recovery is retained.
 (upstream/"src"/"idf_component.yml").write_text(
-    'dependencies:\\n'
-    '  h2zero/esp-nimble-cpp:\\n'
-    '    version: "2.5.0"\\n'
+    'dependencies:\n'
+    '  h2zero/esp-nimble-cpp:\n'
+    '    version: "2.5.0"\n'
 )
 
 print("CCA remote OTA loader overlay applied; manual TCP/3232 retained")
