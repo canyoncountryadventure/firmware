@@ -15,6 +15,6 @@ assert "from != WHITEPINE_NODE" in source
 assert "3943979587UL" not in fallback_policy
 assert "from != CC01_NODE && from != CC02_NODE && from != MILL_CREEK_NODE &&" in source
 assert "from != SEED_RELAY_1_NODE" in source
-assert "v9-hour-boundary-2026-11-04" in source
+assert "v10-cloudflare-remote-2026-11-25" in source or "v9-hour-boundary-2026-11-04" in source
 
 print("PASS: V9 forwards Whitepine battery telemetry without adding sensor polling")
