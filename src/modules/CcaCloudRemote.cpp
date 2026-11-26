@@ -267,23 +267,26 @@ bool CcaCloudRemote::syncConfig()
 
     // Update the in-memory allowlist first; existing hardcoded V9 stations are
     // not removed or redirected. Persist only a verified complete new snapshot.
+    const bool configChanged = version != configVersion();
     portENTER_CRITICAL(&cloudLock);
     memcpy(cloudNodes, proposed, count * sizeof(uint32_t));
     cloudCount = count;
     cloudVersion = version;
     dmCount = newDmCount;
     if (newDmCount) memcpy(dmOverrides, proposedDm, newDmCount * sizeof(CcaRemoteDmSetting));
-    ++dmRevision;
+    if (configChanged) ++dmRevision;
     otaAvailable = approved;
     portEXIT_CRITICAL(&cloudLock);
     snprintf(otaReason, sizeof(otaReason), "%s", approved ? "signed manifest verified; install disabled" : "not authorized");
 
-    Preferences p;
-    if (p.begin("cca_cf_remote", false)) {
-        p.putBytes("nodes", proposed, count * sizeof(uint32_t));
-        p.putUChar("count", count);
-        p.putUInt("version", version);
-        p.end();
+    if (configChanged) {
+        Preferences p;
+        if (p.begin("cca_cf_remote", false)) {
+            p.putBytes("nodes", proposed, count * sizeof(uint32_t));
+            p.putUChar("count", count);
+            p.putUInt("version", version);
+            p.end();
+        }
     }
     LOG_INFO("CCA V10 remote: config v%lu, %u cloud station(s), %u DM override(s), ota_manifest=%s",
              static_cast<unsigned long>(version), static_cast<unsigned>(count),
