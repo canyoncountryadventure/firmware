@@ -42,6 +42,7 @@ class DistanceSensorModule : public SinglePortModule, private concurrency::OSThr
     SEN0590DistanceDriver sen0590;
     DFRobotUARTDistanceDriver uartDriver;
     MaxBotixMB7388DistanceDriver mb7388Driver;
+    DYPA08ControlledDistanceDriver a08Driver;
     DistanceSensorDriver *activeDriver = nullptr;
     DistanceSensorType activeType = DistanceSensorType::NONE;
     PersistentConfig cfg = {};
