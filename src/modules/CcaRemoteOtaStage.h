@@ -8,6 +8,7 @@
 // OTA_1 space AFTER a reserved 640 KiB loader area. The companion loader,
 // installed independently by USB, copies it into OTA_0 on its next boot.
 namespace CcaRemoteOtaStage {
+  bool loaderReady();
   bool stageAndReboot(const String &version, const String &url, const String &sha256, String &reason);
   String statusJson();
   String healthNote();
