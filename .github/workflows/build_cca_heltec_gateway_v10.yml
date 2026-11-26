@@ -8,6 +8,7 @@ on:
       - 'variants/**'
       - 'arch/**'
       - 'platformio.ini'
+      - 'README.md'
       - 'test/test_heltec_v5/**'
       - 'test/test_heltec_v6/**'
       - 'test/test_heltec_v9/**'
