@@ -1,3 +1,23 @@
+# RAK Water Distance + HOBO V7 — FINAL WORKING RELEASE FOR THE TWO ORIGINAL SENSORS
+
+**Status: established field-working version; frozen for the original two ultrasonic stations.**  
+**Target hardware:** RAK4631 on RAK19007. **Successor under development:** [RAK-Water-Distance-HOBO-v8](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v8).
+
+V7 is the **last firmware update in the original two-sensor series** and is the **working firmware used for the first two ultrasonic monitoring stations**. Preserve this branch as the known-good rollback/reference rather than replacing it with experimental DYP code.
+
+| Original station sensor | Exact firmware sensor name | Operation in V7 |
+| --- | --- | --- |
+| DFRobot SEN0313 / A01NYUB | `SEN0313` / `A01NYUB` | Automatic 9600-baud UART, existing Pololu 2810 switched sensor power |
+| MaxBotix MB7388 | `MB7388` / `MAXBOTIX` | Automatic serial ranging, existing Pololu 2810 switched sensor power |
+
+V7 uses one unified RAK image with persistent per-station sensor selection. It retains the water-distance processing, HOBO functions, Meshtastic settings, DM commands, calibration, sampling and recovery behavior from the deployed two-sensor system. **Do not flash V8 on either original station merely because V8 exists.** V8 adds a third driver for the DYP-A08 UART Controlled test units.
+
+**Important:** V7's earlier V6 release links and notes below are retained as historical development documentation. They are not a claim that V6 artifacts are the latest V7 build. For V7, use the unified V7 workflow/artifact and confirm its build status and files before installation.
+
+---
+
+## Historical V6 development notes retained from V7's previous README
+
 # CCA RAK Water Distance + HOBO V6
 **Release date: October 17, 2026 · Target: RAK4631 on RAK19007**
 
