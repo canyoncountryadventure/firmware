@@ -39,6 +39,8 @@ const char *distanceSensorTypeName(DistanceSensorType type)
         return "UART-ULTRASONIC";
     case DistanceSensorType::MB7388:
         return "MB7388";
+    case DistanceSensorType::DYP_A08_CONTROLLED:
+        return "DYP-A08-CONTROLLED";
     default:
         return "NONE";
     }
@@ -220,6 +222,79 @@ DistanceReading DFRobotUARTDistanceDriver::read()
     return makeReading(DistanceReadStatus::TIMEOUT);
 }
 
+
+// DYP A08ANYTB (UART Controlled) protocol, per manufacturer's A08 output manual.
+// The sensor RX wants a 10 us - 2 ms low pulse with a falling edge. A single
+// 0x00 byte at 9600 baud holds Serial1 TX low for ~938 us (start + 8 zero bits),
+// then returns HIGH for the stop bit: one clean trigger without hijacking UART TX.
+// Sensor TX responds 0xFF, high, low, checksum at 9600 baud. Do not use this
+// driver for the A08 UART Auto product (ANYUB).
+bool DYPA08ControlledDistanceDriver::begin()
+{
+    Serial1.begin(9600);
+    initialized = true;
+    lastTriggerMs = 0;
+    return true;
+}
+
+DistanceReading DYPA08ControlledDistanceDriver::read()
+{
+    if (!initialized && !begin())
+        return makeReading(DistanceReadStatus::IO_ERROR);
+
+    // Manufacturer's A08A controlled mode requires >100 ms between triggers.
+    // The caller normally schedules 200 ms, but protect other entry points too.
+    const uint32_t now = millis();
+    if (lastTriggerMs != 0 && (now - lastTriggerMs) < 150UL)
+        return makeReading(DistanceReadStatus::NOT_READY);
+
+    // Drop any older bytes before starting the new measurement.
+    while (Serial1.available() > 0)
+        Serial1.read();
+    Serial1.write(static_cast<uint8_t>(0x00));
+    Serial1.flush();
+    lastTriggerMs = millis();
+
+    const uint32_t started = millis();
+    uint8_t frame[4] = {};
+    uint8_t index = 0;
+    bool sawHeader = false;
+    bool sawChecksumError = false;
+    while ((millis() - started) < UART_FRAME_TIMEOUT_MS) {
+        while (Serial1.available() > 0) {
+            const uint8_t b = static_cast<uint8_t>(Serial1.read());
+            if (index == 0) {
+                if (b != 0xFF)
+                    continue;
+                frame[0] = b;
+                index = 1;
+                sawHeader = true;
+                continue;
+            }
+            frame[index++] = b;
+            if (index < sizeof(frame))
+                continue;
+            const uint8_t expected = static_cast<uint8_t>(frame[0] + frame[1] + frame[2]);
+            if (frame[3] != expected) {
+                sawChecksumError = true;
+                index = 0;
+                continue;
+            }
+            const uint32_t mm = (static_cast<uint32_t>(frame[1]) << 8) | static_cast<uint32_t>(frame[2]);
+            // A08A family: 25 cm to 8 m. 0 and over-range sentinel values are
+            // invalid measurements and must not be forwarded as real stage.
+            if (mm < 250U || mm > 8000U)
+                return makeReading(DistanceReadStatus::OUT_OF_RANGE, mm);
+            return makeReading(DistanceReadStatus::OK, mm);
+        }
+        delay(1);
+    }
+    if (sawChecksumError)
+        return makeReading(DistanceReadStatus::CHECKSUM_ERROR);
+    if (sawHeader)
+        return makeReading(DistanceReadStatus::BAD_FRAME);
+    return makeReading(DistanceReadStatus::TIMEOUT);
+}
 
 bool MaxBotixMB7388DistanceDriver::begin()
 {
