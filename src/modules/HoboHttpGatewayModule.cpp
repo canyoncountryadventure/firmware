@@ -894,6 +894,42 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     return false;
 }
 
+String HoboHttpGatewayModule::autoDmSnapshotJson() const
+{
+    // This is actual runtime state, not the desired Cloudflare override list.
+    // No dynamic modification of station policies or recurring DM schedules.
+    String json;
+    json.reserve(2600);
+    json += "{\"schema\":1,\"global_enabled\":"; 
+    json += autoFallback.enabled ? "true" : "false";
+    json += ",\"minimum_missing_minutes\":60,\"clock_synchronized\":";
+    json += getValidTime(RTCQualityFromNet) ? "true" : "false";
+    json += ",\"watches\":[";
+    const uint32_t now = millis();
+    for (size_t i = 0; i < autoFallback.watches.size(); ++i) {
+        const auto &w = autoFallback.watches[i];
+        if (i) json += ',';
+        json += "{\"node\":" + String(w.node);
+        json += ",\"kind\":" + String(static_cast<uint8_t>(w.kind));
+        json += ",\"enabled\":" + String(autoFallback.isEnabled(i) ? "true" : "false");
+        json += ",\"interval_minutes\":" + String(autoFallback.intervalMinutes(i));
+        json += ",\"custom_interval\":" + String(autoFallback.nodeHasIntervalOverride(w.node) ? "true" : "false");
+        json += ",\"last_auto_age_seconds\":" + (w.lastAutoMs ? String((now - w.lastAutoMs) / 1000UL) : String("null"));
+        json += ",\"last_request_age_seconds\":" + (w.attempted ? String((now - w.lastAttemptMs) / 1000UL) : String("null"));
+        json += '}';
+    }
+    json += "],\"configured_polls\":[";
+    for (size_t i = 0; i < CONFIGURED_POLL_PERSISTENT_SLOTS; ++i) {
+        if (i) json += ',';
+        const auto &p = configuredPolls[i];
+        json += "{\"node\":" + String(p.node);
+        json += ",\"interval_minutes\":" + String(p.intervalMinutes);
+        json += ",\"mode\":" + String(static_cast<uint8_t>(p.mode)) + "}";
+    }
+    json += "]}";
+    return json;
+}
+
 String HoboHttpGatewayModule::statusJson()
 {
     const char *state = cc01Phase == Cc01Phase::Water ? "waiting_water" :
