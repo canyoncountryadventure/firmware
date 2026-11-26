@@ -203,6 +203,70 @@ $('#mesh-remote-refresh').onclick=loadMeshRemote;
 $('#mesh-remote-node').onsubmit=e=>{e.preventDefault();const f=e.currentTarget;saveMeshRemote({action:'add_node',node_id:f.elements.node_id.value,long_name:f.elements.long_name.value,report_interval_minutes:Number(f.elements.minutes.value)})};
 $('#mesh-remote-dm').onsubmit=e=>{e.preventDefault();const f=e.currentTarget;saveMeshRemote({action:'set_dm',node_num:Number(f.elements.node_num.value),interval_minutes:Number(f.elements.minutes.value),enabled:f.elements.enabled.checked})};
 $('#mesh-remote-ota').onsubmit=e=>{e.preventDefault();const f=e.currentTarget;const enabled=f.elements.enabled.checked;if(enabled&&!confirm('Authorize unattended installation only after the CCA loader and recovery procedure have been tested?'))return;saveMeshRemote({action:'set_firmware',ota_enabled:enabled,ota_version:f.elements.version.value,ota_url:f.elements.url.value,ota_sha256:f.elements.sha.value})};
+
+const dmWatched=[
+ [1949224949,'Pack Creek','water + HOBO'],[1695962694,'South Cottonwood (lost)','water'],
+ [1683604927,'Mill Creek','MX2001'],[2004386937,'Matheson Groundwater','MX2001'],
+ [2425602407,'Cottonwood Relay','temperature'],[3044869407,'Hidden Valley','temperature'],
+ [1577197109,'Fishlake Hightop','temperature'],[647393146,'Seed Relay 1','temperature'],
+ [2650172798,'Thousand Lake Mountain','temperature'],[4241345683,'Mini Me','temperature']
+];
+let dmData=null;
+function dmTime(s){if(!s)return 'Never';const d=new Date(s.replace(' ','T')+'Z');return isNaN(d)?String(s):d.toLocaleString('en-US',{timeZone:'America/Denver',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}
+function dmTile(a,b){const x=el('div');x.append(el('small','',a),el('strong','',String(b)));return x}
+function renderDm(){
+ const d=dmData;if(!d)return;
+ const g=d.gateway||{},h=d.health||{},report=d.reported||null,snap=report?.snapshot||null;
+ const t=report?.reported_at?Date.parse(report.reported_at.replace(' ','T')+'Z'):0;
+ const fresh=!!t&&Date.now()-t<30*60*1000,synced=fresh&&Number(report.config_version)>=Number(g.version);
+ $('#dm-stats').replaceChildren(dmTile('Cloudflare config','Version '+(g.version??'—')),
+  dmTile('Gateway last seen',dmTime(h.received_at)),
+  dmTile('Heltec schedule',report?dmTime(report.reported_at)+(fresh?' · fresh':' · stale'):'Awaiting V12'),
+  dmTile('Remote settings',synced?'Confirmed applied':fresh?'Awaiting config acknowledgment':'Unconfirmed'));
+ const overrides=new Map((d.overrides||[]).map(x=>[Number(x.node_num),x]));
+ const tbody=$('#dm-rows');tbody.replaceChildren();
+ const watches=snap?.watches||[];
+ for(const [id,name,streams] of dmWatched){
+  const actual=watches.filter(x=>Number(x.node)===id),rule=overrides.get(id);
+  const node=el('td');node.append(el('strong','',name),el('small','',id+' · '+streams));
+  const reported=el('td');
+  reported.append(el('strong','',actual.length?(actual.some(x=>x.enabled)?'ON':'OFF')+' · '+[...new Set(actual.map(x=>x.interval_minutes))].join('/')+' min':'Not reported'));
+  if(actual.length&&!synced)reported.append(el('small','',fresh?'Policy may be pending':'Stale gateway report'));
+  const requested=el('td','',rule?(rule.enabled?'ON':'OFF')+' · '+rule.interval_minutes+' min':'No Cloudflare override');
+  const status=el('td'),select=el('select');for(const [v,label] of [['1','ON'],['0','OFF']]){const o=el('option','',label);o.value=v;select.append(o)}
+  select.value=rule?(rule.enabled?'1':'0'):actual.length?(actual.some(x=>x.enabled)?'1':'0'):'0';status.append(select);
+  const interval=el('td'),sel=el('select');
+  for(const n of [15,30,45,60,360,720,1440]){const o=el('option','',n>=60&&n%60===0?n/60+' hr':n+' min');o.value=String(n);sel.append(o)}
+  sel.value=String(rule?.interval_minutes||actual[0]?.interval_minutes||60);interval.append(sel);
+  const actions=el('td'),btn=el('button','','Save');btn.type='button';
+  btn.onclick=async()=>{
+   const enabled=select.value==='1',interval_minutes=Number(sel.value);
+   if(!confirm('Set '+name+' auto-DM '+(enabled?'ON':'OFF')+' with '+interval_minutes+' min repeat interval?'))return;
+   btn.disabled=true;$('#dm-message').textContent='Saving '+name+'…';
+   try{
+    const x=await request('/api/mesh/dm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({node_num:id,enabled,interval_minutes})});
+    $('#dm-message').textContent=x.unchanged?'Already saved.':'Cloudflare config V'+x.version+' saved; awaiting radio report.';
+    await loadDm(true);
+   }catch(e){$('#dm-message').textContent='Not saved: '+e.message}
+   finally{btn.disabled=false}
+  };
+  actions.append(btn);
+  const tr=el('tr');tr.append(node,reported,requested,status,interval,actions);tbody.append(tr);
+ }
+ const extra=$('#dm-extra');extra.replaceChildren();
+ if(!snap)extra.textContent='V11 does not report active schedules to Cloudflare. V12 firmware will populate this after installation.';
+ else{
+  const polls=(snap.configured_polls||[]).filter(x=>Number(x.node)>0&&Number(x.interval_minutes)>0);
+  if(!polls.length)extra.textContent='No additional recurring polling slots reported.';
+  else for(const x of polls)extra.append(el('p','',x.node+' · '+x.interval_minutes+' min · '+(['READ','WATER','BOTH'][x.mode]||'unknown')));
+ }
+ const hist=$('#dm-history');hist.replaceChildren();
+ if(!(d.actions||[]).length)hist.textContent='No remote changes recorded.';
+ else for(const x of d.actions)hist.append(el('p','',dmTime(x.created_at)+' · '+(dmWatched.find(n=>n[0]===Number(x.node_num))?.[1]||x.node_num)+' · '+(x.enabled?'ON':'OFF')+' · '+x.interval_minutes+' min'));
+}
+async function loadDm(silent=false){if(me?.role!=='admin')return;try{dmData=await request('/api/mesh/dm');renderDm();if(!silent)$('#dm-message').textContent='Updated '+new Date().toLocaleTimeString()}catch(e){$('#dm-message').textContent='Unable to load auto DM controls: '+e.message}}
+$('#dm-refresh').onclick=()=>loadDm();
+setInterval(()=>{if(!$('#dm-view').hidden)loadDm(true)},45000);
 function showView(view){if(!['mesh','lift','pumps','firmware','dm'].includes(view))view=me?.role==='admin'?'mesh':'lift';if((view==='mesh'||view==='firmware'||view==='dm')&&me?.role!=='admin')view='lift';document.body.classList.toggle('mesh-active',view==='mesh'||view==='firmware'||view==='dm');$('#lift-view').hidden=view!=='lift';$('#pumps-view').hidden=view!=='pumps';$('#mesh-view').hidden=view!=='mesh';$('#firmware-view').hidden=view!=='firmware';$('#dm-view').hidden=view!=='dm';if(view==='mesh')loadMesh();if(view==='firmware')loadFirmware();if(view==='dm')loadDm();document.querySelectorAll('.nav [data-view]').forEach(b=>{if(b.dataset.view===view)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});if(location.hash!=='#'+view)history.replaceState(null,'','#'+view);if(view==='pumps'&&me&&state.stations.length)loadPumpDiagnostics()}
 document.querySelector('#mesh-station').addEventListener('change',e=>{meshSelection=e.target.value;renderMesh()});document.querySelector('#mesh-refresh').addEventListener('click',loadMesh);document.querySelectorAll('[data-mesh-hours]').forEach(b=>b.addEventListener('click',()=>{meshHours=Number(b.dataset.meshHours);document.querySelectorAll('[data-mesh-hours]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));loadMesh()}));document.querySelectorAll('[data-mesh-metric]').forEach(b=>b.addEventListener('click',()=>{meshMetric=b.dataset.meshMetric;document.querySelectorAll('[data-mesh-metric]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));renderMesh()}));addEventListener('resize',()=>{if(!document.querySelector('#mesh-view').hidden&&meshData)renderMesh()});
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
