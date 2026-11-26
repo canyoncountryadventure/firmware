@@ -12,7 +12,8 @@ firmware_label = (root / "src/modules/Telemetry/HOBOSelfRecovery/HOBOSelfRecover
 
 assert "[env:rak4631_water_unified_v8]" in variant
 assert 'FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V8"' in firmware_label
-assert "DYP_A08_CONTROLLED" in head and "DYPA08ControlledDistanceDriver a08Driver;" in head
+assert "DYP_A08_CONTROLLED = 6" in (root / "src/modules/Telemetry/DistanceSensor/DistanceSensorDriver.h").read_text()
+assert "DYPA08ControlledDistanceDriver a08Driver;" in head
 assert "requested = DistanceSensorType::DYP_A08_CONTROLLED;" in module
 assert "WATER SENSOR DYP-A08" in module
 assert "if (!alwaysPoweredControlled)" in module
