@@ -2,6 +2,7 @@
 #if defined(ARCH_ESP32) && HAS_WIFI && defined(HELTEC_V4)
 
 #include "HoboHttpGatewayModule.h"
+#include "CcaRemoteOtaStage.h"
 #include "serialization/JSON.h"
 #include "serialization/JSONValue.h"
 #include <HTTPClient.h>
@@ -163,7 +164,7 @@ String CcaCloudRemote::statusJson()
                ",\"last_http_status\":" + String(lastCloudCode) +
                ",\"ota_manifest_verified\":" + String(canStage ? "true" : "false") +
                ",\"ota_install_enabled\":false,\"ota_status\":" +
-               safeJsonString(otaReason) + "}";
+               safeJsonString(otaReason) + ",\"ota_stage\":" + CcaRemoteOtaStage::statusJson() + "}";
     return s;
 }
 
@@ -251,6 +252,7 @@ bool CcaCloudRemote::syncConfig()
     // OTA is a signed manifest CHECK only in V10. It cannot install unattended.
     JSONValue *ota = root->Child("ota");
     bool approved = false;
+    String authorizedVersion, authorizedUrl, authorizedHash;
     if (ota && ota->IsObject()) {
         JSONValue *enabled = ota->Child("enabled"), *rv = ota->Child("version"),
                   *url = ota->Child("url"), *sha = ota->Child("sha256"),
@@ -261,7 +263,12 @@ bool CcaCloudRemote::syncConfig()
             const String vr = rv->AsString().c_str();
             approved = verifyOtaManifest(vr, String(url->AsString().c_str()),
                                          String(sha->AsString().c_str()), String(sig->AsString().c_str()));
-            if (approved) snprintf(otaVersion, sizeof(otaVersion), "%s", vr.c_str());
+            if (approved) {
+                snprintf(otaVersion, sizeof(otaVersion), "%s", vr.c_str());
+                authorizedVersion = vr;
+                authorizedUrl = url->AsString().c_str();
+                authorizedHash = sha->AsString().c_str();
+            }
         }
     }
 
@@ -288,6 +295,15 @@ bool CcaCloudRemote::syncConfig()
             p.end();
         }
     }
+    // Only an explicitly authorized signed manifest may start staging. The
+    // new loader is independently attested before any flash is written.
+    // The default Cloudflare ota_enabled=0 prevents staging until approved.
+    if (approved) {
+        String stageReason;
+        CcaRemoteOtaStage::stageAndReboot(authorizedVersion, authorizedUrl,
+                                          authorizedHash, stageReason);
+        snprintf(otaReason, sizeof(otaReason), "%s", stageReason.c_str());
+    }
     LOG_INFO("CCA V10 remote: config v%lu, %u cloud station(s), %u DM override(s), ota_manifest=%s",
              static_cast<unsigned long>(version), static_cast<unsigned>(count),
              static_cast<unsigned>(newDmCount), approved ? "VERIFIED" : "OFF");
@@ -310,7 +326,8 @@ void CcaCloudRemote::postHealth()
     const String body = "{\"firmware\":\"HELTEC-GATEWAY-V10\",\"uptime_seconds\":" +
         String(millis() / 1000UL) + ",\"queue_depth\":" + String(queue) +
         ",\"last_http_status\":" + String(httpStatus) +
-        ",\"config_version\":" + String(configVersion()) + "}";
+        ",\"config_version\":" + String(configVersion()) +
+        ",\"note\":" + safeJsonString(CcaRemoteOtaStage::healthNote()) + "}";
     const int rc = http.POST(body);
     if (rc != 200) LOG_WARN("CCA V10 remote: health HTTP %d", rc);
     http.end();
