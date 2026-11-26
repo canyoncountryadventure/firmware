@@ -155,7 +155,7 @@ String healthNote()
     const String applied = p.getString("applied", "");
     p.end();
     return "remote-ota: loader_ready=" + String(loaderReady() ? "1" : "0") + ",phase=" + String(phase) +
-           ",attempts=" + String(tries) + ",applied=" + applied;
+           ",attempts=" + String(tries) + ",applied=" + applied + ",fw_kv=1";
 }
 
 bool stageAndReboot(const String &version, const String &url, const String &sha256, String &reason)
@@ -167,7 +167,13 @@ bool stageAndReboot(const String &version, const String &url, const String &sha2
         return false;
     }
     lastAttemptMs = millis();
-    if (!url.startsWith("https://raw.githubusercontent.com/canyoncountryadventure/firmware/") &&
+    const String cloudPrefix = "https://cces-mesh-remote.raspy-lake-a7f4.workers.dev/v10/firmware/";
+    const bool cloudFile = url.startsWith(cloudPrefix) &&
+                           url.length() == cloudPrefix.length() + 64;
+    uint8_t opaqueKey[32] = {};
+    const bool cloudAllowed = cloudFile && unpackSha(url.substring(cloudPrefix.length()), opaqueKey);
+    if (!cloudAllowed &&
+        !url.startsWith("https://raw.githubusercontent.com/canyoncountryadventure/firmware/") &&
         !url.startsWith("https://github.com/canyoncountryadventure/firmware/")) {
         reason = "unapproved download host"; return false;
     }
