@@ -159,7 +159,7 @@ bool DistanceSensorModule::configValid(const PersistentConfig &record) const
 {
     if (record.magic != CONFIG_MAGIC || record.version != CONFIG_VERSION)
         return false;
-    if (record.sensorType > static_cast<uint8_t>(DistanceSensorType::MB7388))
+    if (record.sensorType > static_cast<uint8_t>(DistanceSensorType::DYP_A08_CONTROLLED))
         return false;
     if ((record.flags & static_cast<uint8_t>(~(FLAG_CALIBRATED | FLAG_CAL_LOCKED))) != 0)
         return false;
@@ -381,6 +381,16 @@ bool DistanceSensorModule::configureSensor(DistanceSensorType requested, bool pe
         return true;
     }
 
+    if (requested == DistanceSensorType::DYP_A08_CONTROLLED) {
+        // Controlled A08: wired directly to 3.3 V, no Pololu switching.
+        if (!a08Driver.begin())
+            return false;
+        activeDriver = &a08Driver;
+        activeType = requested;
+        setDistanceSensorPower(false);
+        return true;
+    }
+
     if (requested == DistanceSensorType::SEN0311_A02YYUW || requested == DistanceSensorType::SEN0313_A01NYUB ||
         requested == DistanceSensorType::UART_GENERIC) {
         uartDriver.setType(requested);
@@ -407,7 +417,9 @@ DistanceReading DistanceSensorModule::readDistance()
         return missing;
     }
 
-    // The Pololu was turned on by scheduleSample() eight seconds earlier.
+    // V7 streaming sensors get their eight-second Pololu warm-up.
+    // The DYP controlled sensor stays powered directly from the RAK supply
+    // and receives a fresh measurement trigger inside its read() method.
     // A single UART/I2C read remains bounded by the sensor driver timeout.
     latestReading = activeDriver->read();
 
@@ -452,12 +464,17 @@ bool DistanceSensorModule::scheduleSample(SampleJob job, uint32_t requester, uin
     sampleCount = 0;
     sampleAttempts = 0;
     samplePowerOnMs = millis();
+    const bool alwaysPoweredControlled = activeType == DistanceSensorType::DYP_A08_CONTROLLED;
 #if defined(RAK_4631)
-    nextSampleMs = samplePowerOnMs + SENSOR_POWER_SETTLE_MS;
+    nextSampleMs = alwaysPoweredControlled ? samplePowerOnMs : samplePowerOnMs + SENSOR_POWER_SETTLE_MS;
 #else
     nextSampleMs = samplePowerOnMs;
 #endif
-    setDistanceSensorPower(true);
+    // Only V7 automatic-stream sensors use the IO1 Pololu sensor rail.
+    // DYP-A08 Controlled is permanently connected to regulated 3.3 V and
+    // spends the interval in its own standby state; do not energize IO1.
+    if (!alwaysPoweredControlled)
+        setDistanceSensorPower(true);
     return true;
 }
 
@@ -529,7 +546,9 @@ void DistanceSensorModule::serviceSample(uint32_t now)
         sampleValues[sampleCount++] = reading.distanceMm;
     if (sampleCount < requiredSamples && sampleAttempts < requiredSamples * 2U)
     {
-        nextSampleMs = millis() + 80;
+        // A08A UART Controlled requires >100 ms between triggers.
+        // Leave V7 sensor cadence unchanged.
+        nextSampleMs = millis() + (activeType == DistanceSensorType::DYP_A08_CONTROLLED ? 200UL : 80UL);
         return;
     }
 
@@ -1039,7 +1058,7 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
         sendTextReply(mp.from, mp.channel,
                       "WATER HELP 2/4 SENSOR: WATER SENSOR | WATER SENSOR MB7388 | WATER "
                       "SENSOR AUTO | WATER SENSOR SEN0590 | WATER SENSOR SEN0311 | WATER "
-                      "SENSOR A02YYUW | WATER SENSOR SEN0313 | WATER SENSOR A01NYUB");
+                      "SENSOR A02YYUW | WATER SENSOR SEN0313 | WATER SENSOR A01NYUB | WATER SENSOR DYP-A08");
         sendTextReply(mp.from, mp.channel,
                       "WATER HELP 3/4 CAL: WATER CAL STATUS | WATER CAL STAGE "
                       "1.42FT | WATER CAL LOCK | WATER CAL UNLOCK | WATER CAL "
@@ -1078,9 +1097,12 @@ ProcessMessage DistanceSensorModule::handleReceived(const meshtastic_MeshPacket 
             requested = DistanceSensorType::SEN0313_A01NYUB;
         else if (strcmp(arg, "MB7388") == 0 || strcmp(arg, "MAXBOTIX") == 0)
             requested = DistanceSensorType::MB7388;
+        else if (strcmp(arg, "DYP-A08") == 0 || strcmp(arg, "A08") == 0 ||
+                 strcmp(arg, "A08-CONTROLLED") == 0 || strcmp(arg, "DYP-A08-CONTROLLED") == 0)
+            requested = DistanceSensorType::DYP_A08_CONTROLLED;
 
         if (requested == DistanceSensorType::NONE) {
-            sendTextReply(mp.from, mp.channel, "SENSOR options: MB7388, A01NYUB, A02YYUW, SEN0590, AUTO");
+            sendTextReply(mp.from, mp.channel, "SENSOR options: MB7388, A01NYUB, A02YYUW, DYP-A08, SEN0590, AUTO");
             return ProcessMessage::CONTINUE;
         }
 
@@ -1281,8 +1303,8 @@ int32_t DistanceSensorModule::runOnce()
         // while its asynchronous eight-second warm-up is underway.
         if (!sampleBusy())
             setDistanceSensorPower(false);
-        LOG_INFO("WaterDistance: Pololu 2810 control ready on IO1/P0.17; sensor "
-                 "OFF between reads");
+        LOG_INFO("WaterDistance: V7 streaming sensors use IO1 Pololu; "
+                 "DYP-A08 controlled uses direct 3.3V and UART trigger");
 #endif
         LOG_INFO("WaterDistance: ready platform=%s sensor=%s interval=%lus "
                  "calibrated=%s locked=%s",
