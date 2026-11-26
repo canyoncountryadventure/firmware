@@ -208,7 +208,12 @@ bool stageAndReboot(const String &version, const String &url, const String &sha2
     if (!http.begin(client, url)) { reason = "download open failed"; recordFailure(version, reason.c_str()); return false; }
     const int rc = http.GET();
     if (rc != 200) {
-        reason = "download HTTP " + String(rc);
+        // Preserve the library's connection diagnostic and internal heap
+        // available at failure. HTTP -1 alone cannot distinguish TLS resource
+        // exhaustion from an unreachable remote endpoint.
+        reason = "download HTTP " + String(rc) + ": " + http.errorToString(rc) +
+                 "; free_heap=" + String(ESP.getFreeHeap()) +
+                 "; wifi_rssi=" + String(WiFi.RSSI());
         http.end(); recordFailure(version, reason.c_str()); return false;
     }
     const int length = http.getSize();
