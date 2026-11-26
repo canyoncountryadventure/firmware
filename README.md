@@ -1,5 +1,8 @@
 # CCA Heltec Gateway V9 Clock (current release)
 
+> **FINAL PRE-CLOUDFLARE / PRE-REMOTE RELEASE.** Heltec Gateway **V9 Clock** is the last verified, established gateway firmware before **V10** introduces Cloudflare telemetry routing, remotely synchronized station configuration, and secure remote firmware management. This branch's **firmware binary and source behavior remain unchanged**. V9 Clock is the known-good **Vercel/Neon rollback image**, retaining the clock-aligned automatic DM rescue, White Pine support, HOBO polling, mesh settings, diagnostics, and recovery. V9 does **not** implement Cloudflare routing, remote configuration sync, or Cloudflare-managed OTA. Keep the existing stations' working forwarding path intact during the V10 pilot. See [Heltec Gateway V10 development](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v10).
+
+
 **November 4, 2026 | Heltec WiFi LoRa 32 V4 OLED | ESP32-S3**
 
 **[V9 Clock release: verified Wi-Fi flash, checksum, station defaults, new DM commands, hour-boundary logic, and rollback](downloads/Heltec-Gateway-v9-Clock/README.md)**
