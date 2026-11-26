@@ -31,8 +31,8 @@ gateway_header=(root/"src/modules/HoboHttpGatewayModule.h").read_text()
 dashboard=(root/"cloudflare/cces-monitor/firmware-manager-2026-11-25.js").read_text()
 assert "autoDmSnapshotJson()" in gateway
 assert "autoDmSnapshotJson() const;" in gateway_header
-assert '"schema"' not in gateway or 'schema' in gateway
-assert '"watches"' not in gateway or 'watches' in gateway
+for key in ["schema", "global_enabled", "minimum_missing_minutes", "clock_synchronized", "watches", "configured_polls", "last_auto_age_seconds", "last_request_age_seconds"]:
+    assert key in gateway, key
 for marker in ["reset_reason_code","reset_diagnostic","auto_dm_state","esp32FieldDiagFormat","HELTEC-GATEWAY-V12"]:
     assert marker in cloud,marker
 for marker in ["mesh_gateway_reset_diag","mesh_gateway_dm_state","d.auto_dm_state"]:
@@ -40,3 +40,8 @@ for marker in ["mesh_gateway_reset_diag","mesh_gateway_dm_state","d.auto_dm_stat
 for marker in ['id="dm-view"',"'/api/mesh/dm'","mesh_gateway_dm_actions","dmWatched"]:
     assert marker in dashboard,marker
 print("PASS V12 reset reasons, live DM snapshots, authenticated storage and owner UI")
+
+assert "last_health_http_status" in cloud
+assert "last_config_error" in cloud
+assert "ESP.restart()" in stage
+assert "last_recovery_reason" in (root/"src/platform/esp32/main-esp32.cpp").read_text()
