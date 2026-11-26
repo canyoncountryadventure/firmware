@@ -141,7 +141,7 @@ HoboHttpGatewayModule *hoboHttpGatewayModule = nullptr;
 HoboHttpGatewayModule::HoboHttpGatewayModule()
     : MeshModule("cca_sensor_http_gateway"),
       concurrency::OSThread("cca_sensor_http_gateway"),
-      uploadQueue(UPLOAD_QUEUE_SIZE)
+      uploadQueue(UPLOAD_QUEUE_SIZE), cloudQueue(UPLOAD_QUEUE_SIZE)
 {
     isPromiscuous = true;
     uploadQueue.setReader(this);
@@ -371,6 +371,7 @@ void HoboHttpGatewayModule::fillCommon(UploadJob &job, const meshtastic_MeshPack
     job.retries = 0;
     job.packetId = mp.id;
     job.from = getFrom(&mp);
+    job.cloudOnly = CcaCloudRemote::isCloudNode(job.from);
     job.timestamp = getTime();
     job.channel = mp.channel;
     job.hopStart = mp.hop_start;
@@ -389,6 +390,7 @@ void HoboHttpGatewayModule::fillLocalCommon(UploadJob &job, uint16_t sequence)
     job.retries = 0;
     job.packetId = 0xCC000000UL | (++localPacketCounter & 0x00FFFFFFUL);
     job.from = nodeDB ? nodeDB->getNodeNum() : 0;
+    job.cloudOnly = false;
     job.timestamp = getTime();
     job.sequence = sequence;
     job.localBleSensor = true;
@@ -406,7 +408,7 @@ bool HoboHttpGatewayModule::queueLocalEnvironment(float temperatureC, const char
     snprintf(job.loggerMac, sizeof(job.loggerMac), "%s", loggerMac ? loggerMac : "");
     snprintf(job.loggerModel, sizeof(job.loggerModel), "%s", loggerModel ? loggerModel : "HOBO");
 
-    if (!uploadQueue.enqueue(job, 0)) {
+    if (!(job.cloudOnly ? cloudQueue : uploadQueue).enqueue(job, 0)) {
         LOG_WARN("CCA clean gateway: upload queue full; dropped local HOBO temperature sequence=%u", sequence);
         return false;
     }
@@ -430,7 +432,7 @@ bool HoboHttpGatewayModule::queueLocalMX2001(float waterLevelFt, float temperatu
     snprintf(job.loggerMac, sizeof(job.loggerMac), "%s", loggerMac ? loggerMac : "");
     snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
 
-    if (!uploadQueue.enqueue(job, 0)) {
+    if (!(job.cloudOnly ? cloudQueue : uploadQueue).enqueue(job, 0)) {
         LOG_WARN("CCA clean gateway: upload queue full; dropped local MX2001 sequence=%u", sequence);
         return false;
     }
@@ -481,7 +483,7 @@ bool HoboHttpGatewayModule::enqueueMX2001(const meshtastic_MeshPacket &mp)
     job.temperatureC = (job.temperatureF - 32.0f) * (5.0f / 9.0f);
     snprintf(job.loggerModel, sizeof(job.loggerModel), "MX2001");
 
-    if (!uploadQueue.enqueue(job, 0)) {
+    if (!(job.cloudOnly ? cloudQueue : uploadQueue).enqueue(job, 0)) {
         LOG_WARN("CCA clean gateway: queue full; dropped remote MX2001 packet 0x%08lx",
                  static_cast<unsigned long>(mp.id));
         return false;
@@ -510,7 +512,7 @@ bool HoboHttpGatewayModule::enqueueMoisturePir(const meshtastic_MeshPacket &mp)
     job.batteryMv = readLE16(&payload[12]);
     job.batteryPercent = payload[14];
 
-    if (!uploadQueue.enqueue(job, 0))
+    if (!(job.cloudOnly ? cloudQueue : uploadQueue).enqueue(job, 0))
         return false;
     setIntervalFromNow(0);
     return true;
@@ -536,7 +538,7 @@ bool HoboHttpGatewayModule::enqueueSoil(const meshtastic_MeshPacket &mp)
     job.soilMoisturePercent = payload[3];
     job.moistureAdc = readLE16(&payload[4]);
     job.sequence = readLE16(&payload[6]);
-    if (!uploadQueue.enqueue(job, 0)) {
+    if (!(job.cloudOnly ? cloudQueue : uploadQueue).enqueue(job, 0)) {
         LOG_WARN("CCA clean gateway: queue full; dropped soil packet from 0x%08lx",
                  static_cast<unsigned long>(job.from));
         return false;
@@ -582,7 +584,7 @@ bool HoboHttpGatewayModule::enqueueWaterDistance(const meshtastic_MeshPacket &mp
         const bool fast = cc01LastStageFt > 0.75f;
         if (fast != cc01FastMode) { cc01FastMode = fast; persistCc01Settings(); }
     }
-    if (!uploadQueue.enqueue(job, 0)) {
+    if (!(job.cloudOnly ? cloudQueue : uploadQueue).enqueue(job, 0)) {
         LOG_WARN("CCA clean gateway: queue full; dropped water-distance packet from 0x%08lx",
                  static_cast<unsigned long>(job.from));
         return false;
@@ -610,7 +612,7 @@ bool HoboHttpGatewayModule::enqueueEnvironment(const meshtastic_MeshPacket &mp)
     fillCommon(job, mp);
     job.temperatureC = decoded.variant.environment_metrics.temperature;
 
-    if (!uploadQueue.enqueue(job, 0)) {
+    if (!(job.cloudOnly ? cloudQueue : uploadQueue).enqueue(job, 0)) {
         LOG_WARN("CCA clean gateway: queue full; dropped environment packet 0x%08lx",
                  static_cast<unsigned long>(mp.id));
         return false;
@@ -649,7 +651,7 @@ bool HoboHttpGatewayModule::enqueueDevice(const meshtastic_MeshPacket &mp)
     job.airUtilTx = device.air_util_tx;
     job.uptimeSeconds = device.uptime_seconds;
 
-    if (!uploadQueue.enqueue(job, 0))
+    if (!(job.cloudOnly ? cloudQueue : uploadQueue).enqueue(job, 0))
         return false;
     setIntervalFromNow(0);
     return true;
@@ -832,7 +834,7 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     HTTPClient http;
     client.setTimeout(12000);
     http.setTimeout(12000);
-    const bool cloudOnly = CcaCloudRemote::isCloudNode(job.from);
+    const bool cloudOnly = job.cloudOnly;
     const String destination = cloudOnly ? String(CCA_CLOUD_URL) + "/v10/ingest" : String(HOBO_HTTP_GATEWAY_URL);
     if (!http.begin(client, destination)) {
         LOG_WARN("CCA clean gateway: could not initialize HTTPS request");
@@ -915,6 +917,7 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"ingest_key_present\":";
     body += strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) ? "true" : "false";
     body += ",\"queue_used\":" + String(uploadQueue.numUsed());
+    body += ",\"cloud_queue_used\":" + String(cloudQueue.numUsed());
     body += ",\"uploaded_total\":" + String(uploadedJobs);
     body += ",\"last_http_status\":" + String(lastHttpStatus);
     body += ",\"manual_dm_received\":" + String(manualDmReceived);
@@ -1049,12 +1052,41 @@ int32_t HoboHttpGatewayModule::runOnce()
         return 3000;
 
     UploadJob job = {};
-    if (!uploadQueue.dequeue(&job, 0))
+    // Vercel/Neon first. Cloudflare has a separate, bounded retry queue so
+    // Cloudflare auth failures or outages cannot stall legacy telemetry.
+    const bool legacyJob = uploadQueue.dequeue(&job, 0);
+    if (!legacyJob && !cloudQueue.dequeue(&job, 0))
         return 500;
+    if (!legacyJob && job.nextAttemptMs &&
+        static_cast<int32_t>(millis() - job.nextAttemptMs) < 0) {
+        if (!cloudQueue.enqueue(job, 0))
+            LOG_ERROR("CCA V10: Cloudflare backlog full; dropped waiting packet");
+        return 250;
+    }
 
     if (upload(job))
         return 25;
 
+    if (!legacyJob) {
+        // A broken Cloudflare service must NEVER impose its backoff on V9
+        // Vercel transmissions, which are checked at the top of every loop.
+        if (job.retries < MAX_RETRIES) {
+            ++job.retries;
+            const uint32_t delayMs = lastHttpStatus == 401 ? 300000UL :
+                                     (1000UL << job.retries);
+            job.nextAttemptMs = millis() + delayMs;
+            if (cloudQueue.enqueue(job, 0)) {
+                LOG_WARN("CCA V10: Cloudflare retry %u/%u deferred %lums, legacy continues",
+                         job.retries, MAX_RETRIES, static_cast<unsigned long>(delayMs));
+                return 25;
+            }
+        }
+        LOG_WARN("CCA V10: Cloudflare dropped packet 0x%08lx after bounded retries",
+                 static_cast<unsigned long>(job.packetId));
+        return 25;
+    }
+
+    // V9 Clock's original Vercel retry timing is intentionally unchanged.
     if (job.retries < MAX_RETRIES) {
         ++job.retries;
         if (uploadQueue.enqueue(job, 0)) {
