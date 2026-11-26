@@ -128,6 +128,14 @@ String statusJson()
            ",\"error\":" + safe(error) + "}";
 }
 
+void markCloudConfirmed()
+{
+    Preferences p;
+    if (!p.begin(NAMESPACE, false)) return;
+    if (p.getUChar("phase", 0) == 3) p.putUChar("phase", 4);
+    p.end();
+}
+
 String healthNote()
 {
     Preferences p;
@@ -135,11 +143,8 @@ String healthNote()
     const uint8_t phase = p.getUChar("phase", 0);
     const uint8_t tries = p.getUChar("tries", 0);
     const String applied = p.getString("applied", "");
-    // Only mark verification after the new application has actually made
-    // it far enough to send a cloud heartbeat. No bootloader rollback claim.
-    if (phase == 3) p.putUChar("phase", 4);
     p.end();
-    return "remote-ota: phase=" + String(phase == 3 ? 4 : phase) +
+    return "remote-ota: phase=" + String(phase) +
            ",attempts=" + String(tries) + ",applied=" + applied;
 }
 
@@ -216,7 +221,9 @@ bool stageAndReboot(const String &version, const String &url, const String &sha2
         const size_t wanted = (static_cast<size_t>(length) - copied < CHUNK_BYTES)
                             ? static_cast<size_t>(length) - copied : CHUNK_BYTES;
         const size_t got = stream->readBytes(buffer, wanted);
-        if (!got) { ok = false; reason = "download truncated"; break; }
+        // Do not round/interleave short network reads: every flash offset
+        // must remain 4-byte aligned until the very last chunk.
+        if (got != wanted) { ok = false; reason = "download short read"; break; }
         if (mbedtls_sha256_update(&sha, buffer, got) != 0) {
             ok = false; reason = "hash computation failed"; break;
         }
