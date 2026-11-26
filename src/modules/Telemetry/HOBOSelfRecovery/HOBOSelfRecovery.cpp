@@ -19,7 +19,7 @@ namespace
 {
 static constexpr uint32_t BOOT_SETTLE_MS = 30000UL;
 static constexpr uint32_t SUPERVISOR_INTERVAL_MS = 30000UL;
-static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V7";
+static constexpr char FIRMWARE_LABEL[] = "RAK WATER DISTANCE + HOBO V8";
 
 uint32_t commandRecoveryCount = 0;
 uint32_t resetReasonAtBoot = 0;
@@ -125,7 +125,7 @@ ProcessMessage HOBOSelfRecoveryModule::handleReceived(const meshtastic_MeshPacke
                       "RESET CONFIRM | WATER RESET WATER | WATER RESET WATER "
                       "CONFIRM | WATER TELEMETRY NOW | WATER MODE | SAMPLES 10");
         sendTextReply(mp.from, mp.channel,
-                      "HELP 7/7 V7: HUB | HUB SET !NODEID | HUB AUTO | SAMPLES 3-20 | BATTERY HISTORY | "
+                      "HELP 7/7 V8: HUB | HUB SET !NODEID | HUB AUTO | SAMPLES 3-20 | BATTERY HISTORY | "
                       "RADIO RESET | HOBO RESTART | HOBO BLE ON/OFF | SENSOR RESTART | LAST RESORT");
         return ProcessMessage::CONTINUE;
     }
