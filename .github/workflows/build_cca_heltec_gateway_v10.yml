@@ -15,6 +15,7 @@ on:
       - '.github/workflows/build_cca_heltec_gateway_v10.yml'
       - 'test/test_heltec_v10/**'
       - 'cloudflare/cces-mesh-remote/**'
+      - 'tools/cca_remote_ota/**'
       - '.github/workflows/build_firmware.yml'
 concurrency:
   group: heltec-gateway-v10-final-release
