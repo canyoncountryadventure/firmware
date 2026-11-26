@@ -15,6 +15,8 @@
 #include <cstring>
 #include <cstdio>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
+extern void esp32FieldDiagFormat(char *out, size_t outSize);
 
 namespace {
 constexpr size_t MAX_CLOUD_NODES = 24;
@@ -165,7 +167,7 @@ String CcaCloudRemote::statusJson()
     revision = dmRevision;
     canStage = otaAvailable;
     portEXIT_CRITICAL(&cloudLock);
-    String s = "{\"build\":\"heltec-gateway-v11\",\"remote_config_version\":" + String(v) +
+    String s = "{\"build\":\"heltec-gateway-v12\",\"remote_config_version\":" + String(v) +
                ",\"cloud_nodes\":" + String(stations) +
                ",\"remote_dm_revision\":" + String(revision) +
                ",\"sync_ok\":" + String(successCount) +
@@ -381,15 +383,23 @@ void CcaCloudRemote::postHealth()
     http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
     const uint32_t queue = hoboHttpGatewayModule ? hoboHttpGatewayModule->healthQueueUsed() : 0;
     const int httpStatus = hoboHttpGatewayModule ? hoboHttpGatewayModule->healthLastHttpStatus() : 0;
-    const String body = "{\"firmware\":\"HELTEC-GATEWAY-V11\",\"uptime_seconds\":" +
+    String body = "{\"firmware\":\"HELTEC-GATEWAY-V12\",\"uptime_seconds\":" +
         String(millis() / 1000UL) + ",\"queue_depth\":" + String(queue) +
         ",\"last_http_status\":" + String(httpStatus) +
         ",\"config_version\":" + String(configVersion()) +
-        ",\"note\":" + safeJsonString(CcaRemoteOtaStage::healthNote()) + "}";
+        ",\"note\":" + safeJsonString(CcaRemoteOtaStage::healthNote());
+    char diag[530] = {};
+    esp32FieldDiagFormat(diag, sizeof(diag));
+    String diagnostic(diag);
+    diagnostic.replace("\\n", " | ");
+    body += ",\"reset_reason_code\":" + String(static_cast<int>(esp_reset_reason()));
+    body += ",\"reset_diagnostic\":" + safeJsonString(diagnostic);
+    body += ",\"auto_dm_state\":" + (hoboHttpGatewayModule ? hoboHttpGatewayModule->autoDmSnapshotJson() : String("null"));
+    body += "}";
     const int rc = http.POST(body);
     lastHealthCode = rc;
     if (rc == 200) CcaRemoteOtaStage::markCloudConfirmed();
-    else LOG_WARN("CCA V11 remote: health HTTP %d: %s", rc, http.errorToString(rc).c_str());
+    else LOG_WARN("CCA V12 remote: health HTTP %d: %s", rc, http.errorToString(rc).c_str());
     http.end();
 }
 
