@@ -22,6 +22,6 @@ assert "LOADER_RESERVED_BYTES = 0xA0000" in stage
 assert "esp_partition_write(loader, LOADER_RESERVED_BYTES + copied" in stage
 assert 'String(HOBO_HTTP_GATEWAY_URL)' in (root/"src/modules/HoboHttpGatewayModule.cpp").read_text()
 assert "env.FW_BIN.get" in worker
-assert "/v10/firmware/" in worker
+assert "fwMatch=url.pathname.match" in worker and "heltec-v10/" in worker
 assert "signedManifest" in worker
 print("PASS: V11 KV URL allowlist, signed manifest, staged loader, and V9 legacy routing")
