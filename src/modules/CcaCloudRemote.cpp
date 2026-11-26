@@ -163,7 +163,8 @@ String CcaCloudRemote::statusJson()
                ",\"sync_failed\":" + String(failCount) +
                ",\"last_http_status\":" + String(lastCloudCode) +
                ",\"ota_manifest_verified\":" + String(canStage ? "true" : "false") +
-               ",\"ota_install_enabled\":false,\"ota_status\":" +
+               ",\"ota_install_enabled\":" + String((canStage && CcaRemoteOtaStage::loaderReady()) ? "true" : "false") +
+               ",\"ota_status\":" +
                safeJsonString(otaReason) + ",\"ota_stage\":" + CcaRemoteOtaStage::statusJson() + "}";
     return s;
 }
