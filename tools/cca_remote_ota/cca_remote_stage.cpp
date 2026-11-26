@@ -112,13 +112,17 @@ void cca_remote_stage_install()
         size > app->size) {
         setError(h, "staged metadata/layout invalid", 0, tries);
         nvs_close(h);
-        if (app && esp_ota_set_boot_partition(app) == ESP_OK) esp_restart();
+        // A prior interrupted install (phase=2) may have damaged OTA_0.
+        // Never boot that app until an image has passed validation.
+        if (phase != 2 && app && esp_ota_set_boot_partition(app) == ESP_OK) esp_restart();
         return;
     }
     if (!verifyStaged(loader, offset, size, expected)) {
         setError(h, "staged image SHA-256 invalid", 0, tries);
         nvs_close(h);
-        if (esp_ota_set_boot_partition(app) == ESP_OK) esp_restart();
+        // If an install already started, keep the loader as the recovery
+        // target even when staged flash later fails integrity verification.
+        if (phase != 2 && esp_ota_set_boot_partition(app) == ESP_OK) esp_restart();
         return;
     }
 
