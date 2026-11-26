@@ -11,5 +11,6 @@ namespace CcaRemoteOtaStage {
   bool stageAndReboot(const String &version, const String &url, const String &sha256, String &reason);
   String statusJson();
   String healthNote();
+  void markCloudConfirmed();
 }
 #endif
