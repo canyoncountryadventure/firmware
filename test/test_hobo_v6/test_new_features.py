@@ -66,8 +66,8 @@ assert "RELAY AUTO" not in rak and "RELAY SHOW" not in rak
 assert "RELAY PREFER" not in recovery and "HELP 8/8" not in recovery
 assert "HELP 7/7" in recovery
 readme = (root / "README.md").read_text()
-assert "**V5 mesh routing restored:**" in readme
-assert "**Removed deliberately:**" in readme
+assert "normal routing" in readme or "Meshtastic RF parameters" in readme
+assert "V7" in readme and "V8" in readme
 assert "## Test the preferred relay" not in readme
 
 
