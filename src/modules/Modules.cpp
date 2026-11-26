@@ -80,6 +80,7 @@
 
 #if defined(ARCH_ESP32) && HAS_WIFI
 #include "modules/HoboHttpGatewayModule.h"
+#include "modules/CcaCloudRemote.h"
 #endif
 #if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH
 #include "modules/HoboBleSensorModule.h"
@@ -260,6 +261,7 @@ void setupModules()
 #endif
 #if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
     hoboHttpGatewayModule = new HoboHttpGatewayModule();
+    ccaCloudRemote = new CcaCloudRemote();
 #endif
 #if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH
     new HoboBleSensorModule();
