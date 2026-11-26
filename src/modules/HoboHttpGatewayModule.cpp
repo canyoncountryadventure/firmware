@@ -924,6 +924,7 @@ String HoboHttpGatewayModule::statusJson()
     body += ",\"last_http_attempt_ms\":" + String(lastHttpAttemptMs);
     body += ",\"wifi_rssi_dbm\":" + String(WiFi.isConnected() ? WiFi.RSSI() : 0);
     body += ",\"wifi_recoveries\":" + String(wifiRecoveryCount);
+    body += ",\"cloudflare\":" + CcaCloudRemote::statusJson();
     body += ",\"last_wifi_recovery_ms\":" + String(lastWifiRecoveryMs);
     body += ",\"cc01\":{\"poll_state\":" + jsonQuoted(state);
     body += ",\"requests\":" + String(cc01Requests);
