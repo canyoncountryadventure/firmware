@@ -248,7 +248,7 @@ function drawFirmware(){
  if(!fwData)return;
  const d=fwData,g=d.gateway||{},h=d.health?.[0]||{},now=Date.now(),received=h.received_at?Date.parse(h.received_at.replace(' ','T')+'Z'):0;
  const fresh=received&&now-received<30*60*1000;
- const phase=String(h.note||'').match(/phase=(\d+)/)?.[1];
+ const phase=String(h.note||'').split('phase=')[1]?.split(',')[0];
  const stages={'0':'Idle / download retry','1':'Image staged','2':'Installing','3':'Booted','4':'Cloud boot confirmed','5':'Recovery required'};
  const stats=document.querySelector('#fw-stats');stats.replaceChildren(
    fwStat('Cloudflare policy','Version '+(g.version??'—')+(g.ota_enabled?' · OTA enabled':' · OTA off')),
