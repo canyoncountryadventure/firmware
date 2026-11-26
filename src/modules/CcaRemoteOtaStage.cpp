@@ -106,6 +106,17 @@ bool prepareMeshtasticLoader(const uint8_t expected[32])
 }
 
 namespace CcaRemoteOtaStage {
+bool loaderReady()
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_partition_t *loader = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, nullptr);
+    if (!running || running->subtype != ESP_PARTITION_SUBTYPE_APP_OTA_0 ||
+        !loader || loader->size <= LOADER_RESERVED_BYTES + ERASE_BYTES) return false;
+    esp_app_desc_t desc = {};
+    return esp_ota_get_partition_description(loader, &desc) == ESP_OK &&
+           strncmp(desc.version, LOADER_VERSION_PREFIX, strlen(LOADER_VERSION_PREFIX)) == 0;
+}
 String statusJson()
 {
     Preferences p;
@@ -123,7 +134,7 @@ String statusJson()
     else if (phase == 4) state = "verified-boot";
     else if (attempts >= MAX_STAGING_ATTEMPTS) state = "retry-limit";
     else if (attempts) state = "retry-pending";
-    return "{\"state\":" + safe(state) + ",\"attempts\":" + String(attempts) +
+    return "{\"loader_ready\":" + String(loaderReady() ? "true" : "false") + ",\"state\":" + safe(state) + ",\"attempts\":" + String(attempts) +
            ",\"target\":" + safe(target) + ",\"applied\":" + safe(applied) +
            ",\"error\":" + safe(error) + "}";
 }
@@ -144,7 +155,7 @@ String healthNote()
     const uint8_t tries = p.getUChar("tries", 0);
     const String applied = p.getString("applied", "");
     p.end();
-    return "remote-ota: phase=" + String(phase) +
+    return "remote-ota: loader_ready=" + String(loaderReady() ? "1" : "0") + ",phase=" + String(phase) +
            ",attempts=" + String(tries) + ",applied=" + applied;
 }
 
