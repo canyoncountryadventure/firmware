@@ -17,7 +17,7 @@ on:
       - 'cloudflare/cces-mesh-remote/**'
       - '.github/workflows/build_firmware.yml'
 concurrency:
-  group: heltec-gateway-v10
+  group: heltec-gateway-v10-final-release
   cancel-in-progress: true
 permissions: read-all
 jobs:
