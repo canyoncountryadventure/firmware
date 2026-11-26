@@ -20,7 +20,11 @@ for x in ("pollMissingAutomatic();", "pollConfiguredStations();", "persistCc01Se
     assert x in gateway, x
 assert 'v10-cloudflare-remote-2026-11-25' in gateway
 assert 'CcaCloudRemote::isCloudNode(from)' in gateway
-assert 'const bool cloudOnly = CcaCloudRemote::isCloudNode(job.from);' in gateway
+assert 'job.cloudOnly = CcaCloudRemote::isCloudNode(job.from);' in gateway
+assert 'const bool cloudOnly = job.cloudOnly;' in gateway
+assert 'cloudQueue(UPLOAD_QUEUE_SIZE)' in gateway
+assert 'const bool legacyJob = uploadQueue.dequeue(&job, 0);' in gateway
+assert 'cloudQueue.enqueue(job, 0)' in gateway
 assert 'cloudOnly ? String(CCA_CLOUD_URL) + "/v10/ingest" : String(HOBO_HTTP_GATEWAY_URL)' in gateway
 assert 'CcaCloudRemote::remoteDmRevision()' in gateway
 assert 'CcaCloudRemote::statusJson()' in gateway
@@ -37,7 +41,7 @@ assert 'POST' in gateway and '/v10/health' in remote
 for x in ('/v10/config','/v10/ingest','/v10/health','mesh_stations','mesh_observations',
           'mesh_device_telemetry','mesh_gateway_dm_overrides','GATEWAY_KEY','sensor type mismatch'):
     assert x in worker, x
-assert 'final verified' in v9.lower()
+assert 'final pre-cloudflare' in v9.lower()
 assert 'pre-cloudflare' in v9.lower()
 assert 'ota_enabled INTEGER' not in worker  # Schema migrations live in D1.
 print("PASS: V10 dual backend routing; original V9 station/DM support; dynamic config, signed manifests and OTA-install safety")
