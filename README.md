@@ -1,151 +1,188 @@
-# RAK Water Distance + HOBO V8 — Three Ultrasonic Sensors
+# RAK Water Distance + HOBO V8
 
-**Status: V8 source development and integration build; DYP hardware bench validation pending.**  
-**Target hardware:** RAK4631 + RAK19007. **Base:** [final working V7](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v7).
+**RAK4631 + RAK19007 | Unified firmware | November 25, 2026**
 
-V8 retains the proven V7 Meshtastic, HOBO, calibration, recovery, sensor sampling, normal routing and power management logic, and adds the DYP-A08 **UART Controlled** ultrasonic driver. **V7 remains the final established working image for the two original deployed stations.** Do not replace those stations just to test the new driver.
+V8 combines Meshtastic, HOBO Bluetooth logger polling, and water-distance measurements in a **single RAK firmware image**. It supports the two original ultrasonic sensors plus the new **DYP-A08 UART Controlled** unit. It is designed for your new two-station DYP bench test, while the known-working [V7](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v7) remains untouched for the original deployed SEN0313 and MB7388 stations.
 
-## Supported three-sensor field configuration
+> **Release status:** Software regression tests and the unified RAK build passed. The DYP-A08 hardware has **not yet been validated on a real sensor**. The marking `A0811AT67U0141` does not independently establish that the purchased unit is the UART Controlled variant.
 
-| Sensor | Firmware DM selection | Interface | Power strategy |
+## 1. Download the firmware
+
+These links point to **ordinary files committed to the repository**, not expiring GitHub Actions artifacts. The automatic release job publishes these after successfully verifying the build.
+
+| What you need | Direct download |
+| --- | --- |
+| **RAK4631 USB firmware (UF2)** | **[Download V8 unified UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v8/downloads/RAK-HOBO-v8/field-rak-water-hobo-v8-unified.uf2)** |
+| **RAK4631 Bluetooth update (OTA ZIP)** | **[Download V8 unified OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v8/downloads/RAK-HOBO-v8/field-rak-water-hobo-v8-unified-OTA.zip)** |
+| Checksums and dated copies | [Browse firmware downloads](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v8/downloads/RAK-HOBO-v8) |
+| Build logs and temporary ZIP package | [GitHub Actions](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_water_v8.yml) |
+
+**If a direct file link returns 404**, the publishing step has not completed successfully. Check the build status before flashing; the link must resolve to the actual file. The dated UF2/OTA copies in the same directory are retained for identifying precisely what was installed.
+
+**Not interchangeable:** the `.uf2` goes to the RAK bootloader drive using USB. The `-OTA.zip` goes to the BLE DFU updater (for example nRF Connect). Do not flash the separate Scout/drone image onto a field station.
+
+## 2. Which sensors and wiring?
+
+| Sensor | Command | UART data format | Power |
 | --- | --- | --- | --- |
-| DFRobot SEN0313 / A01NYUB | `WATER SENSOR SEN0313` | Auto-streaming UART 9600 (4-byte binary) | Existing Pololu 2810, IO1-controlled eight-second warm-up, OFF between jobs |
-| MaxBotix MB7388 | `WATER SENSOR MB7388` | Auto-streaming UART 9600 (ASCII R####\\r) | Existing Pololu 2810, IO1-controlled eight-second warm-up, OFF between jobs |
-| **DYP-A08ANYTB-V1.0** (tentative exact ordered part) | **`WATER SENSOR DYP-A08`** | **UART Controlled 9600**, falling-edge trigger, 4-byte binary | **Direct regulated 3.3 V; no Pololu needed**, sensor idles between triggers |
+| **DFRobot SEN0313 / A01NYUB** | `WATER SENSOR SEN0313` | Automatic 9600 baud; binary `FF, high, low, checksum` | **Pololu 2810**, RAK19007 IO1/P0.17 controls power; 8-second settling |
+| **MaxBotix MB7388** | `WATER SENSOR MB7388` | Automatic 9600 baud; ASCII `R####\r` | **Pololu 2810**, RAK19007 IO1/P0.17 controls power; 8-second settling |
+| **DYP-A08 UART Controlled** | `WATER SENSOR DYP-A08` | Trigger on RAK UART TX, 9600-baud binary result on RAK UART RX | **Direct regulated 3.3 V**, **no Pololu** |
 
-The existing SEN0311/A02YYUW, SEN0590 and generic UART driver paths remain available from the V7 source, but the table lists the **three field sensors in this release's scope**, not every legacy driver compiled in.
+### DYP-A08: four-wire hookup (new test stations)
 
-The new DYP sensor's marking `A0811AT67U0141` is not proof of its output-mode suffix. **Confirm the sensor actually is UART Controlled (ANYTB) rather than UART Auto (ANYUB) before installation.**
+| DYP signal | Connect to RAK19007 | Purpose |
+| --- | --- | --- |
+| **VCC** | **3V3** | Constant regulated power |
+| **GND** | **GND** | Common ground |
+| **TX** | **RX1** | Sensor sends distance to radio |
+| **RX / trigger** | **TX1** | Radio initiates a reading |
 
-## DYP-A08 controlled wiring and protocol
+**Wire colors need verification.** Your sensor has **red, black, white, and yellow** conductors, but the product/lot marking alone does not prove which of white and yellow is TX versus RX, or conclusively prove the output mode. Verify its wiring legend before energizing it.
 
-On the **RAK19007** (with the RAK4631 seated), connect DYP VCC to the regulated 3.3 V supply and DYP GND to common ground. Connect **sensor TX to RAK RX1**, and **sensor RX trigger input to RAK TX1**. The four conductors on the currently discussed unit are red, black, white and yellow respectively **only if the seller confirms the color-to-function assignment**. Do not assume a cable color guarantees its function. This setup bypasses the Pololu entirely on the new stations.
+**How controlled mode works:** The radio sends one `0x00` byte at 9600 baud on TX1, producing an approximately 0.94-ms low trigger. It then listens for the 4-byte `0xFF, high, low, checksum` distance packet. Software verifies the checksum and an expected 250–8000 mm range, and schedules triggers 200 ms apart. The DYP remains powered at 3.3 V between reads; it is **not** connected through the 2810 switch. A sensor sold as `UART Auto` is **not interchangeable** with this controlled-mode driver.
 
-Per [DYP A08 output interface specification](https://www.dypcn.com/uploads/A08-Output-Interfaces.pdf), the trigger is a falling-edge low pulse approximately 10 microseconds to 2 milliseconds wide; a new result is returned on TX at 9600 baud with the bytes `0xFF, distance_hi, distance_lo, checksum`. The checksum is the low eight bits of their sum. V8 sends a single `0x00` byte on RAK TX1 at 9600 baud, producing **one approximately 0.94-millisecond LOW pulse** after the falling start edge and ending at the STOP bit. The response parser checks frame alignment, checksum, and the A08A range of 250–8,000 mm. Consecutive DYP triggers are separated by at least 150 ms (normally 200 ms) to protect the manufacturer's minimum cycle time.
+The original two sensors keep their existing power and wire arrangements. V8 adds DYP support without requiring you to rewire the working V7 installations.
 
-The original V7 sensors retain their continuous-stream readers and Pololu power cycling. **DYP must remain connected to the RAK 3.3 V rail and does not switch off between samples.** IO1 stays low for the DYP mode. V8 does not attempt to auto-identify the DYP protocol from random UART traffic: select it explicitly per station.
+## 3. Flash a RAK4631
 
-## Configure the two new ultrasonic test stations
+### Option A: USB UF2
 
-For each new RAK station, connect to Meshtastic and DM its own node:
+1. Download the **V8 unified UF2** above to your computer.
+2. Connect the **RAK4631 on the RAK19007** by USB.
+3. Enter the UF2 bootloader with the normal quick double-reset action (the RAK bootloader drive should appear).
+4. Copy the `.uf2` to that drive. Wait for the bootloader to reboot.
+5. Pair through Meshtastic and DM the node `VERSION`, then `WATER SENSOR` to verify what actually booted.
+
+### Option B: Bluetooth DFU
+
+1. Download the **V8 unified OTA ZIP**, not the UF2.
+2. Connect to the station with the supported Nordic BLE DFU update tool.
+3. Select the firmware ZIP, complete the DFU, reconnect, and DM `VERSION`.
+4. Leave the station's existing identity and private channel settings alone. Normal application-only updates are intended to preserve them; still verify the radio rejoins your mesh.
+
+**Do not erase settings, factory-reset, or send `LAST RESORT` for a routine update.** `LAST RESORT` is destructive and can strand the station outside your private mesh.
+
+## 4. First-time setup on the two new DYP nodes
+
+Send each command as a **direct message to that station** from a functioning Meshtastic node. These are water commands; bare `READ` means **HOBO**, not water distance.
 
 ```text
+VERSION
 WATER SENSOR DYP-A08
 WATER INTERVAL 15M
 WATER SAMPLES 5
 WATER SENSOR
 WATER READ
 WATER STATUS
-VERSION
+WATER TELEMETRY NOW
 ```
 
-Selection, interval and sample count are saved in the existing CRC-protected A/B configuration slots. An application-only update retains Meshtastic identity/channels and calibration, assuming the prior stored configuration remains valid; changing sensor model while calibration is locked requires the existing explicit unlock/reset step. For the DYP test, **five valid readings** are collected per 15-minute report; the median is transmitted and sample spread is available in the existing diagnostic DMs. The firmware's unchanged default interval and sample count are **1 hour and 10**, respectively, so send the commands above on each new station.
+**What those settings do:**
 
-The new mode sends its measurements in the **existing V7 water telemetry payload** so a receiving Heltec can keep parsing the same format. Separate Cloudflare/Neon routing is a *gateway change*, not built into the sensor RAK V8.
+- `WATER SENSOR DYP-A08`: select and persist controlled UART operation. This setting survives a reboot.
+- `WATER INTERVAL 15M`: transmit a distance measurement every **15 minutes** (change later if desired).
+- `WATER SAMPLES 5`: require **five fresh valid readings** per report; use the **median**, with up to ten attempts.
+- `WATER READ`: take a fresh measurement and DM the distance, and stage if calibrated.
+- `WATER STATUS`: give sensor readiness, selected type, calibration, report interval, last read and error counts.
+- `WATER TELEMETRY NOW`: queue an immediate distance telemetry measurement.
 
-## Validation and release handling
+**Defaults before configuration:** one-hour reporting, ten samples, and the V7 default sensor type. New DYP stations need explicit `WATER SENSOR DYP-A08`. An uncalibrated station can report raw distance; **water stage in feet requires a known-stage calibration**.
 
-- Build the unified V8 target: `rak4631_water_unified_v8` with GitHub Actions workflow `build_rak_water_v8.yml`.
-- Confirm the downloaded UF2 and OTA ZIP are from the same passing build. Only flash the **field** image onto the sensor RAK. Preserve the existing working V7 binary as rollback.
-- Run bench tests with the **actual** DYP-A08 sensor before unattended deployment: five triggers per burst, 15-minute timing, valid distances, bad checksums, no-return timeouts, reboots, power draw, and overnight reception. Source checks or successful compilation are **not** a substitute for this.
-- Use the same sensor-side firmware on both new DYP test radios, with separate radio identities; do not flash either original SEN0313/MB7388 station just to join the test.
+### Calibrate water stage
 
----
+Establish a real reference water stage at the same instant the ultrasonic reading is taken.
 
-## V6 historical development notes (retained for lineage)
+```text
+WATER CAL STATUS
+WATER CAL STAGE 1.42FT
+WATER VERIFY
+WATER CAL STATUS
+```
 
-# CCA RAK Water Distance + HOBO V6
-**Release date: October 17, 2026 · Target: RAK4631 on RAK19007**
+`1.42FT` is **only an example**. Replace it with your measured staff-gage stage. The radio saves the distance-to-stage reference and automatically locks it. Further changes require `WATER CAL UNLOCK CONFIRM` or a deliberate `WATER CAL RESET CONFIRM`. **Changing a sensor model may invalidate the calibration.** Do not change a deployed node's sensor selection casually.
 
-This is a new V6 firmware branch. The proven [V5 branch](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v5) and its published field firmware remain unchanged. V6 combines the distance sensor (SEN0313 or MB7388), HOBO MX2001/MX2201/MX2203 logger polling, Meshtastic transport and autonomous Scout/distance-radio updates. It does not require a separate firmware for each creek.
+## 5. Operations and DM command reference
 
-<!-- V6_RELEASE_START -->
-### Verified October 17, 2026 firmware
+### Water / ultrasonic
 
-Build **4ea6cca** ([source commit](https://github.com/canyoncountryadventure/firmware/commit/4ea6cca31ab657b967bff285f43751bd34c5998d)). Both field sensor flavors and both matching Scout flasher images passed [GitHub CI](https://github.com/canyoncountryadventure/firmware/actions/runs/39071539897), including application/OTA/UF2/embedded Scout verification.
-
-| Sensor | Field station USB | Field station BLE | Separate drone flasher | Matching record |
-| --- | --- | --- | --- | --- |
-| SEN0313 | [Field UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/field-rak-hobo-distance-10-17-26-4ea6cca-SEN0313.uf2) | [BLE OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/field-rak-hobo-distance-10-17-26-4ea6cca-SEN0313-OTA.zip) | [Drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/drone-rak-hobo-distance-10-17-26-4ea6cca-SEN0313.uf2) | [Matched manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/drone-rak-hobo-distance-10-17-26-4ea6cca-SEN0313.uf2.txt) |
-| MB7388 | [Field UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/field-rak-hobo-distance-10-17-26-4ea6cca-MB7388.uf2) | [BLE OTA ZIP](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/field-rak-hobo-distance-10-17-26-4ea6cca-MB7388-OTA.zip) | [Drone Scout UF2](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/drone-rak-hobo-distance-10-17-26-4ea6cca-MB7388.uf2) | [Matched manifest](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/drone-rak-hobo-distance-10-17-26-4ea6cca-MB7388.uf2.txt) |
-
-[SHA-256 checksums](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/SHA256SUMS.txt) · [Build provenance](https://raw.githubusercontent.com/canyoncountryadventure/firmware/RAK-Water-Distance-HOBO-v6/downloads/RAK-HOBO-v6/BUILD.txt)
-
-**Field UF2 is for the deployed station. Drone UF2 is for the separate autonomous Scout/RAK4631.** Use the matched Scout image, not an older drone image. No erase or factory reset for application-only updates. Physical startup, reconnection and drone transfer still require field tests.
-<!-- V6_RELEASE_END -->
-
-## What changed from V5
-
-- **MX2001 hundredths:** stage and temperature retain two decimal places over the mesh in versioned MX packet V2. Heltec Gateway V5 supports both this 21-byte format and existing V1 19-byte/tenths packets. Decoder/database display must retain the received precision; no invented digits if HOBO provides a lower-resolution value.
-- **Configurable distance bursts:** 8-second nonblocking Pololu 2810 settling, sensor OFF between jobs, sample count adjustable 3–20 (default 10); up to 2× the requested sample count to obtain fresh valid frames. Samples are median-combined for WATER READ, scheduled transmissions, calibration and verification. Count is stored in V5-compatible CRC-verified A/B config.
-- **Remote hub:** default remains normal mesh broadcast; optional persistent unicast destination for water and HOBO telemetry. `HUB SET` changes the destination only; forwarding still follows normal Meshtastic routing.
-- **V5 mesh routing restored:** V6 now uses the exact V5 `ReliableRouter` and `NextHopRouter` sources. Automatic and manual telemetry, DMs, replies, and traceroutes follow standard Meshtastic flooding/next-hop selection, ACK retries, and forwarding. All `RELAY` preference commands and the custom 25-second/new-ID fallback have been removed. Previously saved preferred-relay data is ignored, without erasing the rest of the radio's configuration.
-- **Useful DM diagnostics:** retained watchdog/reset breadcrumbs and live radio/BLE/power statistics arrive in two DM replies, not merely a serial-log statement. Limited battery voltage history is available since the current boot.
-- **Recovery commands:** independently restart the water-sensor driver or HOBO BLE central while preserving calibration/locks; retain CPU soft reboot and hardware-watchdog reset; one-step LAST RESORT emergency reset.
-- **Preservation:** ordinary firmware UF2/OTA and recovery preserve the existing radio identity, channel credentials, logger assignment, water calibration and sensor selection. Only explicit destructive commands clear those.
-
-## Firmware choices
-
-| Station sensor | Build target | Station flash | Scout flash |
-| --- | --- | --- | --- |
-| SEN0313 / A01NYUB | `rak4631_sen0313_v5` (inherited PlatformIO target) | Dated `field-...-SEN0313.uf2` | Same-date `drone-...-SEN0313.uf2` on a **separate Scout radio** |
-| MB7388 | `rak4631_mb7388_v5` (inherited PlatformIO target) | Dated `field-...-MB7388.uf2` | Same-date `drone-...-MB7388.uf2` on a **separate Scout radio** |
-
-Build-target suffix `v5` is inherited for compatibility with existing board definitions; the **V6 source branch and VERSION DM identify the actual release**. Field and Scout images are not interchangeable. Field USB uses station UF2 on mounted RAK drive; BLE update uses matching OTA ZIP; autonomous drone uses the matched Scout UF2 programmed into its own RAK radio. Verify file date, sensor and SHA-256 against BUILD.txt.
-
-## DM command reference
-
-Commands are sent as a **direct message to the field node** on its working Meshtastic channel. Commands are case-insensitive, with an optional slash where supported. These are operational names, not speculative commands.
-
-| DM | Actual behavior |
+| Command | What it does |
 | --- | --- |
-| `HELP`, `VERSION` | Command summary; V6 build identification |
-| `LOGGER`, `READ` | HOBO model/MAC/BLE status or fresh HOBO measurement |
-| `LOCK`, `LOCK AA:BB:CC:DD:EE:FF`, `UNLOCK` | Retain target HOBO across reboot, or resume discovery |
-| `HOBO RESTART` | Restart HOBO BLE recovery state machine without full-radio reboot |
-| `WATER HELP`, `WATER STATUS`, `WATER READ`, `WATER RAW` | Water command guide, health, median measurement or raw sensor value |
-| `WATER SENSOR`, `WATER SENSOR MB7388`, `WATER SENSOR SEN0313` | Check or persist sensor selection; changing sensor can invalidate calibration |
-| `SENSOR RESTART`, `WATER SENSOR RESTART` | Reinitialize same driver without clearing calibration |
-| `SAMPLES`, `SAMPLES 10`, `WATER SAMPLES 10` | Check or persist required 3–20 valid fresh readings, default 10 |
-| `WATER INTERVAL 1H` | Persist water reporting interval |
-| `WATER CAL STATUS`, `WATER CAL STAGE 1.42FT` | Inspect or perform reference calibration; requires a fresh sensor burst |
-| `WATER VERIFY`, `WATER CAL LOCK`, `WATER CAL UNLOCK CONFIRM` | Verify and manage calibration lock |
-| `WATER CAL RESET CONFIRM` | Clear calibration only |
-| `WATER RESET WATER CONFIRM` | Restore water settings; **does not** erase Meshtastic identity/channels/keys |
-| `HUB`, `HUB SHOW` | Show current telemetry destination; initial setting is broadcast |
-| `HUB SET !1234ABCD` | Persist node-ID destination for automatic water and HOBO telemetry; no periodic re-entry needed |
-| `HUB AUTO`, `HUB CLEAR` | Persist normal broadcast mode |
-| `BATTERY`, `BATTERY HISTORY` | Live voltage/percentage/charging; hourly sampled voltage minimum/maximum/first/last this boot |
-| `DIAG`, `STATS`, `WATCHDOG` | Two DM diagnostic messages; radio stats; field/core watchdog state |
-| `CLEAR DIAG` | Clear retained failure breadcrumb; boot count kept |
-| `REBOOT`, `RECOVER` | Scheduled independent watchdog-origin hardware reset; may take up to watchdog timeout |
-| `SOFT REBOOT`, `RADIO RESET` | Flash-safe CPU reboot, preserving settings; RADIO RESET is not a radio-only subsystem reset |
-| `LAST RESORT` | **Immediately erases settings, bonds, logger target, calibration and mesh credentials**, provisions US + LongFast + frequency slot 20 + hop limit 7, then reboots. No second confirmation and no return DM required |
+| `WATER HELP` | Shows available water commands |
+| `WATER SENSOR` | Display configured/active sensor and interface |
+| `WATER SENSOR DYP-A08` | Select DYP UART Controlled |
+| `WATER SENSOR SEN0313` | Select the original DFRobot A01NYUB |
+| `WATER SENSOR MB7388` | Select MaxBotix MB7388 |
+| `WATER SENSOR AUTO` | Probe original supported sensors; **does not auto-detect controlled DYP** |
+| `WATER READ` | New burst measurement with median distance and optional stage |
+| `WATER RAW` | New raw-distance measurement |
+| `WATER STATUS` | Readiness, interval, calibration, success/error counters |
+| `WATER VERIFY` | New burst measurement, raw range/spread, and computed stage |
+| `WATER TELEMETRY NOW` | Immediately schedule and transmit distance packet |
+| `WATER INTERVAL 1H` | Save schedule (examples: `15M`, `1H`, `6H`) |
+| `WATER SAMPLES 5` or `SAMPLES 5` | Save count, valid range 3–20 |
+| `WATER CAL STATUS` | Display saved stage reference and lock |
+| `WATER CAL STAGE 1.42FT` | Calibrate against a measured stage; locks calibration |
+| `WATER CAL UNLOCK CONFIRM` | Unlock for recalibration |
+| `WATER CAL RESET CONFIRM` | Clear only water calibration |
+| `WATER SENSOR RESTART` or `SENSOR RESTART` | Reinitialize the water driver, preserving configuration |
+| `WATER RESET WATER CONFIRM` | Reset **water settings only**, not mesh identity/channels |
 
-**LAST RESORT warning:** the old private channel/keys/identity disappear. It may not be reachable from the existing mesh until you re-pair or restore your intended mesh settings. It is an intentional destructive emergency command, never a substitute for REBOOT.
+### HOBO and radio diagnostics
 
-## Field operating choices
+| Command | Purpose |
+| --- | --- |
+| `READ` | HOBO logger read, **not** water sensor |
+| `LOGGER` | HOBO identification / state |
+| `LOCK`, `LOCK AA:BB:CC:DD:EE:FF`, `UNLOCK` | HOBO target assignment |
+| `HOBO RESTART` | Restart HOBO BLE recovery without resetting water calibration |
+| `HOBO BLE ON`, `HOBO BLE OFF` | Operator control of HOBO BLE |
+| `VERSION` | Verify actual firmware label and platform |
+| `BLE`, `HEALTH`, `STATUS` | Radio / BLE health |
+| `BATTERY`, `BATTERY HISTORY` | Battery now and tracked values since boot |
+| `DIAG`, `STATS`, `WATCHDOG` | Recovery breadcrumbs, radio status and watchdog |
+| `HUB`, `HUB AUTO` | Telemetry destination / normal broadcast |
+| `HUB SET !1234ABCD` | Optional node-specific telemetry destination |
+| `REBOOT` | Hardware watchdog reset while preserving configuration |
+| `SOFT REBOOT`, `RADIO RESET` | Software reset of radio CPU and associated state |
+| `LAST RESORT` | **Destructive** factory reset; clears identity, channels/bonds and calibration |
 
-- Pololu 2810 MOSFET on RAK19007 IO1/P0.17; eight-second settling after powering the sensor, power OFF between measurements. MB7388 and SEN0313 do not use the same UART wiring/pin requirements; follow the station wiring documentation.
-- HOBO central uses the proven automatic STATUS write-pointer polling (30 seconds), not a forced sensor record every 30 seconds. New logger records drive automatic telemetry.
-- BLE startup has bounded CPU-awake/HFCLK protection, then releases it once logger STATUS baseline completes. Ordinary mesh relay works while other sensor jobs are pending.
-- `HUB` remains broadcast on new or unconfigured stations; `HUB SET` survives normal reboot and application-only flashing. HUB is **not** a relay route override.
+HOBO STATUS is polled about every **30 seconds** and new logger records drive normal HOBO transmission. The distance-report schedule is separate. **Battery telemetry is also separate**; receiving battery packets alone does not prove HOBO BLE reads or ultrasonic measurements are succeeding.
 
-- Battery voltage history is RAM-only and starts with the current boot. The charger/thermistor hardware, not this firmware, determines cold-charge protection.
+## 6. Telemetry and backend behavior
 
-## Verify ordinary V5 mesh operation
+**Station → Meshtastic LoRa network → receiving Heltec/gateway → database/dashboard.**
 
-1. Flash the new V6 build using the matching station UF2 or BLE OTA ZIP. Your existing channels, HOBO lock, water calibration and sensor settings should remain intact after application-only flashing.
-2. Connect the Meshtastic app to the updated RAK, and use its **ordinary traceroute** to Heltec. No custom relay preference is applied. The route can be direct or multi-hop depending on the network, just as in V5.
-3. DM `HUB AUTO` if you want water and HOBO measurements **broadcast** to the mesh, as in the default configuration. `HUB SET !NODEID` remains available for optional **destination unicast**, not relay selection.
-4. DM `WATER TELEMETRY NOW`, inspect the resulting measurement at Heltec, and use `DIAG`, `LOGGER`, or `WATER STATUS` as needed. For MX2001 check the version-2 hundredths format in the gateway decoder.
+- Distance uses the **same versioned 24-byte private water packet format** as V7. The sensor-type byte distinguishes the new DYP (`6`) from the existing sensor identifiers. The gateway must preserve this field; do not silently relabel a DYP packet as SEN0313 or MB7388.
+- Raw distance is expressed in **millimeters**. Calibrated stage is computed from the saved sensor reference and carried separately.
+- HOBO MX2001/MX2201/MX2203 polling and native battery telemetry remain distinct from the water-distance packets.
+- **Cloudflare versus Neon is a gateway/database integration decision.** This RAK image does not itself connect to either database, nor does this firmware release claim that a Cloudflare migration is complete.
+- Meshtastic RF parameters, node identity, channel keys, and chosen telemetry destination remain station configuration, not properties of an ultrasonic driver.
 
-**Removed deliberately:** `RELAY SHOW`, `RELAY PREFER`, `RELAY ONCE`, `RELAY AUTO`, and `RELAY CLEAR`. The old preferred-relay settings file is not read by this build. There is no need to factory-reset or clear your calibration to remove its effect. There is also no `RELAY TRACE` DM: use normal Meshtastic traceroute.
+## 7. Troubleshooting
 
-**Testing scope:** source-equivalence and CI compilation do not prove field radio paths, BLE pairing or solar power behavior. Test one nearby sensor radio before flashing the whole network.
+| Symptom | First checks |
+| --- | --- |
+| `VERSION` does not identify V8 | Wrong image installed, update failed, or paired to another node |
+| `WATER SENSOR` shows SEN0313/MB7388 | Explicitly DM `WATER SENSOR DYP-A08` on the DYP test station |
+| DYP reads all `TIMEOUT` | Verify it is **UART Controlled**; check 3.3 V, common GND, TX→RX1 and RX→TX1 |
+| DYP returns `CHECKSUM` / `BAD_FRAME` | Check TX/RX signal integrity, 9600 baud, sensor output mode, and wiring |
+| `OUT_OF_RANGE` | Check sensor-to-water distance, target obstruction/echo and model range |
+| `WATER READ` works but stage unavailable | Calibrate a **real known stage**; raw distance is not stage |
+| `WATER BUSY` | A sample burst is already running; retry after it completes |
+| Radio battery arrives but HOBO temperature does not | Check `LOGGER`, `BLE`, `DIAG`, `HOBO RESTART`; battery packets do not validate BLE |
+| Radio responds but dashboard lacks water data | Run `WATER TELEMETRY NOW`, then check reception and decoder/backend ingestion |
+| Sensor selection blocked | Calibration is locked; unlock deliberately and recalibrate if changing hardware |
+| Download URL gives 404 | V8 publish job did not finish; inspect [build status](https://github.com/canyoncountryadventure/firmware/actions/workflows/build_rak_water_v8.yml) |
 
-## Release checks and rollback
+**Validation gate before remote installation:** actual hardware should pass repeated reads, reboot, checksum/timeout tests, expected 15-minute reports, and overnight operation. A green CI build confirms firmware compilation and scripted tests, **not field performance**.
 
-Published V6 field/Scout links are inserted **only after** GitHub Actions proves both actual UF2 builds, OTA ZIP consistency, Scout embedded payload verification and checksums. A passing CI build does **not** prove a deployed logger will reconnect, a sensor is wired correctly, or airborne DFU will succeed. Test representative SEN0313, MB7388 and MX2001 stations before mass redeployment. If V6 fails, the [V5 firmware and its separate old download files](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v5) remain available.
+## 8. Source, tests and rollback
 
-See the [Diagnostic 8 historical investigation](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v5/docs/diagnostic-8), the [Heltec Gateway V5 companion branch](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v5), and the [V6 CI workflow](.github/workflows/build_rak_water_v5.yml).
+- [V8 source branch](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v8)
+- [V8 build workflow](https://github.com/canyoncountryadventure/firmware/blob/RAK-Water-Distance-HOBO-v8/.github/workflows/build_rak_water_v8.yml)
+- [DYP protocol simulation test](https://github.com/canyoncountryadventure/firmware/blob/RAK-Water-Distance-HOBO-v8/test/test_hobo_v8/test_dyp_a08.py)
+- [V8 sensor-preservation test](https://github.com/canyoncountryadventure/firmware/blob/RAK-Water-Distance-HOBO-v8/test/test_hobo_v8/test_preservation_v8.py)
+- [V7 working release and historical notes](https://github.com/canyoncountryadventure/firmware/tree/RAK-Water-Distance-HOBO-v7)
+
+**Rollback:** use the known-working V7 image for the two original sensor stations. V7 was not modified for this work. The new DYP stations need V8 for controlled-mode triggering.
