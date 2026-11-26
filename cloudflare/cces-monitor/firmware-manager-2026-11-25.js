@@ -222,7 +222,8 @@ function renderDm(){
  $('#dm-stats').replaceChildren(dmTile('Cloudflare config','Version '+(g.version??'—')),
   dmTile('Gateway last seen',dmTime(h.received_at)),
   dmTile('Heltec schedule',report?dmTime(report.reported_at)+(fresh?' · fresh':' · stale'):'Awaiting V12'),
-  dmTile('Remote settings',synced?'Confirmed applied':fresh?'Awaiting config acknowledgment':'Unconfirmed'));
+  dmTile('Remote settings',synced?'Confirmed applied':fresh?'Awaiting config acknowledgment':'Unconfirmed'),
+  dmTile('Last ESP32 reset',d.reset?(['Unknown','POWERON','EXTERNAL','SOFTWARE','PANIC','INT_WDT','TASK_WDT','WDT','DEEPSLEEP','BROWNOUT'][Number(d.reset.reset_reason)]||'Code '+d.reset.reset_reason)+' · '+dmTime(d.reset.received_at):'Not yet reported'));
  const overrides=new Map((d.overrides||[]).map(x=>[Number(x.node_num),x]));
  const tbody=$('#dm-rows');tbody.replaceChildren();
  const watches=snap?.watches||[];
@@ -731,16 +732,17 @@ async function api(request, env, actor, url) {
 const DM_WATCH_NODES=new Set([1949224949,1695962694,1683604927,2004386937,2425602407,3044869407,1577197109,647393146,2650172798,4241345683]);
 if(path==='/api/mesh/dm'&&method==='GET'){
  if(actor.role!=='admin')return fail('Forbidden',403);
- const [g,h,overrides,reported,actions]=await Promise.all([
+ const [g,h,overrides,reported,actions,reset]=await Promise.all([
   env.DB.prepare("SELECT gateway_id,version,ota_enabled FROM mesh_gateway_config WHERE gateway_id='heltec-moab'").first(),
   env.DB.prepare("SELECT received_at,firmware,config_version FROM mesh_gateway_health WHERE gateway_id='heltec-moab' ORDER BY id DESC LIMIT 1").first(),
   env.DB.prepare("SELECT node_num,enabled,interval_minutes,updated_at FROM mesh_gateway_dm_overrides ORDER BY node_num").all(),
   env.DB.prepare("SELECT reported_at,firmware,config_version,snapshot_json FROM mesh_gateway_dm_state WHERE gateway_id='heltec-moab'").first(),
-  env.DB.prepare("SELECT node_num,enabled,interval_minutes,config_version,actor_email,created_at FROM mesh_gateway_dm_actions ORDER BY created_at DESC LIMIT 20").all()
+  env.DB.prepare("SELECT node_num,enabled,interval_minutes,config_version,actor_email,created_at FROM mesh_gateway_dm_actions ORDER BY created_at DESC LIMIT 20").all(),
+  env.DB.prepare("SELECT received_at,firmware,uptime_seconds,reset_reason,detail FROM mesh_gateway_reset_diag WHERE gateway_id='heltec-moab' ORDER BY id DESC LIMIT 1").first()
  ]);
  let snap=null;
  if(reported){try{snap=JSON.parse(reported.snapshot_json)}catch{}}
- return json({gateway:g,health:h,overrides:overrides.results||[],reported:reported?{reported_at:reported.reported_at,firmware:reported.firmware,config_version:reported.config_version,snapshot:snap}:null,actions:actions.results||[]});
+ return json({gateway:g,health:h,overrides:overrides.results||[],reported:reported?{reported_at:reported.reported_at,firmware:reported.firmware,config_version:reported.config_version,snapshot:snap}:null,reset,actions:actions.results||[]});
 }
 if(path==='/api/mesh/dm'&&method==='POST'){
  if(actor.role!=='admin')return fail('Forbidden',403);
