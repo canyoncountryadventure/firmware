@@ -329,7 +329,8 @@ void CcaCloudRemote::postHealth()
         ",\"config_version\":" + String(configVersion()) +
         ",\"note\":" + safeJsonString(CcaRemoteOtaStage::healthNote()) + "}";
     const int rc = http.POST(body);
-    if (rc != 200) LOG_WARN("CCA V10 remote: health HTTP %d", rc);
+    if (rc == 200) CcaRemoteOtaStage::markCloudConfirmed();
+    else LOG_WARN("CCA V10 remote: health HTTP %d", rc);
     http.end();
 }
 
