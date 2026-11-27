@@ -2,7 +2,7 @@ TARGET=Heltec-Gateway-v13
 HARDWARE=Heltec WiFi LoRa 32 V4 OLED
 PIO_ENV=heltec-v4
 FORMAT=ESP32-S3 BIN; ZIP includes companion OTA/flash files
-SOURCE_COMMIT=5b09cb67edf3082940dc5e3eca41cbab805b189e
-BUILD_RUN=https://github.com/canyoncountryadventure/firmware/actions/runs/45898210761
-c336b87535e251c3b6ddc7cc54714f92daa134162a60a5d1033d16e6c244e931  Heltec-Gateway-v13-11-26-26.bin
-efb31a4605330cef3bea317cb497f6102e32edb45a15d262dd5cfa34d4febd84  Heltec-Gateway-v13-11-26-26.zip
+SOURCE_COMMIT=a5b0beb00bbe49088eccf7aa2a1f1002892b7555
+BUILD_RUN=https://github.com/canyoncountryadventure/firmware/actions/runs/45917438004
+97e7bf57b269e54773b4dd3b7fdbc4244260483d60705e50dd69d93cad52f735  Heltec-Gateway-v13-11-26-26-r2.bin
+56fad49bac5d0f39537819cc519277d1b13c021b84464d7b0516120eaf12e78f  Heltec-Gateway-v13-11-26-26-r2.zip
