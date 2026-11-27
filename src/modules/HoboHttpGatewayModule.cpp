@@ -11,6 +11,9 @@
 
 #include <HTTPClient.h>
 #include <WiFi.h>
+#if defined(HELTEC_V4)
+#include "mesh/wifi/WiFiAPClient.h"
+#endif
 #include <WiFiClientSecure.h>
 #include <Preferences.h>
 
@@ -896,8 +899,12 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
                  static_cast<unsigned>(HTTPS_TRANSPORT_RECOVERY_FAILURES));
         if (consecutiveHttpTransportFailures >= HTTPS_TRANSPORT_RECOVERY_FAILURES) {
             LOG_WARN("CCA clean gateway: reconnecting WiFi after HTTPS transport failures");
+#if defined(HELTEC_V4)
+            requestHeltecWifiReconnect();
+#else
             WiFi.disconnect(false);
             WiFi.reconnect();
+#endif
             lastWifiRecoveryMs = millis();
             ++wifiRecoveryCount;
             consecutiveHttpTransportFailures = 0;

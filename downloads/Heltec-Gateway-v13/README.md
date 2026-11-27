@@ -1,5 +1,18 @@
 # Heltec Gateway V13 | Build, flash, and field notes
 
+## November 26 V13 in-place network recovery repair
+
+The initial V13 build is retained as historical evidence, not the recommended OTA. No V14 is created. The repaired image still reports `HELTEC-GATEWAY-V13`, but the OTA manifest must use a unique build identifier (e.g. `heltec-gateway-v13-repair-r<run>`), because the installed loader deduplicates the applied release ID, not the hash alone.
+
+- Centralized application Wi-Fi reconnect requests; do not clear cached credentials on Heltec disconnects.
+- Retry after 2 minutes of Wi-Fi loss, 10 minutes without validated Cloudflare configuration, or an upload-stall signal; throttle supervisor repairs to 5 minutes.
+- First full reboot after 20 minutes of persistent Wi-Fi loss or management/config silence; persistent upload stall starts its own 20-minute backstop when detected. Retained repeat-outage intervals back off to 40 and 60 minutes, with no permanent lockout. Clear the outage counter after 15 minutes of sustained management health.
+- Preserve the 90-second task watchdog, 12-hour preventive reboot, signed OTA/recovery loader, sensor allowlist, DM configuration and normal network-only recovery. A full reboot may still restart in-memory missing-AUTO timing and discard volatile queues. No physical recovery guarantee is possible for failed power or hardware.
+- Ten host-side scenarios plus previous compatibility tests run in CI. Hardware fault-injection and field stability are not implied by CI success.
+
+**Latest repaired download:** [V13 release folder](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v13/downloads/Heltec-Gateway-v13) and [BUILD.txt](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v13/downloads/Heltec-Gateway-v13/BUILD.txt). Use only the run-stamped BIN matching BUILD.txt after green CI. Original date-only BIN/ZIP links below refer to the initial V13, not the repair. No auto-approval from GitHub.
+
+
 [Home and full engineering README](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v13/README.md) | [Build workflow](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v13/.github/workflows/build_cca_heltec_gateway_v13.yml)
 
 ## Application downloads (published by green CI only)
@@ -19,7 +32,7 @@ Until the CI publish step succeeds these V13 BIN/ZIP/BUILD links may not exist. 
 ## Changes from V12
 
 - Preserve the ESP32 90-second task watchdog for actual hung tasks.
-- Change custom `UploadStalled` / `WifiStalled` reactions to throttled network reconnects, not entire MCU reboots. The LoRa radio, automatic-DM scheduling, existing upload queues, and saved station settings remain up.
+- Change custom `UploadStalled` / `WifiStalled` reactions to throttled network reconnects, before a bounded full MCU reboot backstop. The LoRa radio, automatic-DM scheduling, existing upload queues, and saved station settings remain up.
 - Correct the prior recovery-reboot guard: a stale accepted POST alone no longer counts as proven current health.
 - Bound Wi-Fi TLS handshake separately from HTTP connect/read on Cloudflare config, health, and sensor ingestion.
 - Retain in-flight TLS operation names in reset diagnostics to pinpoint future watchdog events.

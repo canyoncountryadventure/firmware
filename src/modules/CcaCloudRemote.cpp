@@ -221,6 +221,8 @@ bool CcaCloudRemote::verifyOtaManifest(const String &version, const String &url,
     return verifyHmac(version + "\n" + url + "\n" + sha, signature);
 }
 
+uint32_t CcaCloudRemote::successfulConfigPolls() { return successCount; }
+
 bool CcaCloudRemote::syncConfig()
 {
     if (!WiFi.isConnected() || strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) {

@@ -220,6 +220,16 @@ static void onNetworkConnected()
 #endif
 }
 
+#if defined(HELTEC_V4) && HAS_WIFI
+void requestHeltecWifiReconnect()
+{
+    if (config.network.wifi_enabled && wifiReconnect && !isReconnecting && !needReconnect) {
+        needReconnect = true;
+        wifiReconnect->setIntervalFromNow(1000);
+    }
+}
+#endif
+
 static int32_t reconnectWiFi()
 {
     const char *wifiName = config.network.wifi_ssid;
@@ -234,7 +244,9 @@ static int32_t reconnectWiFi()
         isReconnecting = true;
 
         // Make sure we clear old connection credentials
-#ifdef ARCH_ESP32
+#if defined(HELTEC_V4)
+        WiFi.disconnect(false, false); // keep credentials; one reconnect owner
+#elif defined(ARCH_ESP32)
         WiFi.disconnect(false, true);
 #elif defined(ARCH_RP2040)
         WiFi.disconnect(false);
@@ -480,10 +492,15 @@ static void WiFiEvent(WiFiEvent_t event)
         }
 #endif
         if (!isReconnecting) {
+#if defined(HELTEC_V4)
+            syslog.disable();
+            requestHeltecWifiReconnect();
+#else
             WiFi.disconnect(false, true);
             syslog.disable();
             needReconnect = true;
             wifiReconnect->setIntervalFromNow(1000);
+#endif
         }
         break;
     case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE:
@@ -510,10 +527,15 @@ static void WiFiEvent(WiFiEvent_t event)
         }
 #endif
         if (!isReconnecting) {
+#if defined(HELTEC_V4)
+            syslog.disable();
+            requestHeltecWifiReconnect();
+#else
             WiFi.disconnect(false, true);
             syslog.disable();
             needReconnect = true;
             wifiReconnect->setIntervalFromNow(1000);
+#endif
         }
         break;
     case ARDUINO_EVENT_WPS_ER_SUCCESS:

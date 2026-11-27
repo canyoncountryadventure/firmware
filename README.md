@@ -1,5 +1,18 @@
 # CCES Heltec Gateway V13 | Stable auto-DM and recovery repair
 
+## November 26 V13 in-place network recovery repair
+
+The initial V13 build is retained as historical evidence, not the recommended OTA. No V14 is created. The repaired image still reports `HELTEC-GATEWAY-V13`, but the OTA manifest must use a unique build identifier (e.g. `heltec-gateway-v13-repair-r<run>`), because the installed loader deduplicates the applied release ID, not the hash alone.
+
+- Centralized application Wi-Fi reconnect requests; do not clear cached credentials on Heltec disconnects.
+- Retry after 2 minutes of Wi-Fi loss, 10 minutes without validated Cloudflare configuration, or an upload-stall signal; throttle supervisor repairs to 5 minutes.
+- First full reboot after 20 minutes of persistent Wi-Fi loss or management/config silence; persistent upload stall starts its own 20-minute backstop when detected. Retained repeat-outage intervals back off to 40 and 60 minutes, with no permanent lockout. Clear the outage counter after 15 minutes of sustained management health.
+- Preserve the 90-second task watchdog, 12-hour preventive reboot, signed OTA/recovery loader, sensor allowlist, DM configuration and normal network-only recovery. A full reboot may still restart in-memory missing-AUTO timing and discard volatile queues. No physical recovery guarantee is possible for failed power or hardware.
+- Ten host-side scenarios plus previous compatibility tests run in CI. Hardware fault-injection and field stability are not implied by CI success.
+
+**Latest repaired download:** [V13 release folder](https://github.com/canyoncountryadventure/firmware/tree/Heltec-Gateway-v13/downloads/Heltec-Gateway-v13) and [BUILD.txt](https://github.com/canyoncountryadventure/firmware/blob/Heltec-Gateway-v13/downloads/Heltec-Gateway-v13/BUILD.txt). Use only the run-stamped BIN matching BUILD.txt after green CI. Original date-only BIN/ZIP links below refer to the initial V13, not the repair. No auto-approval from GitHub.
+
+
 **Heltec WiFi LoRa 32 V4 (ESP32-S3) | PlatformIO `heltec-v4` | November 26, 2026**
 
 **Status:** CI build candidate. Publishing this GitHub branch **does not** authorize or install firmware. The field gateway remains on **verified V12** unless an operator separately approves an exact SHA-256-pinned release in Cloudflare.
@@ -25,7 +38,7 @@ A full gateway reboot interrupts LoRa reception, flushes in-memory scheduling, a
 ## Changes compared with V12
 
 1. **Keep the ESP32's 90-second task watchdog.** It still resets a truly hung Arduino loop task; do not hide stalls by lengthening it.
-2. **Repair HTTPS/Wi-Fi without reboot.** The custom V7 supervisor's `UploadStalled` and `WifiStalled` signals now cause throttled Wi-Fi-only reconnects (minimum five minutes apart), without rebooting the MCU, LoRa stack, or sensor scheduler. `ModuleStalled` and genuine mesh RF failures keep their existing guarded recovery.
+2. **Repair HTTPS/Wi-Fi without reboot.** The custom V7 supervisor's `UploadStalled` and `WifiStalled` signals now cause throttled Wi-Fi-only reconnects (minimum five minutes apart), without immediately rebooting the MCU, LoRa stack, or sensor scheduler; the repair adds a timed full-reboot backstop. `ModuleStalled` and genuine mesh RF failures keep their existing guarded recovery.
 3. **Prevent false recovery-counter rearm.** Reboot protection is cleared only after a full hour of uptime with *recent* radio RX and an accepted Vercel/Neon POST in the last five minutes. Old successes no longer count.
 4. **Bound TLS handshakes separately from HTTP reads.** Cloudflare config GET (12 sec), health POST (8 sec), and legacy/Cloudflare sensor POST (12 sec) have explicit WiFiClientSecure handshake limits, connect limits, and existing read limits. These are intentionally much shorter than the 90-second watchdog.
 5. **Retain the currently active HTTPS operation across watchdog resets.** Reset diagnostics can now say `CLOUD_CONFIG_TLS`, `CLOUD_HEALTH_TLS`, or `SENSOR_UPLOAD_TLS` when the task dies while one of those synchronous calls is active.

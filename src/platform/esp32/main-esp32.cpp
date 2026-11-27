@@ -7,6 +7,8 @@
 #include "mesh/RadioLibInterface.h"
 #include "modules/HoboHttpGatewayModule.h"
 #include "modules/CcaGatewaySupervisor.h"
+#include "modules/CcaNetworkRecovery.h"
+#include "modules/CcaCloudRemote.h"
 #include <WiFi.h>
 #endif
 
@@ -45,6 +47,10 @@ struct CcaV7RecoveryRetained {
 };
 RTC_NOINIT_ATTR CcaV7RecoveryRetained ccaV7RecoveryRetained;
 CcaGatewaySupervisor ccaV7Supervisor;
+CcaNetworkRecovery ccaNetworkRecovery;
+struct CcaNetRetained { uint32_t magic; uint32_t outageBoots; };
+RTC_NOINIT_ATTR CcaNetRetained ccaNetRetained;
+constexpr uint32_t CCA_NET_MAGIC = 0x434E5231UL;
 uint32_t ccaV7LastCheckMs = 0;
 bool ccaV7RebootPending = false;
 uint32_t ccaV7BlockedReason = 0;
@@ -69,6 +75,8 @@ String ccaHeltecGatewaySupervisorJson()
     result += ",\"last_network_repair_reason\":" + String(ccaV13LastNetReason);
     result += ",\"last_network_http_status\":" + String(ccaV13LastNetHttpStatus);
     result += ",\"last_network_queue_depth\":" + String(ccaV13LastNetQueueDepth);
+    result += ",\"network_outage_reboots\":" + String(ccaNetRetained.outageBoots);
+    result += ",\"cloud_config_age_seconds\":" + String(ccaNetworkRecovery.cloudAge(now) / 1000UL);
     const uint32_t okAge = ccaV7Supervisor.acceptedAgeMs(now);
     result += ",\"last_accepted_upload_age_seconds\":";
     result += okAge == UINT32_MAX ? "null" : String(okAge / 1000UL);
@@ -87,6 +95,7 @@ String ccaHeltecGatewaySupervisorHealthNote()
                ",net_queue=" + String(ccaV13LastNetQueueDepth) +
                ",upload_age_s=";
     s += age == UINT32_MAX ? "none" : String(age / 1000UL);
+    s += ",net_boots=" + String(ccaNetRetained.outageBoots) + ",cfg_age_s=" + String(ccaNetworkRecovery.cloudAge(now) / 1000UL);
     return s;
 }
 #endif
@@ -469,6 +478,10 @@ void esp32Setup()
 #if defined(HELTEC_V4)
     heltecFieldDiagBoot(rebootCounter);
 #if HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    if (ccaNetRetained.magic != CCA_NET_MAGIC) {
+        ccaNetRetained.magic = CCA_NET_MAGIC;
+        ccaNetRetained.outageBoots = 0;
+    }
     if (ccaV7RecoveryRetained.magic != CCA_V7_RECOVERY_MAGIC) {
         ccaV7RecoveryRetained.magic = CCA_V7_RECOVERY_MAGIC;
         ccaV7RecoveryRetained.consecutiveRecoveryBoots = 0;
@@ -539,24 +552,7 @@ void esp32Loop()
                     LOG_WARN("CCA V7: radio reinit deferred/failed; 3-hour backstop remains armed");
             } else if (action == CcaGatewayRecovery::UploadStalled ||
                        action == CcaGatewayRecovery::WifiStalled) {
-                // Internet trouble must not reset the LoRa mesh, AUTO-DM timers,
-                // or offline sensor queue. The upload worker already reconnects
-                // Wi-Fi after transport failures; this is a bounded backstop.
-                constexpr uint32_t NET_REPAIR_COOLDOWN_MS = 5UL * 60UL * 1000UL;
-                if (ccaV13LastNetRepairMs == 0 ||
-                    (uint32_t)(ccaNow - ccaV13LastNetRepairMs) >= NET_REPAIR_COOLDOWN_MS) {
-                    ccaV13LastNetRepairMs = ccaNow;
-                    ++ccaV13NetRepairs;
-                    ccaV13LastNetReason = static_cast<uint32_t>(action);
-                    ccaV13LastNetHttpStatus = snapshot.lastHttpStatus;
-                    ccaV13LastNetQueueDepth = snapshot.queueUsed;
-                    LOG_WARN("CCA V13: network-only recovery reason=%lu http=%ld queue=%lu (no MCU reboot)",
-                             static_cast<unsigned long>(ccaV13LastNetReason),
-                             static_cast<long>(ccaV13LastNetHttpStatus),
-                             static_cast<unsigned long>(ccaV13LastNetQueueDepth));
-                    WiFi.disconnect(false);
-                    WiFi.reconnect();
-                }
+                // Network failures are handled by the bounded liveness policy below.
             } else if (action != CcaGatewayRecovery::None) {
                 const uint32_t reason = static_cast<uint32_t>(action);
                 if (ccaV7RecoveryRetained.consecutiveRecoveryBoots < 2) {
@@ -571,6 +567,29 @@ void esp32Loop()
                         rebootAtMsec = ccaNow + 5000UL;
                 } else {
                     ccaV7BlockedReason = reason;
+                }
+            }
+            if (ccaCloudRemote != nullptr && config.network.wifi_enabled && !ccaV7RebootPending && rebootAtMsec == 0) {
+                const auto net = ccaNetworkRecovery.update(ccaNow, snapshot.wifiConnected,
+                    CcaCloudRemote::successfulConfigPolls(), action == CcaGatewayRecovery::UploadStalled,
+                    ccaNetRetained.outageBoots);
+                if (ccaNetworkRecovery.stable(ccaNow)) ccaNetRetained.outageBoots = 0;
+                if (net == CcaNetworkRecovery::Action::Reconnect) {
+                    ccaV13LastNetRepairMs = ccaNow;
+                    ++ccaV13NetRepairs;
+                    ccaV13LastNetReason = static_cast<uint32_t>(action);
+                    ccaV13LastNetHttpStatus = snapshot.lastHttpStatus;
+                    ccaV13LastNetQueueDepth = snapshot.queueUsed;
+                    LOG_WARN("CCA V13 repair: requesting centralized WiFi reconnect");
+                    requestHeltecWifiReconnect();
+                } else if (net == CcaNetworkRecovery::Action::Reboot) {
+                    if (ccaNetRetained.outageBoots < 2) ++ccaNetRetained.outageBoots;
+                    // Do not use the RF two-reboot lockout for loss of management reachability.
+                    ccaV7RebootPending = true;
+                    ccaV7RecoveryRetained.lastRecoveryReason = 6;
+                    esp32FieldDiagEvent(6, 6, ccaNetworkRecovery.cloudAge(ccaNow));
+                    LOG_ERROR("CCA V13 repair: persistent network outage, full reboot");
+                    rebootAtMsec = ccaNow + 5000UL;
                 }
             }
             // Re-arm only after RF activity AND an accepted POST in the last

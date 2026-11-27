@@ -16,6 +16,7 @@ class CcaCloudRemote : private concurrency::OSThread {
     CcaCloudRemote();
     static bool isCloudNode(uint32_t id);
     static uint32_t configVersion();
+    static uint32_t successfulConfigPolls();
     static String statusJson();
     static uint32_t remoteDmRevision();
     static size_t readRemoteDmSettings(CcaRemoteDmSetting *out, size_t capacity);
