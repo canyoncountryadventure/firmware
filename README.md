@@ -6,6 +6,12 @@ Moab watershed gateway firmware for the **Heltec WiFi LoRa 32 V4 OLED, ESP32-S3*
 
 These links follow the last successful V13 publish. The dated filenames and source commit in BUILD.txt identify exactly which revision you are downloading. [Flash and rollback notes](downloads/Heltec-Gateway-v13/README.md)
 
+## Radio diagnostic replies
+
+Send `DIAG` directly to Heltec from another radio. The reply shows its page number and, when more detail is available, the next command (`DIAG 2`, then `DIAG 3`, and so on). `CRASHLOG` is an alias and accepts the same page number. Each command sends one reply; later pages read the current diagnostic snapshot. The command works independently of the internet connection.
+
+Earlier V13 builds could send a 229-byte diagnostic text. With its protobuf, radio header and PKI encryption, that reply occupies 262 bytes, beyond the 255-byte radio limit. This correction limits HOBO text replies to 200 bytes and divides the complete diagnostic report into requested pages. Both the installed R5 and the previous R8 artifact contain the oversized-reply bug. Confirm the newly published release ID in a device heartbeat before expecting this correction on the radio.
+
 ## Automatic TLS memory recording
 
 The next V13 diagnostic rebuild records internal free RAM, largest internal allocation, lifetime minimum free RAM, and available PSRAM around each outbound HTTPS operation. Its fixed RTC buffer keeps six request records plus the first and most recent failures across software resets. Each record contains the boot number, operation, timing, HTTP result, TLS error and the errno observed when connect returned. The four memory samples are taken before connection, after handshake returns, after the HTTP call returns, and after client destruction. The lifetime low watermark also covers other running tasks and earlier requests.

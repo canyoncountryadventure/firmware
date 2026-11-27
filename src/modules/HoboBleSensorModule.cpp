@@ -1,4 +1,5 @@
 #include "HoboBleSensorModule.h"
+#include "CcaDiagnosticText.h"
 
 #if defined(ARCH_ESP32) && defined(HELTEC_V4) && !MESHTASTIC_EXCLUDE_BLUETOOTH
 
@@ -1092,8 +1093,8 @@ bool HoboBleSensorModule::sendTextReply(uint32_t destination, uint8_t channel, c
     if (!packet)
         return false;
     size_t len = strlen(text);
-    if (len > sizeof(packet->decoded.payload.bytes))
-        len = sizeof(packet->decoded.payload.bytes);
+    if (len > cca_diagnostic_text::MAX_REPLY_BYTES)
+        len = cca_diagnostic_text::MAX_REPLY_BYTES;
     memcpy(packet->decoded.payload.bytes, text, len);
     packet->decoded.payload.size = len;
     packet->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
@@ -1116,8 +1117,11 @@ ProcessMessage HoboBleSensorModule::handleReceived(const meshtastic_MeshPacket &
         return ProcessMessage::CONTINUE;
 
     if (strcmp(command, "DIAG") == 0 || strcmp(command, "CRASHLOG") == 0) {
-        char reply[230] = {};
-        esp32FieldDiagFormat(reply, sizeof(reply));
+        char diagnostic[700] = {};
+        char reply[cca_diagnostic_text::MAX_REPLY_BYTES + 1] = {};
+        esp32FieldDiagFormat(diagnostic, sizeof(diagnostic));
+        cca_diagnostic_text::formatPage(diagnostic, argument, reply,
+                                        sizeof(reply));
         esp32FieldDiagPrint();
         sendTextReply(mp.from, mp.channel, reply);
         return ProcessMessage::CONTINUE;

@@ -55,6 +55,10 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -Itest/test_heltec_v13/tls_stubs -I. src/modules/CcaTlsMemory.cpp test/test_heltec_v13/test_tls_memory.cpp -o /tmp/test_tls_memory
           /tmp/test_tls_memory > /tmp/tls-memory-report.json
           node test/test_heltec_v13/test_tls_memory_worker.mjs /tmp/tls-memory-report.json
+      - name: Test packet-safe diagnostic replies
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I. test/test_heltec_v13/test_diagnostic_text.cpp -o /tmp/test_diagnostic_text
+          /tmp/test_diagnostic_text
       - name: Test V13 recent-progress and network-only recovery contracts
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v13/test_recovery_supervisor.cpp -o /tmp/test_v13_recovery
