@@ -52,7 +52,7 @@ jobs:
         run: python3 test/test_heltec_v8/test_manual_dm_reply.py
       - name: Test TLS memory capture, cleanup and authenticated reporting
         run: |
-          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -DARCH_ESP32 -Itest/test_heltec_v13/tls_stubs -I. src/modules/CcaTlsMemory.cpp test/test_heltec_v13/test_tls_memory.cpp -o /tmp/test_tls_memory
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -Itest/test_heltec_v13/tls_stubs -I. src/modules/CcaTlsMemory.cpp test/test_heltec_v13/test_tls_memory.cpp -o /tmp/test_tls_memory
           /tmp/test_tls_memory > /tmp/tls-memory-report.json
           node test/test_heltec_v13/test_tls_memory_worker.mjs /tmp/tls-memory-report.json
       - name: Test V13 recent-progress and network-only recovery contracts
