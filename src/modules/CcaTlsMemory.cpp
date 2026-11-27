@@ -1,6 +1,4 @@
-#if defined(ARCH_ESP32)
 #include "configuration.h"
-#endif
 #include "CcaTlsMemory.h"
 
 namespace CcaTlsMemory
