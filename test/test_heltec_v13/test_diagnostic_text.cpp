@@ -1,17 +1,18 @@
 #include "src/modules/CcaDiagnosticText.h"
+#include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <string>
 
 static size_t wireSize(size_t payload) {
-  // Data.portnum=TEXT_MESSAGE_APP and Data.payload, plus radio and PKI headers.
-  const size_t data = 2 + 1 + (payload < 128 ? 1 : 2) + payload;
+  // Port, payload and Router's originator bitfield, plus radio and PKI headers.
+  const size_t data = 2 + 1 + (payload < 128 ? 1 : 2) + payload + 2;
   return 16 + 12 + data;
 }
 
 int main() {
   using namespace cca_diagnostic_text;
-  assert(wireSize(229) == 262);
+  assert(wireSize(229) == 264);
   assert(wireSize(229) > 255);
   assert(wireSize(MAX_REPLY_BYTES) <= 255);
 
@@ -53,6 +54,6 @@ int main() {
   assert(!formatPage("sample", "", small, sizeof(small)));
   assert(std::string(small) == "xxx");
   std::cout
-      << "PASS: old reply exceeds PKI limit (262/255 bytes); all diagnostic "
+      << "PASS: old reply exceeds PKI limit (264/255 bytes); all diagnostic "
          "pages fit, preserve full text and reject invalid pages\n";
 }

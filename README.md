@@ -10,7 +10,7 @@ These links follow the last successful V13 publish. The dated filenames and sour
 
 Send `DIAG` directly to Heltec from another radio. The reply shows its page number and, when more detail is available, the next command (`DIAG 2`, then `DIAG 3`, and so on). `CRASHLOG` is an alias and accepts the same page number. Each command sends one reply; later pages read the current diagnostic snapshot. The command works independently of the internet connection.
 
-Earlier V13 builds could send a 229-byte diagnostic text. With its protobuf, radio header and PKI encryption, that reply occupies 262 bytes, beyond the 255-byte radio limit. This correction limits HOBO text replies to 200 bytes and divides the complete diagnostic report into requested pages. Both the installed R5 and the previous R8 artifact contain the oversized-reply bug. Confirm the newly published release ID in a device heartbeat before expecting this correction on the radio.
+Earlier V13 builds could send a 229-byte diagnostic text. With its protobuf (including the router's originator bitfield), radio header and PKI encryption, that reply occupies 264 bytes, beyond the 255-byte radio limit. This correction limits HOBO text replies to 200 bytes and divides the complete diagnostic report into requested pages. Both the installed R5 and the previous R8 artifact contain the oversized-reply bug. Confirm the newly published release ID in a device heartbeat before expecting this correction on the radio.
 
 ## Automatic TLS memory recording
 
