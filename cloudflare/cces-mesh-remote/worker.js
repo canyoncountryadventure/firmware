@@ -19,6 +19,18 @@ async function signedManifest(secret,version,url,sha){
   const signature=await crypto.subtle.sign("HMAC",key,encoder.encode(input));
   return [...new Uint8Array(signature)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
+export function validTlsMemory(d){
+  const uint=n=>Number.isInteger(n)&&n>=0&&n<=4294967295;
+  const heap=a=>Array.isArray(a)&&a.length===4&&a.every(uint);
+  const record=a=>a===null||(Array.isArray(a)&&a.length===25&&a.every((n,i)=>
+    i>=6&&i<=8?Number.isInteger(n)&&n>=-2147483648&&n<=2147483647:uint(n))&&
+    a[0]>0&&a[4]>=1&&a[4]<=6&&a[5]>=1&&a[5]<=5);
+  return !!d&&d.schema===1&&uint(d.boot)&&d.boot>0&&uint(d.active)&&heap(d.baseline)&&
+    Array.isArray(d.completed)&&d.completed.length===7&&d.completed.every(uint)&&
+    Array.isArray(d.failed)&&d.failed.length===7&&d.failed.every(uint)&&
+    record(d.first_failure)&&record(d.last_failure)&&Array.isArray(d.records)&&d.records.length<=6&&
+    d.records.every(r=>r!==null&&record(r))&&JSON.stringify(d).length<=4096;
+}
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
@@ -84,7 +96,7 @@ export default {
         return json({ok:true,node_num:id});
       }
       if(url.pathname==="/v10/health"&&request.method==="POST"){
-        const raw=await request.text();if(raw.length>4096)return json({error:"too large"},413);
+        const raw=await request.text();if(raw.length>8192)return json({error:"too large"},413);
         const d=JSON.parse(raw),uptime=Number(d.uptime_seconds),queue=Number(d.queue_depth),status=Number(d.last_http_status),ver=Number(d.config_version);
         const note=String(d.note||"").slice(0,300);
         await env.DB.prepare("INSERT INTO mesh_gateway_health(gateway_id,firmware,uptime_seconds,queue_depth,last_http_status,config_version,note) VALUES (?,?,?,?,?,?,?)")
@@ -99,6 +111,12 @@ export default {
             await env.DB.prepare("INSERT INTO mesh_gateway_reset_diag(gateway_id,firmware,uptime_seconds,reset_reason,detail) VALUES ('heltec-moab',?,?,?,?)")
               .bind(String(d.firmware||"").slice(0,90),Number.isFinite(uptime)?uptime:null,d.reset_reason_code,d.reset_diagnostic).run();
           }catch(_ignored){console.warn("Reset diagnostics storage unavailable")}
+        }
+        if(validTlsMemory(d.tls_memory)){
+          try{
+            await env.DB.prepare("INSERT INTO mesh_gateway_tls_diag(gateway_id,firmware,uptime_seconds,boot,diagnostic_json) VALUES ('heltec-moab',?,?,?,?)")
+              .bind(String(d.firmware||"").slice(0,90),Number.isFinite(uptime)?uptime:null,d.tls_memory.boot,JSON.stringify(d.tls_memory)).run();
+          }catch(_ignored){console.warn("TLS memory diagnostics storage unavailable")}
         }
         const dm=d.auto_dm_state;
         if(dm&&typeof dm==="object"){

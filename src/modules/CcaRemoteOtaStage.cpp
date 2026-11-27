@@ -1,5 +1,6 @@
 #include "CcaRemoteOtaStage.h"
 #if defined(ARCH_ESP32) && HAS_WIFI && defined(HELTEC_V4)
+#include "CcaTlsMemory.h"
 
 #include <HTTPClient.h>
 #include <Preferences.h>
@@ -206,13 +207,15 @@ bool stageAndReboot(const String &version, const String &url, const String &sha2
     }
     // A running image in OTA_0 and the verified CCA loader in OTA_1 are
     // mandatory. Generic Arduino Update.begin() would destroy our loader.
-    WiFiClientSecure client;
+    CcaTlsMemory::Scope memory(6);
+    CcaTlsMemory::Client client(memory);
     client.setInsecure(); // Transport hash is cryptographically pinned by the signed manifest.
     HTTPClient http;
     http.setTimeout(10000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     if (!http.begin(client, url)) { reason = "download open failed"; recordFailure(version, reason.c_str()); return false; }
     const int rc = http.GET();
+    memory.response(rc, client);
     if (rc != 200) {
         // Preserve the library's connection diagnostic and internal heap
         // available at failure. HTTP -1 alone cannot distinguish TLS resource

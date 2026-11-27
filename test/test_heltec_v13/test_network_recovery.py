@@ -37,7 +37,7 @@ assert "http.setConnectTimeout(12000)" in gw
 for tag in ("CLOUD_CONFIG_TLS","CLOUD_HEALTH_TLS","SENSOR_UPLOAD_TLS"):
     assert tag in main
 assert "CcaV13TlsOp operation(1)" in cloud and "CcaV13TlsOp operation(2)" in cloud
-assert "CcaV13UploadOp operation;" in gw
+assert "CcaV13UploadOp operation(job.cloudOnly);" in gw
 assert "HELTEC-GATEWAY-V13" in cloud
 assert "loaderReady()" in ota and "LOADER_RESERVED_BYTES = 0xA0000" in ota
 assert "pollMissingAutomatic();" in gw and "pollConfiguredStations();" in gw

@@ -6,6 +6,29 @@ Moab watershed gateway firmware for the **Heltec WiFi LoRa 32 V4 OLED, ESP32-S3*
 
 These links follow the last successful V13 publish. The dated filenames and source commit in BUILD.txt identify exactly which revision you are downloading. [Flash and rollback notes](downloads/Heltec-Gateway-v13/README.md)
 
+## Automatic TLS memory recording
+
+The next V13 diagnostic rebuild records internal free RAM, largest internal allocation, lifetime minimum free RAM, and available PSRAM around each outbound HTTPS operation. Its fixed RTC buffer keeps six request records plus the first and most recent failures across software resets. Each record contains the boot number, operation, timing, HTTP result, TLS error and the errno observed when connect returned. The four memory samples are taken before connection, after handshake returns, after the HTTP call returns, and after client destruction. The lifetime low watermark also covers other running tasks and earlier requests.
+
+Health reporting runs every five minutes for this investigation. The authenticated Cloudflare health handler stores the numeric trace in `mesh_gateway_tls_diag`. Sensor uploads also include a compact current internal-heap snapshot in their existing supervisor metadata. Apply `cloudflare/cces-mesh-remote/tls-memory-schema.sql` and deploy that Worker's matching health handler before installing this image. The 8 KiB health limit accommodates the auto-DM snapshot and the bounded memory trace. Missing or malformed optional traces leave normal health confirmation available.
+
+The pinned Arduino-ESP32 2.0.17 source closes TLS sockets and frees SSL, configuration, RNG, certificate and key contexts through its failure and destruction paths. R5's field record included TLS error `-16`, the library's memory-allocation error, while approximately 50 KiB was free at recovery. Those measurements leave the allocation peak and its owner unresolved. The diagnostic rebuild measures the allocation stages. Host tests exercise 10,000 recorder cycles, a simulated allocation failure, destruction order, timer rollover, interrupted-operation retention, payload validation and authenticated storage. A physical ESP32-S3 reproduction and a sustained field run remain required to establish a hardware fix.
+
+The trace's compact numeric rows use the following mapping.
+
+| Index | Value |
+| --- | --- |
+| 0–3 | Retained sequence, boot counter, start uptime in milliseconds, duration in milliseconds |
+| 4 | Operation. 1 config, 2 health, 3 Vercel sensor upload, 4 Vercel HEAD probe, 5 Cloudflare sensor upload, 6 OTA download |
+| 5 | Stage. 1 started, 2 handshake returned, 3 HTTP returned, 4 cleaned up, 5 interrupted by reset |
+| 6–8 | HTTP result, TLS result, observed connect errno |
+| 9–12 | Before-connect free, largest, lifetime minimum and PSRAM bytes |
+| 13–16 | The same four values after handshake returns |
+| 17–20 | The same four values after the HTTP call returns |
+| 21–24 | The same four values after client destruction |
+
+Zero-filled later samples indicate a stage the operation has yet to reach. A health request can include its own in-progress row. The next successful report includes its completed row if still in the six-record history. A power cycle can clear RTC history.
+
 ## November 27 network recovery correction
 
 On November 27, 2026, the gateway installed V13 R4 on boot 38. Cloudflare recorded software resets on boots 39–49. Forwarded packets showed retained recovery code 6 and the network reboot counter advancing. R4 used code 6 for Wi-Fi loss, missed configuration polls, and upload stalls. The stored evidence identifies the network recovery path and leaves the first link or service failure unresolved.

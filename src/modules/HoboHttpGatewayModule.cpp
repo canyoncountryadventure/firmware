@@ -2,6 +2,7 @@
 #include "CcaCc01DmParser.h"
 #include "CcaCloudRemote.h"
 #include "CcaGatewayRebootDm.h"
+#include "CcaTlsMemory.h"
 
 #if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
 
@@ -23,7 +24,8 @@
 #if defined(HELTEC_V4)
 extern void esp32FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint32_t error);
 struct CcaV13UploadOp {
-    CcaV13UploadOp() { esp32FieldDiagEvent(7, 3, 0); }
+    CcaTlsMemory::Scope memory;
+    explicit CcaV13UploadOp(bool cloudOnly) : memory(cloudOnly ? 5 : 3) { esp32FieldDiagEvent(7, 3, 0); }
     ~CcaV13UploadOp() { esp32FieldDiagEvent(0, 0, 0); }
 };
 #endif
@@ -841,9 +843,13 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     }
 
 #if defined(HELTEC_V4)
-    CcaV13UploadOp operation; // Survives a TASK_WDT as SENSOR_UPLOAD_TLS.
+    CcaV13UploadOp operation(job.cloudOnly); // Survives a TASK_WDT as SENSOR_UPLOAD_TLS.
 #endif
+#if defined(HELTEC_V4)
+    CcaTlsMemory::Client client(operation.memory);
+#else
     WiFiClientSecure client;
+#endif
     client.setInsecure();
     client.setHandshakeTimeout(12);
     HTTPClient http;
@@ -863,6 +869,9 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     const String body = serializeJob(job);
     ++healthPostAttempts;
     const int status = http.POST(body);
+#if defined(HELTEC_V4)
+    operation.memory.response(status, client);
+#endif
     lastHttpStatus = status;
 #if defined(HELTEC_V4)
     CcaCloudRemote::recordUploadResponse(cloudOnly, status);

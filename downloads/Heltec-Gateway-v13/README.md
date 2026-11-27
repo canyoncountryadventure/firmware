@@ -12,6 +12,8 @@ The build updates these links after all tests and the ESP32-S3 build pass. Older
 
 ## November 27 correction
 
+The latest diagnostic rebuild adds automatic TLS memory recording for config, health, both sensor destinations, the connectivity probe and OTA downloads. Health reports run every five minutes and carry a bounded RTC history to authenticated Cloudflare storage. The main README documents each field, the observed allocation error and the source audit. Physical-device reproduction and long-duration stability are pending field evidence. Read the source commit in BUILD.txt to identify the exact installed image.
+
 V13 R4 could disconnect Wi-Fi after two sensor upload failures and repeatedly restart the radio during a single-service outage. The correction tests Cloudflare and Vercel independently, repairs the Wi-Fi driver, and allows one network-triggered reboot per sustained outage. The gateway preserves LoRa and auto-DM operation during Wi-Fi repair. [Field evidence, recovery thresholds and operating notes](../../README.md)
 
 ## OTA and field acceptance

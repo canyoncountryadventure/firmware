@@ -1,8 +1,9 @@
 #include "CcaCloudRemote.h"
 #if defined(ARCH_ESP32) && HAS_WIFI && defined(HELTEC_V4)
 
-#include "HoboHttpGatewayModule.h"
 #include "CcaRemoteOtaStage.h"
+#include "CcaTlsMemory.h"
+#include "HoboHttpGatewayModule.h"
 #include "mesh/Throttle.h"
 #include "serialization/JSON.h"
 #include "serialization/JSONValue.h"
@@ -10,20 +11,21 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <mbedtls/md.h>
-#include <memory>
-#include <freertos/task.h>
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <freertos/task.h>
+#include <mbedtls/md.h>
+#include <memory>
 extern void esp32FieldDiagFormat(char *out, size_t outSize);
 extern void esp32FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint32_t error);
 extern String ccaHeltecGatewaySupervisorHealthNote();
 // Record the in-flight TLS operation in retained RAM. If the loopTask stalls
 // until TASK_WDT, the next boot reports which network operation was active.
 struct CcaV13TlsOp {
-    explicit CcaV13TlsOp(uint8_t op) { esp32FieldDiagEvent(7, op, 0); }
+    CcaTlsMemory::Scope memory;
+    explicit CcaV13TlsOp(uint8_t op) : memory(op) { esp32FieldDiagEvent(7, op, 0); }
     ~CcaV13TlsOp() { esp32FieldDiagEvent(0, 0, 0); }
 };
 
@@ -31,7 +33,7 @@ namespace {
 constexpr size_t MAX_CLOUD_NODES = 24;
 constexpr size_t MAX_DM_OVERRIDES = 16;
 constexpr uint32_t CONFIG_INTERVAL_MS = 300000UL; // five minutes
-constexpr uint32_t HEALTH_INTERVAL_MS = 900000UL; // 15 minutes
+constexpr uint32_t HEALTH_INTERVAL_MS = 300000UL; // five-minute memory diagnostic cadence
 constexpr uint32_t BOOT_DELAY_MS = 20000UL;
 const uint32_t INITIAL_CLOUD_NODES[] = {1439303287UL, 1668198402UL}; // DYPA08 1 and 2
 
@@ -232,7 +234,7 @@ void CcaCloudRemote::recordUploadResponse(bool cloudOnly, int status) { transpor
 static void probeLegacyTransport()
 {
     CcaV13TlsOp operation(4);
-    WiFiClientSecure client;
+    CcaTlsMemory::Client client(operation.memory);
     client.setInsecure();
     client.setHandshakeTimeout(8);
     HTTPClient http;
@@ -241,6 +243,7 @@ static void probeLegacyTransport()
     if (http.begin(client, String(HOBO_HTTP_GATEWAY_URL))) {
         // HEAD carries no telemetry or credential. Even a 405 proves the independent host answered.
         const int status = http.sendRequest("HEAD");
+        operation.memory.response(status, client);
         char detail[32] = {};
         transportEvidence.probeTls = status < 0 ? client.lastError(detail, sizeof(detail)) : 0;
         transportEvidence.recordProbe(status);
@@ -264,7 +267,7 @@ bool CcaCloudRemote::syncConfig()
     // (GitHub) and must not overlap the Cloudflare TLS heap allocation.
     {
         CcaV13TlsOp operation(1); // Cloudflare config GET + response parse.
-        WiFiClientSecure client;
+        CcaTlsMemory::Client client(operation.memory);
         client.setInsecure(); // Mirrors V9 gateway transport.
         client.setHandshakeTimeout(12); // seconds, independent of HTTP read timeout
         HTTPClient http;
@@ -280,6 +283,7 @@ bool CcaCloudRemote::syncConfig()
         }
         http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
         const int status = http.GET();
+        operation.memory.response(status, client);
         lastCloudCode = status;
         transportEvidence.recordConfig(status);
         char tlsDetail[32] = {};
@@ -414,7 +418,7 @@ void CcaCloudRemote::postHealth()
 {
     if (!WiFi.isConnected() || strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) return;
     CcaV13TlsOp operation(2); // Cloudflare health POST.
-    WiFiClientSecure client;
+    CcaTlsMemory::Client client(operation.memory);
     client.setInsecure();
     client.setHandshakeTimeout(8);
     HTTPClient http;
@@ -438,9 +442,19 @@ void CcaCloudRemote::postHealth()
     diagnostic.replace("\n", " | ");
     body += ",\"reset_reason_code\":" + String(static_cast<int>(esp_reset_reason()));
     body += ",\"reset_diagnostic\":" + safeJsonString(diagnostic);
-    body += ",\"auto_dm_state\":" + (hoboHttpGatewayModule ? hoboHttpGatewayModule->autoDmSnapshotJson() : String("null"));
+    body += ",\"auto_dm_state\":";
+    body += hoboHttpGatewayModule ? hoboHttpGatewayModule->autoDmSnapshotJson() : String("null");
+    String memory = CcaTlsMemory::json();
+    if (body.length() + memory.length() + 16 > 8192)
+        memory = CcaTlsMemory::json(0);
+    if (body.length() + memory.length() + 16 <= 8192) {
+        body += ",\"tls_memory\":";
+        body += memory;
+    }
+    memory = String();
     body += "}";
     const int rc = http.POST(body);
+    operation.memory.response(rc, client);
     lastHealthCode = rc;
     transportEvidence.recordHealth(rc);
     if (rc == 200) CcaRemoteOtaStage::markCloudConfirmed();

@@ -5,10 +5,11 @@
 #include "main.h"
 #if defined(HELTEC_V4) && HAS_WIFI
 #include "mesh/RadioLibInterface.h"
-#include "modules/HoboHttpGatewayModule.h"
+#include "modules/CcaCloudRemote.h"
 #include "modules/CcaGatewaySupervisor.h"
 #include "modules/CcaNetworkRecovery.h"
-#include "modules/CcaCloudRemote.h"
+#include "modules/CcaTlsMemory.h"
+#include "modules/HoboHttpGatewayModule.h"
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 #endif
@@ -82,6 +83,7 @@ String ccaHeltecGatewaySupervisorJson()
     result += ",\"last_network_queue_depth\":" + String(ccaV13LastNetQueueDepth);
     result += ",\"network_outage_reboots\":" + String(ccaNetRetained.outageBoots);
     result += ",\"cloud_config_age_seconds\":" + String(ccaNetworkRecovery.cloudAge(now) / 1000UL);
+    result += ",\"internal_heap\":" + CcaTlsMemory::currentHeapJson();
     const uint32_t okAge = ccaV7Supervisor.acceptedAgeMs(now);
     result += ",\"last_accepted_upload_age_seconds\":";
     result += okAge == UINT32_MAX ? "null" : String(okAge / 1000UL);
@@ -485,6 +487,7 @@ void esp32Setup()
 #if defined(HELTEC_V4)
     heltecFieldDiagBoot(rebootCounter);
 #if HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    CcaTlsMemory::beginBoot(rebootCounter);
     if (ccaNetRetained.magic != CCA_NET_MAGIC) {
         ccaNetRetained = {};
         ccaNetRetained.magic = CCA_NET_MAGIC;
