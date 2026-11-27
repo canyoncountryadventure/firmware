@@ -171,6 +171,8 @@ const char *heltecEventName(uint8_t subsystem, uint8_t operation)
         return "RADIO_RECOVERY";
     if (subsystem == 5 && operation == 1)
         return "12H_REBOOT";
+    if (subsystem == 5 && operation == 2)
+        return "DM_REBOOT";
     if (subsystem == 6 && operation == 5)
         return "GATEWAY_UPLOAD_STALL";
     if (subsystem == 6 && operation == 6)

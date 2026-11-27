@@ -1,5 +1,6 @@
 #include "HoboHttpGatewayModule.h"
 #include "CcaCc01DmParser.h"
+#include "CcaGatewayRebootDm.h"
 #if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
 #include "MeshService.h"
 #include "Router.h"
@@ -605,6 +606,38 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
     text.trim();
     text.toUpperCase();
     const uint32_t sender = getFrom(&mp);
+#if defined(HELTEC_V4)
+    // Reboot is more privileged than normal polling controls. Require a PKI
+    // direct message and a configured admin key (or an explicitly favorited
+    // node if no admin keys exist). Never trust a shared channel alone.
+    if (cca_gateway_reboot::isCommand(mp.decoded.payload.bytes, n)) {
+        bool hasAdmin = false, keyMatches = false;
+        for (const auto &key : config.security.admin_key) {
+            if (key.size == 32) {
+                hasAdmin = true;
+                if (mp.public_key.size == 32 && memcmp(key.bytes, mp.public_key.bytes, 32) == 0)
+                    keyMatches = true;
+            }
+        }
+        const bool direct = nodeDB && mp.to == nodeDB->getNodeNum() && sender != 0 && sender != nodeDB->getNodeNum();
+        const bool favorite = nodeDB && nodeDB->isFavorite(sender);
+        if (!cca_gateway_reboot::authorized(direct, mp.pki_encrypted && mp.channel == 0 && mp.public_key.size == 32,
+                                             hasAdmin, keyMatches, favorite)) {
+            LOG_WARN("CCA V13: rejected REBOOT DM from untrusted sender");
+            return;
+        }
+        if (rebootAtMsec != 0) {
+            sendCc01Text(sender, "REBOOT already scheduled.");
+            return;
+        }
+        sendCc01Text(sender, "REBOOT accepted; restarting in 20 seconds.");
+        esp32FieldDiagEvent(5, 2, sender);
+        rebootAtMsec = millis() + 20000UL;
+        if (rebootAtMsec == 0) rebootAtMsec = 1;
+        LOG_WARN("CCA V13: authorized REBOOT DM; restarting in 20 seconds");
+        return;
+    }
+#endif
     // Deliberately accept gateway control DMs from ANY radio with a
     // correctly addressed, decoded PKI or LongFast message. This is an
     // operator-requested trust model; no stored sender allowlist is used.

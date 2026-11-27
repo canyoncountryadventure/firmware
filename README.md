@@ -1,5 +1,9 @@
 # CCES Heltec Gateway V13 | Stable auto-DM and recovery repair
 
+## V13 remote LoRa reboot addition (November 26, 2026)
+
+Send exactly `REBOOT` (case-insensitive) in a **PKI-encrypted direct message** to Heltec. The sender must match an existing configured Meshtastic admin public key. If no admin keys are configured, an explicitly favorited node on Heltec is accepted instead. Shared-channel messages, broadcast messages, unknown senders, and partial commands cannot initiate a reboot. A successful request queues a reply and schedules a normal full reboot 20 seconds later; an existing pending reboot is not replaced. No Wi-Fi or Internet is required. No credentials, partition, or stored settings are changed. The pre-existing recovery tests remain enabled, and CI additionally tests exact command parsing, authentication, and handler integration. Radio acknowledgement and actual device reboot must still be verified in the field. The repaired V13 download remains in the same folder; use the newest run-stamped BIN identified in BUILD.txt.
+
 ## November 26 V13 in-place network recovery repair
 
 The initial V13 build is retained as historical evidence, not the recommended OTA. No V14 is created. The repaired image still reports `HELTEC-GATEWAY-V13`, but the OTA manifest must use a unique build identifier (e.g. `heltec-gateway-v13-repair-r<run>`), because the installed loader deduplicates the applied release ID, not the hash alone.
@@ -15,7 +19,7 @@ The initial V13 build is retained as historical evidence, not the recommended OT
 
 **Heltec WiFi LoRa 32 V4 (ESP32-S3) | PlatformIO `heltec-v4` | November 26, 2026**
 
-**Status:** CI build candidate. Publishing this GitHub branch **does not** authorize or install firmware. The field gateway remains on **verified V12** unless an operator separately approves an exact SHA-256-pinned release in Cloudflare.
+**Status:** CI build candidate. Publishing this GitHub branch **does not** authorize or install firmware. The initial V13 was field-installed; this revised build requires separate approval of its exact SHA-256-pinned release in Cloudflare.
 
 ## Downloads, checksums, and build provenance
 

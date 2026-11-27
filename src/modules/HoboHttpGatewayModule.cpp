@@ -1,6 +1,7 @@
 #include "HoboHttpGatewayModule.h"
 #include "CcaCc01DmParser.h"
 #include "CcaCloudRemote.h"
+#include "CcaGatewayRebootDm.h"
 
 #if defined(ARCH_ESP32) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
 
@@ -111,6 +112,8 @@ bool gatewayControlPrefix(const meshtastic_MeshPacket *packet)
 {
     if (packet == nullptr || !packet->decoded.payload.size)
         return false;
+    if (cca_gateway_reboot::isCommand(packet->decoded.payload.bytes, packet->decoded.payload.size))
+        return true;
     static constexpr const char *PREFIXES[] = {
         "DM ", "AUTO ", "AUTO DM ", "FALLBACK ", "POLL ", "PAUSE ", "RESUME "};
     const uint8_t *text = packet->decoded.payload.bytes;

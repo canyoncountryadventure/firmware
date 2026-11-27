@@ -57,6 +57,9 @@ jobs:
           python3 test/test_heltec_v13/test_network_recovery.py
           g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v13/test_network_backstop.cpp -o /tmp/test_v13_backstop
           /tmp/test_v13_backstop
+          g++ -std=c++17 -Wall -Wextra -Werror -I. test/test_heltec_v13/test_reboot_dm.cpp -o /tmp/test_v13_reboot_dm
+          /tmp/test_v13_reboot_dm
+          python3 test/test_heltec_v13/test_reboot_dm_integration.py
   build-heltec-v13:
     uses: ./.github/workflows/build_firmware.yml
     secrets: inherit
