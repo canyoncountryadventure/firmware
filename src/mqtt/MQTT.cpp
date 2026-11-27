@@ -566,8 +566,10 @@ void MQTT::reconnect()
             reconnectCount++;
             LOG_ERROR("Failed to contact MQTT server directly (%d/%d)", reconnectCount, reconnectMax);
             if (reconnectCount >= reconnectMax) {
+#if !defined(HELTEC_V4)
                 needReconnect = true;
                 wifiReconnect->setIntervalFromNow(0);
+#endif
                 reconnectCount = 0;
             }
 #endif

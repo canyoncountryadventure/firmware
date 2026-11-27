@@ -2,6 +2,7 @@
 #include "configuration.h"
 #if defined(ARCH_ESP32) && HAS_WIFI && defined(HELTEC_V4)
 
+#include "CcaNetworkRecovery.h"
 #include "concurrency/OSThread.h"
 #include <Arduino.h>
 #include <cstdint>
@@ -17,6 +18,8 @@ class CcaCloudRemote : private concurrency::OSThread {
     static bool isCloudNode(uint32_t id);
     static uint32_t configVersion();
     static uint32_t successfulConfigPolls();
+    static const CcaNetworkEvidence &networkEvidence();
+    static void recordUploadResponse(bool cloudOnly, int status);
     static String statusJson();
     static uint32_t remoteDmRevision();
     static size_t readRemoteDmSettings(CcaRemoteDmSetting *out, size_t capacity);
@@ -25,7 +28,7 @@ class CcaCloudRemote : private concurrency::OSThread {
   private:
     uint32_t lastConfigPoll = 0;
     uint32_t lastHealthPost = 0;
-    uint32_t lastOtaCheck = 0;
+    uint32_t lastProbeMs = 0;
     uint32_t bootAt = 0;
     uint32_t syncOk = 0;
     uint32_t syncFail = 0;

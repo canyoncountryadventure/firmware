@@ -117,6 +117,21 @@ jobs:
           fi
           mkdir -p downloads/Heltec-Gateway-v13
           cp ../release-pack/* downloads/Heltec-Gateway-v13/
-          git add downloads/Heltec-Gateway-v13
-          git commit -m "Publish Heltec V13 clock-aligned image $DATE_STAMP [skip ci]"
+          python3 - <<'PYDOC'
+          import os
+          from pathlib import Path
+          folder = Path("downloads/Heltec-Gateway-v13")
+          stem = "Heltec-Gateway-v13-" + os.environ["DATE_STAMP"]
+          prefix = "https://github.com/" + os.environ["GITHUB_REPOSITORY"] + "/raw/refs/heads/Heltec-Gateway-v13/"
+          for page in [Path("README.md"), folder / "README.md"]:
+              lines = page.read_text().splitlines()
+              for label, ext in [("application-bin", ".bin"), ("companion-zip", ".zip")]:
+                  artifact = folder / (stem + ext)
+                  assert artifact.is_file()
+                  index, = [i for i, line in enumerate(lines) if line.startswith(f"[{label}]: ")]
+                  lines[index] = f"[{label}]: {prefix}{artifact}"
+              page.write_text("\n".join(lines) + "\n")
+          PYDOC
+          git add README.md downloads/Heltec-Gateway-v13
+          git commit -m "Publish Heltec V13 gateway image $DATE_STAMP [skip ci]"
           git push origin HEAD:Heltec-Gateway-v13

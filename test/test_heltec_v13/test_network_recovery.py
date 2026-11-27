@@ -11,14 +11,22 @@ assert "CcaGatewayRecovery::UploadStalled ||" in main
 assert "action == CcaGatewayRecovery::WifiStalled" in main
 assert main.index("action == CcaGatewayRecovery::WifiStalled") < main.index("} else if (action != CcaGatewayRecovery::None)")
 assert "CcaNetworkRecovery::Action::Reboot" in main
+assert "CcaNetworkRecovery::Action::RestartWifi" in main
 assert "CcaNetworkRecovery::Action::Reconnect" in main
 assert "rebootAtMsec = ccaNow + 5000UL" in main
 assert "successfulConfigPolls()" in main
-assert "requestHeltecWifiReconnect();" in main and "requestHeltecWifiReconnect();" in gw
+assert "requestHeltecWifiReconnect(restartWifi);" in main and "requestHeltecWifiReconnect(" not in gw
+assert "recordUploadResponse(cloudOnly, status)" in gw
+assert "recordHealth(rc)" in cloud and "recordConfig(status)" in cloud
+assert 'http.sendRequest("HEAD")' in cloud and "recordProbe(status)" in cloud
+assert "savedEventBoot + 1U == heltecFieldDiag.boots" in main and "Prev event:" in main
 assert "WiFi.disconnect(false);" not in main and "WiFi.reconnect();" not in main
 wifi=(root/"src/mesh/wifi/WiFiAPClient.cpp").read_text()
 assert "WiFi.disconnect(false, false);" in wifi
-assert "void requestHeltecWifiReconnect()" in wifi
+assert "void requestHeltecWifiReconnect(bool restartDriver)" in wifi
+assert "esp_wifi_stop()" in wifi and "esp_wifi_start()" in wifi
+mqtt=(root/"src/mqtt/MQTT.cpp").read_text()
+assert "#if !defined(HELTEC_V4)\n                needReconnect = true;" in mqtt
 assert "recentlyHealthy(ccaNow, 5UL * 60UL * 1000UL)" in main
 assert "lastAcceptedMs" in sup and "recentlyHealthy" in sup
 assert "client.setHandshakeTimeout(12)" in cloud

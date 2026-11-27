@@ -1,46 +1,116 @@
 #include "src/modules/CcaNetworkRecovery.h"
 #include <cassert>
 #include <cstdio>
-using R=CcaNetworkRecovery::Action;
-static constexpr uint32_t M=60000;
-int main() {
-    // 1 healthy with zero sensor traffic; 2 first boot never connects; 3 transient failure.
-    { CcaNetworkRecovery p; p.update(0,true,0,false,0);
-      for (uint32_t i=1;i<=180;++i) assert(p.update(i*M,true,i/5,false,0)==R::None);
-      assert(p.stable(180*M)); }
-    { CcaNetworkRecovery p; p.update(0,false,0,false,0);
-      assert(p.update(2*M-1,false,0,false,0)==R::None);
-      assert(p.update(2*M,false,0,false,0)==R::Reconnect);
-      assert(p.update(3*M,false,0,false,0)==R::None);
-      assert(p.update(7*M,false,0,false,0)==R::Reconnect);
-      assert(p.update(20*M,false,0,false,0)==R::Reboot); }
-    { CcaNetworkRecovery p; p.update(0,true,1,false,0);
-      p.update(M,false,1,false,0); assert(p.update(2*M,true,2,false,0)==R::None);
-      assert(p.update(8*M,true,3,false,0)==R::None); }
-    // 4 associated WiFi with no cloud; 5 cloud returns; 6 upload stuck with cloud healthy.
-    { CcaNetworkRecovery p; p.update(0,true,0,false,0);
-      assert(p.update(10*M,true,0,false,0)==R::Reconnect);
-      assert(p.update(20*M,true,0,false,0)==R::Reboot); }
-    { CcaNetworkRecovery p; p.update(0,true,0,false,0); p.update(10*M,true,0,false,0);
-      assert(p.update(19*M,true,1,false,0)==R::None);
-      assert(p.update(24*M,true,2,false,0)==R::None); }
-    { CcaNetworkRecovery p; p.update(0,true,1,false,0);
-      assert(p.update(M,true,1,true,0)==R::Reconnect);
-      for(uint32_t i=2;i<21;i++) assert(p.update(i*M,true,1+i/5,true,0)!=R::Reboot);
-      assert(p.update(21*M,true,5,true,0)==R::Reboot); }
-    // 7 upload recovery; 8 backoff 40/60; 9 intermittent WiFi cannot hide cloud silence; 10 wraparound.
-    { CcaNetworkRecovery p; p.update(0,true,1,true,0);
-      p.update(5*M,true,2,false,0); p.update(10*M,true,3,false,0);
-      assert(p.update(20*M,true,5,false,0)==R::None); }
-    for(uint32_t n=1;n<=3;n++){ CcaNetworkRecovery p; p.update(0,false,0,false,n);
-      uint32_t limit=(n==1?40:60)*M;
-      assert(p.update(limit-1,false,0,false,n)!=R::Reboot);
-      assert(p.update(limit,false,0,false,n)==R::Reboot); }
-    { CcaNetworkRecovery p; p.update(0,true,1,false,0);
-      for(uint32_t i=1;i<20;i++) p.update(i*M,i%2==0,1,false,0);
-      assert(p.update(20*M,true,1,false,0)==R::Reboot); }
-    { CcaNetworkRecovery p; const uint32_t t=UINT32_MAX-1000;
-      p.update(t,false,0,false,0); assert(p.update(t+2*M,false,0,false,0)==R::Reconnect);
-      assert(p.update(t+20*M,false,0,false,0)==R::Reboot); }
-    std::puts("PASS: ten V13 network backstop scenarios");
+
+using Action = CcaNetworkRecovery::Action;
+constexpr uint32_t minute = CcaNetworkRecovery::MINUTE;
+
+static void backendIsolation()
+{
+    for (int scenario = 0; scenario < 6; ++scenario) {
+        CcaNetworkRecovery policy;
+        CcaNetworkEvidence http;
+        uint32_t configs = 0;
+        for (uint32_t m = 0; m <= 180; ++m) {
+            if (m % 5 == 0) {
+                const int configStatus = scenario == 0 ? 200 : scenario == 1 ? 401 : -1;
+                http.recordConfig(configStatus);
+                if (configStatus == 200)
+                    ++configs;
+                if (scenario == 2)
+                    http.recordProbe(405); // A quiet mesh still gets an independent check.
+                if (scenario == 3)
+                    http.recordUpload(false, 201);
+                if (scenario == 4 && m % 15 == 0)
+                    http.recordHealth(503);
+                if (scenario == 5)
+                    http.recordUpload(true, 201);
+            }
+            http.recordUpload(false, -1);
+            assert(policy.update(m * minute, true, http, configs, false) == Action::None);
+        }
+        assert(policy.stable(180 * minute) == (scenario == 0));
+    }
+}
+
+static void totalOutage(bool hasIp, uint32_t start)
+{
+    CcaNetworkRecovery policy;
+    CcaNetworkEvidence http;
+    bool rebootUsed = false;
+    unsigned int rejoins = 0, driverRestarts = 0, fullReboots = 0;
+    for (uint32_t m = 0; m <= 300; ++m) {
+        if (hasIp && m % 5 == 0) {
+            http.recordConfig(-1);
+            http.recordProbe(-1);
+        }
+        const auto action = policy.update(start + m * minute, hasIp, http, 0, rebootUsed);
+        if (action == Action::Reconnect) {
+            ++rejoins;
+            if (!rebootUsed)
+                assert(m == (hasIp ? 20U : 2U));
+        } else if (action == Action::RestartWifi) {
+            if (!driverRestarts)
+                assert(m == (hasIp ? 30U : 10U));
+            ++driverRestarts;
+        } else if (action == Action::Reboot) {
+            assert(driverRestarts > 0 && m == 60 && !rebootUsed);
+            ++fullReboots;
+            rebootUsed = true;
+            policy = {};
+            http = {};
+        }
+    }
+    assert(rejoins == 2 && driverRestarts > 10 && fullReboots == 1);
+}
+
+static void transientAndRearm()
+{
+    CcaNetworkRecovery policy;
+    CcaNetworkEvidence http;
+    uint32_t configs = 0;
+    for (uint32_t m = 0; m <= 195; ++m) {
+        const bool hasIp = m != 96;
+        if (m % 5 == 0 && hasIp) {
+            http.recordConfig(200);
+            ++configs;
+        }
+        if (m % 3 == 0) {
+            http.recordUpload(false, -1);
+            http.recordUpload(false, -1);
+        }
+        assert(policy.update(m * minute, hasIp, http, configs, true) == Action::None);
+        const bool expected = (m >= 90 && m < 96) || m >= 187;
+        assert(policy.stable(m * minute) == expected);
+    }
+}
+
+static void intermittentAndRecovery()
+{
+    CcaNetworkRecovery policy;
+    CcaNetworkEvidence http;
+    for (uint32_t m = 0; m < 60; ++m) {
+        if (m % 5 == 0) {
+            http.recordConfig(-1);
+            http.recordProbe(-1);
+        }
+        const bool hasIp = m % 3 != 1;
+        assert(policy.update(m * minute, hasIp, http, 0, false) != Action::Reboot);
+    }
+    http.recordUpload(false, 201);
+    assert(policy.update(60 * minute, true, http, 0, false) == Action::None);
+    // Losing config validation or an idle queue alone cannot prove both paths are down.
+    assert(policy.update(121 * minute, true, http, 0, false) == Action::None);
+}
+
+int main()
+{
+    backendIsolation();
+    totalOutage(true, 0);
+    totalOutage(false, 0);
+    totalOutage(true, UINT32_MAX - 3 * minute);
+    totalOutage(false, UINT32_MAX - 3 * minute);
+    transientAndRearm();
+    intermittentAndRecovery();
+    std::puts("PASS: endpoint isolation, idle sensor network, confirmed outage escalation, retained reboot budget, health rearm and timer wrap");
 }

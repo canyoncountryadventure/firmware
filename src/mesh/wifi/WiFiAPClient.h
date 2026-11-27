@@ -17,7 +17,8 @@
 extern bool needReconnect;
 extern concurrency::Periodic *wifiReconnect;
 #if defined(HELTEC_V4) && HAS_WIFI
-void requestHeltecWifiReconnect();
+bool heltecHasStationIp();
+void requestHeltecWifiReconnect(bool restartDriver);
 #endif
 
 /// @return true if wifi is now in use

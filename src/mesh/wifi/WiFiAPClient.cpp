@@ -221,9 +221,17 @@ static void onNetworkConnected()
 }
 
 #if defined(HELTEC_V4) && HAS_WIFI
-void requestHeltecWifiReconnect()
+static bool heltecRestartDriver = false;
+
+bool heltecHasStationIp()
 {
-    if (config.network.wifi_enabled && wifiReconnect && !isReconnecting && !needReconnect) {
+    return WiFi.isConnected() && static_cast<uint32_t>(WiFi.localIP()) != 0;
+}
+
+void requestHeltecWifiReconnect(bool restartDriver)
+{
+    if (config.network.wifi_enabled && wifiReconnect) {
+        heltecRestartDriver |= restartDriver;
         needReconnect = true;
         wifiReconnect->setIntervalFromNow(1000);
     }
@@ -243,9 +251,15 @@ static int32_t reconnectWiFi()
         needReconnect = false;
         isReconnecting = true;
 
-        // Make sure we clear old connection credentials
 #if defined(HELTEC_V4)
-        WiFi.disconnect(false, false); // keep credentials; one reconnect owner
+        if (heltecRestartDriver) {
+            heltecRestartDriver = false;
+            const esp_err_t stop = esp_wifi_stop();
+            const esp_err_t start = esp_wifi_start();
+            LOG_WARN("CCA WiFi driver repair: stop=%d start=%d", stop, start);
+        } else {
+            WiFi.disconnect(false, false);
+        }
 #elif defined(ARCH_ESP32)
         WiFi.disconnect(false, true);
 #elif defined(ARCH_RP2040)
@@ -263,7 +277,11 @@ static int32_t reconnectWiFi()
     // Check if we are ready to proceed with the WiFi connection after the 5s wait
     if (wifiReconnectPending) {
         if (millis() - wifiReconnectStartMillis >= 5000) {
+#if defined(HELTEC_V4)
+            if (!heltecHasStationIp()) {
+#else
             if (!WiFi.isConnected()) {
+#endif
 #ifdef CONFIG_IDF_TARGET_ESP32C3
                 WiFi.mode(WIFI_MODE_NULL);
                 WiFi.useStaticBuffers(true);
@@ -491,17 +509,17 @@ static void WiFiEvent(WiFiEvent_t event)
             udpHandler->stop();
         }
 #endif
-        if (!isReconnecting) {
 #if defined(HELTEC_V4)
-            syslog.disable();
-            requestHeltecWifiReconnect();
+        // The driver auto-rejoins on link loss. Only the loop supervisor may force a disconnect.
+        syslog.disable();
 #else
+        if (!isReconnecting) {
             WiFi.disconnect(false, true);
             syslog.disable();
             needReconnect = true;
             wifiReconnect->setIntervalFromNow(1000);
-#endif
         }
+#endif
         break;
     case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE:
         LOG_INFO("Authentication mode of access point has changed");
@@ -526,17 +544,17 @@ static void WiFiEvent(WiFiEvent_t event)
             udpHandler->stop();
         }
 #endif
-        if (!isReconnecting) {
 #if defined(HELTEC_V4)
-            syslog.disable();
-            requestHeltecWifiReconnect();
+        // The driver auto-rejoins on link loss. Only the loop supervisor may force a disconnect.
+        syslog.disable();
 #else
+        if (!isReconnecting) {
             WiFi.disconnect(false, true);
             syslog.disable();
             needReconnect = true;
             wifiReconnect->setIntervalFromNow(1000);
-#endif
         }
+#endif
         break;
     case ARDUINO_EVENT_WPS_ER_SUCCESS:
         LOG_INFO("WiFi Protected Setup (WPS): succeeded in enrollee mode");

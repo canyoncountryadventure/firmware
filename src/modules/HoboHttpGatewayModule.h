@@ -54,6 +54,7 @@ class HoboHttpGatewayModule : public MeshModule, private concurrency::OSThread
     uint32_t healthHttpAccepted() const { return uploadedJobs; }
     uint32_t healthDmRequests() const { return cc01Requests + mathesonRequests + configuredPollRequests; }
     uint32_t healthQueueUsed() { return uploadQueue.numUsed(); }
+    void noteWifiRecovery(uint32_t now) { lastWifiRecoveryMs = now; ++wifiRecoveryCount; }
     int healthLastHttpStatus() const { return lastHttpStatus; }
 
     // Local BLE HOBO readers call these. Every reading is queued immediately.

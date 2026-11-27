@@ -10,6 +10,7 @@
 #include "modules/CcaNetworkRecovery.h"
 #include "modules/CcaCloudRemote.h"
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 #endif
 
 #if !defined(CONFIG_IDF_TARGET_ESP32S2) && !MESHTASTIC_EXCLUDE_BLUETOOTH
@@ -48,13 +49,17 @@ struct CcaV7RecoveryRetained {
 RTC_NOINIT_ATTR CcaV7RecoveryRetained ccaV7RecoveryRetained;
 CcaGatewaySupervisor ccaV7Supervisor;
 CcaNetworkRecovery ccaNetworkRecovery;
-struct CcaNetRetained { uint32_t magic; uint32_t outageBoots; };
+struct CcaNetRetained {
+    uint32_t magic;
+    uint32_t outageBoots;
+    char firstIncident[157];
+    char incident[157];
+};
 RTC_NOINIT_ATTR CcaNetRetained ccaNetRetained;
-constexpr uint32_t CCA_NET_MAGIC = 0x434E5231UL;
+constexpr uint32_t CCA_NET_MAGIC = 0x434E5232UL;
 uint32_t ccaV7LastCheckMs = 0;
 bool ccaV7RebootPending = false;
 uint32_t ccaV7BlockedReason = 0;
-uint32_t ccaV13LastNetRepairMs = 0;
 uint32_t ccaV13NetRepairs = 0;
 uint32_t ccaV13LastNetReason = 0;
 int32_t ccaV13LastNetHttpStatus = 0;
@@ -177,6 +182,8 @@ const char *heltecEventName(uint8_t subsystem, uint8_t operation)
         return "GATEWAY_UPLOAD_STALL";
     if (subsystem == 6 && operation == 6)
         return "GATEWAY_WIFI_STALL";
+    if (subsystem == 6 && operation == 7)
+        return "NETWORK_OUTAGE";
     if (subsystem == 6)
         return "GATEWAY_RECOVERY";
     if (subsystem == 7 && operation == 1)
@@ -185,6 +192,8 @@ const char *heltecEventName(uint8_t subsystem, uint8_t operation)
         return "CLOUD_HEALTH_TLS";
     if (subsystem == 7 && operation == 3)
         return "SENSOR_UPLOAD_TLS";
+    if (subsystem == 7 && operation == 4)
+        return "VERCEL_PROBE_TLS";
     if (subsystem == 0)
         return "NONE";
     return "OTHER";
@@ -247,6 +256,9 @@ void esp32FieldDiagEvent(uint8_t subsystem, uint8_t operation, uint32_t error)
 {
     if (heltecFieldDiag.magic != HELTEC_FIELD_DIAG_MAGIC)
         return;
+    if (heltecFieldDiag.eventBoot == heltecFieldDiag.boots &&
+        (heltecFieldDiag.subsystem == 5 || heltecFieldDiag.subsystem == 6))
+        return; // Keep the first deliberate reboot reason until this boot ends.
     heltecFieldDiag.subsystem = subsystem;
     heltecFieldDiag.operation = operation;
     heltecFieldDiag.error = error;
@@ -281,6 +293,10 @@ void esp32FieldDiagClear()
         heltecFieldDiag.eventUptimeMs = 0;
     }
 
+#if HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    ccaNetRetained.firstIncident[0] = 0;
+    ccaNetRetained.incident[0] = 0;
+#endif
     Preferences diagPrefs;
     diagPrefs.begin("heltecdiag", false);
     diagPrefs.clear();
@@ -310,39 +326,28 @@ void esp32FieldDiagFormat(char *out, size_t outSize)
     const uint32_t savedError = diagPrefs.getUInt("evErr", 0);
     diagPrefs.end();
 
-    uint8_t eventSubsystem = heltecFieldDiag.subsystem;
-    uint8_t eventOperation = heltecFieldDiag.operation;
-    uint32_t eventError = heltecFieldDiag.error;
-    uint32_t eventBoot = heltecFieldDiag.eventBoot;
-    uint32_t eventUptime = heltecFieldDiag.eventUptimeMs;
-    if (eventSubsystem == 0 && savedSubsystem != 0) {
-        eventSubsystem = savedSubsystem;
-        eventOperation = savedOperation;
-        eventError = savedError;
-        eventBoot = savedEventBoot;
-        eventUptime = savedEventUptime;
+    const bool hasPreviousEvent = savedSubsystem != 0 && savedEventBoot + 1U == heltecFieldDiag.boots;
+    snprintf(out, outSize, "HELTEC V4 DIAG\nBoots:%lu Reset:%s(%lu)\nPrev uptime:%lus\nPrev event:%s err=%lu @%lus",
+             static_cast<unsigned long>(heltecFieldDiag.boots), heltecResetReasonName(heltecFieldDiag.lastResetReason),
+             static_cast<unsigned long>(heltecFieldDiag.lastResetReason),
+             static_cast<unsigned long>(heltecFieldDiag.previousUptimeMs / 1000UL),
+             hasPreviousEvent ? heltecEventName(savedSubsystem, savedOperation) : "unknown",
+             static_cast<unsigned long>(hasPreviousEvent ? savedError : 0),
+             static_cast<unsigned long>(hasPreviousEvent ? savedEventUptime / 1000UL : 0));
+    size_t used = strlen(out);
+    if (abnormalReset)
+        snprintf(out + used, outSize - used, "\nLast abnormal:%s @%lus", heltecResetReasonName(abnormalReset),
+                 static_cast<unsigned long>(abnormalUptime / 1000UL));
+#if HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    if (ccaNetRetained.magic == CCA_NET_MAGIC && ccaNetRetained.incident[0]) {
+        used = strlen(out);
+        snprintf(out + used, outSize - used, "\nLast network repair:%s", ccaNetRetained.incident);
+        if (strcmp(ccaNetRetained.incident, ccaNetRetained.firstIncident) != 0) {
+            used = strlen(out);
+            snprintf(out + used, outSize - used, "\nFirst repair:%s", ccaNetRetained.firstIncident);
+        }
     }
-
-    if (abnormalReset != 0) {
-        snprintf(out, outSize,
-                 "HELTEC V4 DIAG\nBoots:%lu Reset:%s(%lu)\nPrev uptime:%lus\nEvent:%s err=%lu @%lus b%lu\nLast abnormal:%s @%lus",
-                 static_cast<unsigned long>(heltecFieldDiag.boots),
-                 heltecResetReasonName(heltecFieldDiag.lastResetReason),
-                 static_cast<unsigned long>(heltecFieldDiag.lastResetReason),
-                 static_cast<unsigned long>(heltecFieldDiag.previousUptimeMs / 1000UL),
-                 heltecEventName(eventSubsystem, eventOperation), static_cast<unsigned long>(eventError),
-                 static_cast<unsigned long>(eventUptime / 1000UL), static_cast<unsigned long>(eventBoot),
-                 heltecResetReasonName(abnormalReset), static_cast<unsigned long>(abnormalUptime / 1000UL));
-    } else {
-        snprintf(out, outSize,
-                 "HELTEC V4 DIAG\nBoots:%lu Reset:%s(%lu)\nPrev uptime:%lus\nEvent:%s err=%lu @%lus b%lu\nLast abnormal:none",
-                 static_cast<unsigned long>(heltecFieldDiag.boots),
-                 heltecResetReasonName(heltecFieldDiag.lastResetReason),
-                 static_cast<unsigned long>(heltecFieldDiag.lastResetReason),
-                 static_cast<unsigned long>(heltecFieldDiag.previousUptimeMs / 1000UL),
-                 heltecEventName(eventSubsystem, eventOperation), static_cast<unsigned long>(eventError),
-                 static_cast<unsigned long>(eventUptime / 1000UL), static_cast<unsigned long>(eventBoot));
-    }
+#endif
 }
 #endif // HELTEC_V4
 
@@ -481,8 +486,8 @@ void esp32Setup()
     heltecFieldDiagBoot(rebootCounter);
 #if HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
     if (ccaNetRetained.magic != CCA_NET_MAGIC) {
+        ccaNetRetained = {};
         ccaNetRetained.magic = CCA_NET_MAGIC;
-        ccaNetRetained.outageBoots = 0;
     }
     if (ccaV7RecoveryRetained.magic != CCA_V7_RECOVERY_MAGIC) {
         ccaV7RecoveryRetained.magic = CCA_V7_RECOVERY_MAGIC;
@@ -546,7 +551,7 @@ void esp32Loop()
             snapshot.dmRequests = hoboHttpGatewayModule->healthDmRequests();
             snapshot.queueUsed = hoboHttpGatewayModule->healthQueueUsed();
             snapshot.lastHttpStatus = hoboHttpGatewayModule->healthLastHttpStatus();
-            snapshot.wifiConnected = WiFi.isConnected();
+            snapshot.wifiConnected = heltecHasStationIp();
             const CcaGatewayRecovery action = ccaV7Supervisor.update(ccaNow, snapshot);
             if (action == CcaGatewayRecovery::SoftRecoverRx) {
                 LOG_WARN("CCA V7: 90-minute RX silence; requesting guarded radio reinit");
@@ -572,26 +577,40 @@ void esp32Loop()
                 }
             }
             if (ccaCloudRemote != nullptr && config.network.wifi_enabled && !ccaV7RebootPending && rebootAtMsec == 0) {
-                const auto net = ccaNetworkRecovery.update(ccaNow, snapshot.wifiConnected,
-                    CcaCloudRemote::successfulConfigPolls(), action == CcaGatewayRecovery::UploadStalled,
-                    ccaNetRetained.outageBoots);
-                if (ccaNetworkRecovery.stable(ccaNow)) ccaNetRetained.outageBoots = 0;
-                if (net == CcaNetworkRecovery::Action::Reconnect) {
-                    ccaV13LastNetRepairMs = ccaNow;
-                    ++ccaV13NetRepairs;
-                    ccaV13LastNetReason = static_cast<uint32_t>(action);
+                const auto &http = CcaCloudRemote::networkEvidence();
+                const auto net = ccaNetworkRecovery.update(ccaNow, snapshot.wifiConnected, http,
+                                                           CcaCloudRemote::successfulConfigPolls(),
+                                                           ccaNetRetained.outageBoots != 0);
+                if (ccaNetworkRecovery.stable(ccaNow))
+                    ccaNetRetained.outageBoots = 0;
+                if (net != CcaNetworkRecovery::Action::None) {
+                    const bool reboot = net == CcaNetworkRecovery::Action::Reboot;
+                    const bool restartWifi = net == CcaNetworkRecovery::Action::RestartWifi;
+                    const char *step = reboot ? "reboot" : restartWifi ? "driver" : "rejoin";
+                    snprintf(ccaNetRetained.incident, sizeof(ccaNetRetained.incident),
+                             "b%lu/%lus %s ip=%u disc=%u cfg=%d/%d hb=%d legacy=%d probe=%d/%d rssi=%d heap=%u block=%u",
+                             static_cast<unsigned long>(heltecFieldDiag.boots), static_cast<unsigned long>(ccaNow / 1000UL),
+                             step, unsigned(snapshot.wifiConnected), unsigned(getWifiDisconnectReason()), http.configStatus,
+                             http.configTls, http.healthStatus, http.legacyStatus, http.probeStatus, http.probeTls, int(WiFi.RSSI()),
+                             unsigned(ESP.getFreeHeap()),
+                             unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+                    if (net == CcaNetworkRecovery::Action::Reconnect)
+                        memcpy(ccaNetRetained.firstIncident, ccaNetRetained.incident, sizeof(ccaNetRetained.incident));
+                    LOG_WARN("CCA V13 network repair: %s", ccaNetRetained.incident);
+                    ccaV13LastNetReason = snapshot.wifiConnected ? 7 : 6;
                     ccaV13LastNetHttpStatus = snapshot.lastHttpStatus;
                     ccaV13LastNetQueueDepth = snapshot.queueUsed;
-                    LOG_WARN("CCA V13 repair: requesting centralized WiFi reconnect");
-                    requestHeltecWifiReconnect();
-                } else if (net == CcaNetworkRecovery::Action::Reboot) {
-                    if (ccaNetRetained.outageBoots < 2) ++ccaNetRetained.outageBoots;
-                    // Do not use the RF two-reboot lockout for loss of management reachability.
-                    ccaV7RebootPending = true;
-                    ccaV7RecoveryRetained.lastRecoveryReason = 6;
-                    esp32FieldDiagEvent(6, 6, ccaNetworkRecovery.cloudAge(ccaNow));
-                    LOG_ERROR("CCA V13 repair: persistent network outage, full reboot");
-                    rebootAtMsec = ccaNow + 5000UL;
+                    if (reboot) {
+                        ccaNetRetained.outageBoots = 1;
+                        ccaV7RebootPending = true;
+                        ccaV7RecoveryRetained.lastRecoveryReason = 7;
+                        esp32FieldDiagEvent(6, 7, ccaNetworkRecovery.cloudAge(ccaNow));
+                        rebootAtMsec = ccaNow + 5000UL;
+                    } else {
+                        ++ccaV13NetRepairs;
+                        hoboHttpGatewayModule->noteWifiRecovery(ccaNow);
+                        requestHeltecWifiReconnect(restartWifi);
+                    }
                 }
             }
             // Re-arm only after RF activity AND an accepted POST in the last

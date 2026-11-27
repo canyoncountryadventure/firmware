@@ -3,6 +3,7 @@
 
 #include "HoboHttpGatewayModule.h"
 #include "CcaRemoteOtaStage.h"
+#include "mesh/Throttle.h"
 #include "serialization/JSON.h"
 #include "serialization/JSONValue.h"
 #include <HTTPClient.h>
@@ -44,6 +45,7 @@ uint32_t dmRevision = 0;
 bool otaAvailable = false;
 char otaVersion[64] = {};
 char otaReason[48] = "not authorized";
+CcaNetworkEvidence transportEvidence;
 int lastCloudCode = 0;
 int lastHealthCode = 0;
 char lastConfigError[128] = "not attempted";
@@ -223,6 +225,29 @@ bool CcaCloudRemote::verifyOtaManifest(const String &version, const String &url,
 
 uint32_t CcaCloudRemote::successfulConfigPolls() { return successCount; }
 
+const CcaNetworkEvidence &CcaCloudRemote::networkEvidence() { return transportEvidence; }
+
+void CcaCloudRemote::recordUploadResponse(bool cloudOnly, int status) { transportEvidence.recordUpload(cloudOnly, status); }
+
+static void probeLegacyTransport()
+{
+    CcaV13TlsOp operation(4);
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setHandshakeTimeout(8);
+    HTTPClient http;
+    http.setConnectTimeout(8000);
+    http.setTimeout(8000);
+    if (http.begin(client, String(HOBO_HTTP_GATEWAY_URL))) {
+        // HEAD carries no telemetry or credential. Even a 405 proves the independent host answered.
+        const int status = http.sendRequest("HEAD");
+        char detail[32] = {};
+        transportEvidence.probeTls = status < 0 ? client.lastError(detail, sizeof(detail)) : 0;
+        transportEvidence.recordProbe(status);
+        http.end();
+    }
+}
+
 bool CcaCloudRemote::syncConfig()
 {
     if (!WiFi.isConnected() || strlen(HOBO_HTTP_GATEWAY_INGEST_KEY) == 0) {
@@ -256,6 +281,9 @@ bool CcaCloudRemote::syncConfig()
         http.addHeader("X-Ingest-Key", HOBO_HTTP_GATEWAY_INGEST_KEY);
         const int status = http.GET();
         lastCloudCode = status;
+        transportEvidence.recordConfig(status);
+        char tlsDetail[32] = {};
+        transportEvidence.configTls = status < 0 ? client.lastError(tlsDetail, sizeof(tlsDetail)) : 0;
         if (status != 200) {
             const String detail = http.errorToString(status);
             snprintf(lastConfigError, sizeof(lastConfigError),
@@ -389,7 +417,6 @@ void CcaCloudRemote::postHealth()
     WiFiClientSecure client;
     client.setInsecure();
     client.setHandshakeTimeout(8);
-    client.setTimeout(8000);
     HTTPClient http;
     http.setConnectTimeout(8000);
     http.setTimeout(8000);
@@ -415,6 +442,7 @@ void CcaCloudRemote::postHealth()
     body += "}";
     const int rc = http.POST(body);
     lastHealthCode = rc;
+    transportEvidence.recordHealth(rc);
     if (rc == 200) CcaRemoteOtaStage::markCloudConfirmed();
     else LOG_WARN("CCA V12 remote: health HTTP %d: %s", rc, http.errorToString(rc).c_str());
     http.end();
@@ -425,7 +453,8 @@ int32_t CcaCloudRemote::runOnce()
     const uint32_t now = millis();
     if ((now - bootAt) < BOOT_DELAY_MS) return 3000;
     if (!WiFi.isConnected()) return 10000; // preserve cached configuration offline
-    if (!lastConfigPoll || (now - lastConfigPoll) >= CONFIG_INTERVAL_MS) {
+    const bool configDue = !lastConfigPoll || (now - lastConfigPoll) >= CONFIG_INTERVAL_MS;
+    if (configDue) {
         lastConfigPoll = now;
         if (syncConfig()) {
             ++successCount;
@@ -442,6 +471,10 @@ int32_t CcaCloudRemote::runOnce()
     if (!lastHealthPost || (now - lastHealthPost) >= HEALTH_INTERVAL_MS) {
         lastHealthPost = now;
         postHealth();
+    } else if (!configDue && transportEvidence.configFailures >= 2 &&
+               (!lastProbeMs || !Throttle::isWithinTimespanMs(lastProbeMs, CONFIG_INTERVAL_MS))) {
+        lastProbeMs = now;
+        probeLegacyTransport();
     }
     // This is the actual Arduino loopTask, so the high-water mark captures
     // the minimum stack remaining after the HTTPS handshake and JSON parse.

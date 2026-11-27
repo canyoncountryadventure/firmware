@@ -1,47 +1,123 @@
 #pragma once
+
 #include <cstdint>
 
-// Monotonic network liveness policy; independent of sensor traffic.
-// Called from loopTask, covered by the 90-second task watchdog.
-class CcaNetworkRecovery {
-public:
-    enum class Action { None, Reconnect, Reboot };
-    static constexpr uint32_t minute = 60000UL;
-    Action update(uint32_t now, bool wifi, uint32_t cloudSuccess, bool uploadStalled, uint32_t outageBoots) {
+// Updated by the gateway's cooperative HTTP workers; any actual HTTP response proves transport.
+struct CcaNetworkEvidence {
+    uint32_t replies = 0;
+    uint8_t configFailures = 0;
+    uint8_t legacyFailures = 0;
+    int configStatus = 0;
+    int healthStatus = 0;
+    int legacyStatus = 0;
+    int probeStatus = 0;
+    int configTls = 0;
+    int probeTls = 0;
+
+    void recordConfig(int status)
+    {
+        configStatus = status;
+        countResult(status, configFailures);
+    }
+
+    void recordHealth(int status)
+    {
+        healthStatus = status;
+        if (status > 0)
+            ++replies;
+    }
+
+    void recordUpload(bool cloudOnly, int status)
+    {
+        if (cloudOnly) {
+            if (status > 0)
+                ++replies;
+        } else {
+            legacyStatus = status;
+            countResult(status, legacyFailures);
+        }
+    }
+
+    void recordProbe(int status)
+    {
+        probeStatus = status;
+        countResult(status, legacyFailures);
+    }
+
+  private:
+    void countResult(int status, uint8_t &failures)
+    {
+        if (status > 0) {
+            ++replies;
+            failures = 0;
+        } else if (failures < UINT8_MAX) {
+            ++failures;
+        }
+    }
+};
+
+class CcaNetworkRecovery
+{
+  public:
+    enum class Action { None, Reconnect, RestartWifi, Reboot };
+    static constexpr uint32_t MINUTE = 60000UL;
+
+    Action update(uint32_t now, bool hasIp, const CcaNetworkEvidence &http, uint32_t validConfigs, bool rebootUsed)
+    {
         if (!initialized) {
             initialized = true;
-            lastCloud = lastRepair = now;
-            priorCloud = cloudSuccess;
+            lastReply = lastConfig = now;
         }
-        if (cloudSuccess != priorCloud) {
-            priorCloud = cloudSuccess;
-            lastCloud = now;
+        if (http.replies != priorReplies) {
+            priorReplies = http.replies;
+            lastReply = now;
+            repair = Action::None;
         }
-        if (!wifi && !wifiDown) { wifiDown = true; wifiSince = now; }
-        if (wifi) wifiDown = false;
-        if (uploadStalled && !uploadDown) { uploadDown = true; uploadSince = now; }
-        if (!uploadStalled) uploadDown = false;
-        const uint32_t cloudAge = now - lastCloud;
-        const uint32_t wifiAge = wifiDown ? now - wifiSince : 0;
-        const uint32_t uploadAge = uploadDown ? now - uploadSince : 0;
-        const bool healthy = wifi && cloudSuccess != 0 && cloudAge < 8 * minute && !uploadDown;
-        if (healthy && !healthyTracking) { healthyTracking = true; healthySince = now; }
-        if (!healthy) healthyTracking = false;
-        // No permanent lockout: prolonged infrastructure outages back off to hourly restarts.
-        const uint32_t rebootAfter = (outageBoots == 0 ? 20 : outageBoots == 1 ? 40 : 60) * minute;
-        if (cloudAge >= rebootAfter || wifiAge >= rebootAfter || uploadAge >= rebootAfter)
-            return Action::Reboot;
-        const bool repairDue = wifiAge >= 2 * minute || cloudAge >= 10 * minute || uploadDown;
-        if (repairDue && (!repaired || now - lastRepair >= 5 * minute)) {
-            repaired = true;
-            lastRepair = now;
-            return Action::Reconnect;
+        if (validConfigs != priorConfigs) {
+            priorConfigs = validConfigs;
+            lastConfig = now;
         }
-        return Action::None;
+        if (!hasIp && !ipDown)
+            ipDownSince = now;
+        ipDown = !hasIp;
+
+        const uint32_t silentMs = now - lastReply;
+        const uint32_t offlineMs = ipDown ? now - ipDownSince : 0;
+        const bool healthy = hasIp && validConfigs != 0 && cloudAge(now) < 8 * MINUTE;
+        if (healthy && !trackingHealth)
+            healthySince = now;
+        trackingHealth = healthy;
+        const bool bothFailed = http.configFailures >= 2 && http.legacyFailures >= 1;
+        if (offlineMs < 2 * MINUTE && !(bothFailed && silentMs >= 20 * MINUTE))
+            return Action::None;
+
+        if (repair == Action::None) {
+            repair = Action::Reconnect;
+        } else {
+            if (now - lastRepair < 5 * MINUTE)
+                return Action::None;
+            if (repair == Action::RestartWifi && !rebootUsed &&
+                (offlineMs >= 60 * MINUTE || (bothFailed && silentMs >= 60 * MINUTE)))
+                return Action::Reboot;
+            if (offlineMs < 10 * MINUTE && !(bothFailed && silentMs >= 30 * MINUTE))
+                return Action::None;
+            if (repair == Action::RestartWifi && now - lastRepair < 15 * MINUTE)
+                return Action::None;
+            repair = Action::RestartWifi;
+        }
+        lastRepair = now;
+        return repair;
     }
-    bool stable(uint32_t now) const { return healthyTracking && now - healthySince >= 15 * minute; }
-    uint32_t cloudAge(uint32_t now) const { return initialized ? now - lastCloud : 0; }
-private:
-    bool initialized=false, wifiDown=false, uploadDown=false, repaired=false, healthyTracking=false;
-    uint32_t lastCloud=0, priorCloud=0, wifiSince=0, uploadSince=0, lastRepair=0, healthySince=0;
+
+    bool stable(uint32_t now) const { return trackingHealth && now - healthySince >= 90 * MINUTE; }
+    uint32_t cloudAge(uint32_t now) const { return initialized ? now - lastConfig : 0; }
+
+  private:
+    bool initialized = false;
+    bool ipDown = false;
+    bool trackingHealth = false;
+    Action repair = Action::None;
+    uint32_t lastReply = 0, priorReplies = 0;
+    uint32_t lastConfig = 0, priorConfigs = 0;
+    uint32_t ipDownSince = 0, lastRepair = 0, healthySince = 0;
 };

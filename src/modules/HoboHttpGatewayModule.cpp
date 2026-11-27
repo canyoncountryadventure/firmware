@@ -12,9 +12,6 @@
 
 #include <HTTPClient.h>
 #include <WiFi.h>
-#if defined(HELTEC_V4)
-#include "mesh/wifi/WiFiAPClient.h"
-#endif
 #include <WiFiClientSecure.h>
 #include <Preferences.h>
 
@@ -850,7 +847,6 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     client.setInsecure();
     client.setHandshakeTimeout(12);
     HTTPClient http;
-    client.setTimeout(12000);
     http.setConnectTimeout(12000);
     http.setTimeout(12000);
     const bool cloudOnly = job.cloudOnly;
@@ -868,6 +864,9 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
     ++healthPostAttempts;
     const int status = http.POST(body);
     lastHttpStatus = status;
+#if defined(HELTEC_V4)
+    CcaCloudRemote::recordUploadResponse(cloudOnly, status);
+#endif
     lastHttpAttemptMs = millis();
     if (job.dmPollResult) {
         ++cc01UploadAttempts;
@@ -897,21 +896,18 @@ bool HoboHttpGatewayModule::upload(const UploadJob &job)
         snprintf(lastHttpError, sizeof(lastHttpError), "%s", error.c_str());
         if (consecutiveHttpTransportFailures < UINT8_MAX)
             ++consecutiveHttpTransportFailures;
-        LOG_WARN("CCA clean gateway: POST failed: %s (%u/%u)", error.c_str(),
-                 static_cast<unsigned>(consecutiveHttpTransportFailures),
-                 static_cast<unsigned>(HTTPS_TRANSPORT_RECOVERY_FAILURES));
+        LOG_WARN("CCA clean gateway: POST failed: %s (consecutive transport failures: %u)", error.c_str(),
+                 static_cast<unsigned>(consecutiveHttpTransportFailures));
+#if !defined(HELTEC_V4)
         if (consecutiveHttpTransportFailures >= HTTPS_TRANSPORT_RECOVERY_FAILURES) {
             LOG_WARN("CCA clean gateway: reconnecting WiFi after HTTPS transport failures");
-#if defined(HELTEC_V4)
-            requestHeltecWifiReconnect();
-#else
             WiFi.disconnect(false);
             WiFi.reconnect();
-#endif
             lastWifiRecoveryMs = millis();
             ++wifiRecoveryCount;
             consecutiveHttpTransportFailures = 0;
         }
+#endif
     }
     http.end();
     return false;
