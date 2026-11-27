@@ -19,7 +19,7 @@ inline bool isCommand(const uint8_t *bytes, size_t n) {
     }
     return true;
 }
-inline bool authorized(bool direct, bool pki, bool hasAdmin, bool keyMatches, bool favorite) {
-    return direct && pki && (hasAdmin ? keyMatches : favorite);
+inline bool authorized(bool direct, bool pki, uint8_t channel) {
+    return direct && ((pki && channel == 0) || (!pki && channel == 1));
 }
 }

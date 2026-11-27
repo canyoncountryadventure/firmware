@@ -10,11 +10,12 @@ int main() {
     assert(!parse("")); assert(!parse("  ")); assert(!isCommand(nullptr,0));
     const uint8_t invalid[]={'R','E','B','O','O','T',0,'x'};
     assert(!isCommand(invalid,sizeof(invalid)));
-    assert(authorized(true,true,true,true,false));
-    assert(!authorized(true,true,true,false,true));
-    assert(authorized(true,true,false,false,true));
-    assert(!authorized(true,true,false,false,false));
-    assert(!authorized(false,true,true,true,true));
-    assert(!authorized(true,false,true,true,true));
-    std::puts("PASS: exact REBOOT DM and fail-closed authorization scenarios");
+    assert(authorized(true,true,0));
+    assert(authorized(true,false,1));
+    assert(!authorized(false,true,0));
+    assert(!authorized(false,false,1));
+    assert(!authorized(true,false,0));
+    assert(!authorized(true,true,1));
+    assert(!authorized(true,false,2));
+    std::puts("PASS: exact REBOOT DM and any-radio direct-message channel scenarios");
 }

@@ -607,25 +607,12 @@ void HoboHttpGatewayModule::handleCc01ControlDm(const meshtastic_MeshPacket &mp)
     text.toUpperCase();
     const uint32_t sender = getFrom(&mp);
 #if defined(HELTEC_V4)
-    // Reboot is more privileged than normal polling controls. Require a PKI
-    // direct message and a configured admin key (or an explicitly favorited
-    // node if no admin keys exist). Never trust a shared channel alone.
+    // Match the existing any-radio gateway-control trust model. Only a valid
+    // decoded direct message on PKI or LongFast may request a restart.
     if (cca_gateway_reboot::isCommand(mp.decoded.payload.bytes, n)) {
-        bool hasAdmin = false, keyMatches = false;
-        for (const auto &key : config.security.admin_key) {
-            if (key.size == 32) {
-                hasAdmin = true;
-                if (mp.public_key.size == 32 && memcmp(key.bytes, mp.public_key.bytes, 32) == 0)
-                    keyMatches = true;
-            }
-        }
         const bool direct = nodeDB && mp.to == nodeDB->getNodeNum() && sender != 0 && sender != nodeDB->getNodeNum();
-        const bool favorite = nodeDB && nodeDB->isFavorite(sender);
-        if (!cca_gateway_reboot::authorized(direct, mp.pki_encrypted && mp.channel == 0 && mp.public_key.size == 32,
-                                             hasAdmin, keyMatches, favorite)) {
-            LOG_WARN("CCA V13: rejected REBOOT DM from untrusted sender");
+        if (!cca_gateway_reboot::authorized(direct, mp.pki_encrypted, mp.channel))
             return;
-        }
         if (rebootAtMsec != 0) {
             sendCc01Text(sender, "REBOOT already scheduled.");
             return;
