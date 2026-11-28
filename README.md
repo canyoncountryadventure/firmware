@@ -6,6 +6,15 @@ Moab watershed gateway firmware for the **Heltec WiFi LoRa 32 V4 OLED, ESP32-S3*
 
 These links follow the last successful V13 publish. The dated filenames and source commit in BUILD.txt identify exactly which revision you are downloading. [Flash and rollback notes](downloads/Heltec-Gateway-v13/README.md)
 
+
+## TLS allocation repair (following R9 field failure)
+
+On boot 58, the gateway retained 48–52 KB internal free heap and 36,852-byte largest free block during the outage, but the lifetime minimum fell to 204 bytes. Retained HTTPS records captured TLS error -17040 (RSA public operation plus MPI allocation failure) and repeated transport failures while LoRa remained responsive. Reboot restored HTTPS. This supports allocation pressure, but does not establish every cause of the wider outage or interrupt watchdog resets.
+
+This V13 rebuild installs the pinned SDK's real Mbed TLS runtime calloc/free hook once at startup after PSRAM initialization. Allocations prefer external byte-addressable PSRAM; if necessary, internal fallback preserves a 24 KiB reserve on a best-effort basis. Matching capability-aware free handles both memory regions. The actual firmware build fails if the SDK does not expose the hook; at boot, a test allocation verifies the linked implementation invokes it. Health reports include tls_psram, tls_ps_allocs, tls_int_fallback and tls_alloc_fail. If PSRAM is unavailable, the allocator is not changed and the health flag remains zero. The boot probe is not proof of long-duration hardware stability.
+
+The gateway now paces failed HTTPS transport independently per destination (15, 30, 60, 120 seconds maximum) with a shared five-second settling interval after each failed request. Deferred queue entries do not consume retries; legacy and Cloudflare queues remain independent. Successful transport clears that host's cooldown. Existing request cleanup and independent short-lived TLS sessions are retained: persistent keep-alive is deliberately deferred because it retains TLS memory and would change session lifetime/OTA ordering. No changes to LoRa, DM commands (including any-radio REBOOT and paged DIAG/CRASHLOG), station IDs, polling intervals, auto-DM stale clocks, storage, signed OTA loader or watchdog timing. Validate via heartbeat allocator counters, increasing uptime, accepted uploads and actual auto-DM delivery. The download links below follow the most recent successful CI artifact, not an unbuilt source revision.
+
 ## Radio diagnostic replies
 
 Send `DIAG` directly to Heltec from another radio. The reply shows its page number and, when more detail is available, the next command (`DIAG 2`, then `DIAG 3`, and so on). `CRASHLOG` is an alias and accepts the same page number. Each command sends one reply; later pages read the current diagnostic snapshot. The command works independently of the internet connection.

@@ -10,6 +10,15 @@
 
 The build updates these links after all tests and the ESP32-S3 build pass. Older dated files in this folder are historical releases. Match the filename and SHA-256 in BUILD.txt before use. PowerShell can compute the digest with `Get-FileHash -Algorithm SHA256 <path-to-bin>`.
 
+
+## TLS allocation repair (following R9 field failure)
+
+On boot 58, the gateway retained 48–52 KB internal free heap and 36,852-byte largest free block during the outage, but the lifetime minimum fell to 204 bytes. Retained HTTPS records captured TLS error -17040 (RSA public operation plus MPI allocation failure) and repeated transport failures while LoRa remained responsive. Reboot restored HTTPS. This supports allocation pressure, but does not establish every cause of the wider outage or interrupt watchdog resets.
+
+This V13 rebuild installs the pinned SDK's real Mbed TLS runtime calloc/free hook once at startup after PSRAM initialization. Allocations prefer external byte-addressable PSRAM; if necessary, internal fallback preserves a 24 KiB reserve on a best-effort basis. Matching capability-aware free handles both memory regions. The actual firmware build fails if the SDK does not expose the hook; at boot, a test allocation verifies the linked implementation invokes it. Health reports include tls_psram, tls_ps_allocs, tls_int_fallback and tls_alloc_fail. If PSRAM is unavailable, the allocator is not changed and the health flag remains zero. The boot probe is not proof of long-duration hardware stability.
+
+The gateway now paces failed HTTPS transport independently per destination (15, 30, 60, 120 seconds maximum) with a shared five-second settling interval after each failed request. Deferred queue entries do not consume retries; legacy and Cloudflare queues remain independent. Successful transport clears that host's cooldown. Existing request cleanup and independent short-lived TLS sessions are retained: persistent keep-alive is deliberately deferred because it retains TLS memory and would change session lifetime/OTA ordering. No changes to LoRa, DM commands (including any-radio REBOOT and paged DIAG/CRASHLOG), station IDs, polling intervals, auto-DM stale clocks, storage, signed OTA loader or watchdog timing. Validate via heartbeat allocator counters, increasing uptime, accepted uploads and actual auto-DM delivery. The download links below follow the most recent successful CI artifact, not an unbuilt source revision.
+
 ## November 27 correction
 
 The next rebuild fixes silent `DIAG` replies: the old 229-byte text exceeds the encrypted radio packet limit. Send `DIAG` for page one and follow its `Next: DIAG 2` instruction for more detail. Each request returns one packet of at most 200 text bytes. `CRASHLOG` accepts the same page numbers. R5 and the previous R8 artifact retain the bug; the source commit in BUILD.txt identifies the correction after successful publication.

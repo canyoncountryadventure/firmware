@@ -1,5 +1,6 @@
 #include "configuration.h"
 #include "CcaTlsMemory.h"
+#include "CcaTlsRetryGate.h"
 
 namespace CcaTlsMemory
 {
@@ -67,6 +68,7 @@ namespace CcaTlsMemory
 namespace
 {
 RTC_NOINIT_ATTR Log log;
+CcaTlsRetryGate retryGate; // Cooperative gateway HTTP operations; not retained across boot.
 constexpr uint32_t INTERNAL = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 
 Heap sample()
@@ -101,7 +103,13 @@ void appendRecord(String &out, const Record &record)
 
 void beginBoot(uint32_t number)
 {
+    retryGate = {};
     log.beginBoot(number, sample());
+}
+
+bool canAttempt(uint32_t operation)
+{
+    return retryGate.allowed(operation, millis());
 }
 
 Scope::Scope(uint32_t operation)
@@ -110,7 +118,10 @@ Scope::Scope(uint32_t operation)
 }
 Scope::~Scope()
 {
-    log.finish(millis(), sample());
+    const uint32_t now = millis();
+    const Record &record = log.current();
+    retryGate.record(record.operation, record.http, now);
+    log.finish(now, sample());
 }
 
 void Scope::connecting()

@@ -57,6 +57,7 @@ struct Log {
 namespace CcaTlsMemory
 {
 void beginBoot(uint32_t number);
+bool canAttempt(uint32_t operation);
 String json(size_t history = HISTORY);
 String currentHeapJson();
 

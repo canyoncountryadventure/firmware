@@ -1118,9 +1118,17 @@ int32_t HoboHttpGatewayModule::runOnce()
     UploadJob job = {};
     // Vercel/Neon first. Cloudflare has a separate, bounded retry queue so
     // Cloudflare auth failures or outages cannot stall legacy telemetry.
+#if defined(HELTEC_V4)
+    // Do not consume a queue entry or a retry during a transport cooldown.
+    // A failed legacy endpoint must not block the independent Cloudflare queue.
+    const bool legacyJob = CcaTlsMemory::canAttempt(3) && uploadQueue.dequeue(&job, 0);
+    if (!legacyJob && (!CcaTlsMemory::canAttempt(5) || !cloudQueue.dequeue(&job, 0)))
+        return 500;
+#else
     const bool legacyJob = uploadQueue.dequeue(&job, 0);
     if (!legacyJob && !cloudQueue.dequeue(&job, 0))
         return 500;
+#endif
     if (!legacyJob && job.nextAttemptMs &&
         static_cast<int32_t>(millis() - job.nextAttemptMs) < 0) {
         if (!cloudQueue.enqueue(job, 0))

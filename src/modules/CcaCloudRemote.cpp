@@ -467,7 +467,7 @@ int32_t CcaCloudRemote::runOnce()
     const uint32_t now = millis();
     if ((now - bootAt) < BOOT_DELAY_MS) return 3000;
     if (!WiFi.isConnected()) return 10000; // preserve cached configuration offline
-    const bool configDue = !lastConfigPoll || (now - lastConfigPoll) >= CONFIG_INTERVAL_MS;
+    const bool configDue = (!lastConfigPoll || (now - lastConfigPoll) >= CONFIG_INTERVAL_MS) && CcaTlsMemory::canAttempt(1);
     if (configDue) {
         lastConfigPoll = now;
         if (syncConfig()) {
@@ -482,11 +482,11 @@ int32_t CcaCloudRemote::runOnce()
             lastConfigPoll = now + retryMs - CONFIG_INTERVAL_MS;
         }
     }
-    if (!lastHealthPost || (now - lastHealthPost) >= HEALTH_INTERVAL_MS) {
+    if ((!lastHealthPost || (now - lastHealthPost) >= HEALTH_INTERVAL_MS) && CcaTlsMemory::canAttempt(2)) {
         lastHealthPost = now;
         postHealth();
     } else if (!configDue && transportEvidence.configFailures >= 2 &&
-               (!lastProbeMs || !Throttle::isWithinTimespanMs(lastProbeMs, CONFIG_INTERVAL_MS))) {
+               (!lastProbeMs || !Throttle::isWithinTimespanMs(lastProbeMs, CONFIG_INTERVAL_MS)) && CcaTlsMemory::canAttempt(4)) {
         lastProbeMs = now;
         probeLegacyTransport();
     }

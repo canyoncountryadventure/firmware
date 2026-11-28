@@ -9,6 +9,7 @@
 #include "modules/CcaGatewaySupervisor.h"
 #include "modules/CcaNetworkRecovery.h"
 #include "modules/CcaTlsMemory.h"
+#include "modules/CcaTlsAllocator.h"
 #include "modules/HoboHttpGatewayModule.h"
 #include <WiFi.h>
 #include <esp_heap_caps.h>
@@ -103,6 +104,7 @@ String ccaHeltecGatewaySupervisorHealthNote()
                ",upload_age_s=";
     s += age == UINT32_MAX ? "none" : String(age / 1000UL);
     s += ",net_boots=" + String(ccaNetRetained.outageBoots) + ",cfg_age_s=" + String(ccaNetworkRecovery.cloudAge(now) / 1000UL);
+    s += ",tls_psram=" + String(CcaTlsAllocator::active() ? 1 : 0) + ",tls_ps_allocs=" + String(CcaTlsAllocator::externalAllocations()) + ",tls_int_fallback=" + String(CcaTlsAllocator::internalFallbacks()) + ",tls_alloc_fail=" + String(CcaTlsAllocator::allocationFailures());
     return s;
 }
 #endif
@@ -487,6 +489,7 @@ void esp32Setup()
 #if defined(HELTEC_V4)
     heltecFieldDiagBoot(rebootCounter);
 #if HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
+    CcaTlsAllocator::install(); // After PSRAM init, before gateway network clients start.
     CcaTlsMemory::beginBoot(rebootCounter);
     if (ccaNetRetained.magic != CCA_NET_MAGIC) {
         ccaNetRetained = {};
