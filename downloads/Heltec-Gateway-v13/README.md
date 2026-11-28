@@ -17,6 +17,10 @@ The build updates these links after all tests and the ESP32-S3 build pass. Older
 
 [Full incident timeline, source/run links, exact diagnostic records, D1 table names and acceptance checklist](../../README.md#field-incident-record--november-27-2026-mst). Keep the running image unchanged until the endurance test is complete.
 
+## Next release (planned, not implemented)
+
+[Next firmware and dashboard backlog](../../README.md#next-firmware-and-dashboard-backlog): keep five-minute configuration/compact health, reduce repetitive verbose diagnostics only after endurance validation, add four independently configurable scheduled DM slots, return no more than two automatic DIAG packets, retain existing commands and add useful compact remote status/scheduling commands, correct dashboard reset timestamp, and test all changes against the working R12 baseline. No new release or flash is authorized by this planning section.
+
 ## TLS allocation repair (following R9 field failure)
 
 Build R10 did not publish: its allocator translation unit evaluated the gateway-enable macro before including the header that defines it. The corrected rebuild includes that header before the guard and still requires actual ESP32 SDK compilation/linking and the runtime PSRAM allocation probe. R11 then exposed an Arduino `EXTERNAL` macro collision. R12 uses distinct `TLS_PSRAM_CAPS` and `TLS_INTERNAL_CAPS` identifiers; allocation behavior is unchanged. R12 passed CI and was published; R10 and R11 never produced deployable artifacts.

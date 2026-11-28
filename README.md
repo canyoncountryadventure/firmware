@@ -62,6 +62,62 @@ In the Cloudflare D1 database `cces-monitor`, filter `gateway_id='heltec-moab'`:
 - Four legacy persistent recurring-poll slots are separate from the eleven missing-AUTO watches. All four were empty in the snapshot. R12 reports them to Cloudflare but does not accept remote configuration for them. Future dashboard scheduling would require new firmware support; explicitly deferred until stable. Do not alter the currently running device for this documentation update.
 - If failures recur, capture traces before rebooting when possible. Compare the post-cleanup heap, largest internal block, lifetime minimum, PSRAM counters and failure stage. Do not repeat blind watchdog changes or claim every reset is resolved.
 
+## Next firmware and dashboard backlog
+
+**Planning only — not implemented in R12.** Keep the installed R12 binary and all historical evidence unchanged until overnight stability and real automatic-DM delivery have been verified. The following items are requirements or proposed enhancements for the next intentionally approved release, not instructions to flash now.
+
+### Priority 1 — keep the repair; reduce diagnostic overhead safely
+
+- Preserve the real PSRAM allocator hook, runtime probe, capability-aware free, 24 KiB best-effort internal fallback reserve, per-destination retry pacing, separate upload queues, recovery limits and LoRa-first DM dispatch. Do not remove these to save bytes.
+- Keep the five-minute configuration GET and a compact five-minute health POST. They serve remote control, OTA acknowledgement, online status and applied schedule verification, not merely troubleshooting. Do not lengthen configuration polling when the operator expects settings within five minutes.
+- After R12 endurance acceptance, decouple verbose diagnostics from the heartbeat. Proposed normal mode: keep cheap fixed-size RAM/RTC recording around HTTPS and always report compact uptime, boot/reset reason, memory free/largest/minimum, PSRAM allocation/fallback/failure counters, queue depth, endpoint status and config acknowledgement. Send the full retained TLS trace and reset detail on a new boot, new failure, new diagnostic event, requested capture or a periodic 60-minute summary. Keep the five-minute verbose mode selectable for troubleshooting. Never drop first/latest failures or the previous reset event before confirmed delivery; deduplicate by boot and sequence/event ID at the server. Retain full traces on-device when offline; no extra HTTPS session per diagnostic event. Preserve backward-compatible Worker parsing and the 8 KiB health limit. Test verbose/compact switching, history retention, and reduced payload size; do not assume smaller JSON alone fixes TLS.
+- Dashboard correction (can be shipped independently, after review): the Last ESP32 reset card currently shows the receipt time of a repeatedly reported historical reset. Example: the 10:05 PM MST report still said boot 65, but uptime was 3,643 s (1h 43s), proving there was no new 10:05 PM reset. Display boot counter, estimated boot time (heartbeat UTC minus reported uptime), reset cause, and last report time separately. Label estimates; use earliest matching boot evidence when available, handle clock uncertainty, delayed reports and scheduled resets, and never advance reset time just because another heartbeat arrived.
+
+### Priority 2 — four independently scheduled DM slots
+
+R12 already has four persistent recurring slots, a fifth one-time manual slot and a sixth one-shot missing-AUTO rescue slot. All four persistent slots are currently empty; the remote snapshot exposes them but configuration parsing does not accept them. Do not confuse this feature with the existing eleven independent missing-AUTO sensor watches.
+
+- Add a dedicated Scheduled DM Polling section in Cloudflare, separate from missing-AUTO controls. Four rows: enabled/off, known station, interval, sensor mode READ / WATER / BOTH (only where supported), desired versus device-confirmed values, last request/reply/result and next due time when reliably available. Default all four OFF. Recurring polling requests readings even when valid AUTO is already arriving; explain possible extra airtime and battery usage.
+- Add a versioned, authenticated remote config field for the four slots, independently revisioned from missing-AUTO policy. Validate known node IDs, allowed sensor modes and bounded intervals on both Worker and firmware; reject duplicates for the same sensor and malformed/partial updates atomically. Existing recurring scheduler currently uses elapsed time and supported interval values 15/30/45/60/360/720/1440 minutes; proposed behavior is to retain elapsed scheduling, document whether first poll is immediate on enable, and require explicit confirmation before adding extra interval values or changing to wall-clock scheduling. Missing-AUTO remains clock-aligned with a full one-hour prerequisite.
+- Apply on the next successful five-minute config poll, no reboot. Save only changed persistent settings to NVS, preserve settings offline and through reboot/OTA, acknowledge actual applied revision in health, and avoid rearming unchanged watches or restarting the poll timer on every config fetch. Use a coherent snapshot under the existing synchronization model; only the gateway scheduler mutates active poll state.
+- Serialize all LoRa polling through the existing one-job-at-a-time dispatcher, preserve spacing/retries, prioritize eligible rescue jobs, avoid duplicate requests when schedules overlap, and prevent stale late replies from being assigned to a replacement target. Scheduled OFF must stop that slot without disabling AUTO or fallback. A one-time POLL remains independent. Verify the temperature-only routing for scheduled READ as well as rescue READ; Pack Creek WATER and HOBO READ remain distinct. Report accepted replies as heltec_dm through the proper existing station destination; a queued RF request is not a successful reading.
+- Test enable/change/off, all four slots, conflicting changes, config revision replay, lost ACK, offline reboot persistence, manual/fallback concurrency, no duplicate jobs, supported and rejected station modes, and real accepted replies in both appropriate backends.
+
+### Priority 3 — two useful radio diagnostic packets, not three
+
+Current formatter uses 170-byte text slices and a 200-byte reply budget. The old 229-byte reply exceeded the 255-byte encrypted radio packet limit; do not regress that correction. User requirement: one DIAG request should return at most two compact, numbered diagnostic packets automatically, rather than requiring three separate page requests. Target exactly two when both sections contain meaningful data.
+
+- Page 1: firmware/release, boot count, uptime, last reset reason/event, Wi-Fi IP/connected flag, RSSI, HTTP/config freshness, queue depth. Page 2: free/largest/minimum internal RAM, PSRAM available and active flag, allocation/fallback/failure counters, last meaningful network/TLS failure and auto-DM/poll status summary. Use concise field names, fixed bounded formatting and explicit units; no essential data may disappear silently. Full detailed history remains in Cloudflare and an optional explicit extended diagnostic command if needed.
+- Capture one consistent diagnostic snapshot and queue page 2 behind page 1 with existing LoRa pacing (not simultaneous sends, blocking delay, or unbounded retries). Retain DIAG 1 / DIAG 2 to request an individual missing page and CRASHLOG compatibility; old DIAG 3 can return a short redirect to the full detail, not a third automatic packet. Read-only diagnosis must work while Wi-Fi is down. Rate-limit repeated requests to prevent airtime flooding without blocking legitimate manual requests.
+- Test worst-case numeric values, exact wire serialization with PKI/LongFast, protobuf/header overhead, 200-byte text limit and 255-byte wire limit, two-page completeness, delivery ordering, queue-full behavior and real remote radio reception. Do not increase packet size to make the text fit.
+
+### Priority 4 — command discoverability and remote field tools
+
+Keep the existing any-radio direct-message trust model for authorized gateway-control commands, including REBOOT (20-second delayed restart and acknowledgement), AUTO DM STATUS, AUTO DM OFF, AUTO DM <station> <interval|OFF>, POLL <station> [READ|WATER|BOTH], and DIAG/CRASHLOG. Valid direct PKI or LongFast messages only; never act on broadcasts. Audit existing command dispatch before adding aliases.
+
+Proposed new commands (syntax to be finalized and tested; not available in R12):
+
+| Command | Intended behavior |
+| --- | --- |
+| HELP | Compact command index; separate HELP DM / HELP DIAG / HELP SCHED if needed to fit radio budget. |
+| STATUS | One compact reply: uptime, boot, installed revision, Wi-Fi, recent HTTP status, queue count and allocator status. |
+| NET | IP-present flag, RSSI, config/health age, backend status, recovery state and most recent transport error. No credentials. |
+| MEM | Internal free/largest/minimum, PSRAM free, allocator state and fallback/failure counts. |
+| SCHED STATUS | Report four recurring slots, modes, intervals and due times compactly. |
+| SCHED <1-4> <station> <interval> <mode> | Configure one persistent recurring slot with the same validation and conflict policy as dashboard. |
+| SCHED <1-4> OFF | Disable only that slot; preserve missing-AUTO settings. |
+| SYNC | Request an expedited authenticated config poll using existing retry gate and a cooldown; report queued versus applied, never bypass OTA verification. |
+| DM STATUS <station> | Actual fallback enabled state, interval, last AUTO/request age, eligibility and recent reply outcome for a single station. |
+
+For local SCHED changes versus cloud desired state, design explicit revision/ownership reconciliation and display conflicts; do not silently undo radio changes on the next poll or allow stale config to overwrite a newer local change. No unauthenticated credential disclosure, arbitrary shell commands, automatic firmware download by DM, or added reboot privileges. Keep command acknowledgements packet-safe and useful without internet.
+
+### Priority 5 — reliability follow-up and release gates
+
+- Fix misleading historical reset timestamp; show last successful ingestion, last config application, actual last AUTO/DM reply and schedule age distinctly. Display memory trends and current boot counters without treating cumulative historic failures as new incidents.
+- Review the blanket twelve-hour preventive reboot only after observing a complete stable cycle and collecting enough evidence. Consider removing or making it conditional if no longer needed; do not change it in the next release by default. Likewise do not blindly increase watchdog timeouts, force Wi-Fi reconnects, change TLS keepalive, or clear RTC diagnostics.
+- Preserve all node IDs, radio settings, sensor decoding, calibration, credentials, upload routes, manual controls, signed OTA and recovery loader. Keep the known R12 application BIN/ZIP and exact source hash as rollback reference. Avoid broad source changes; compare each next-release diff to R12.
+- Require successful real ESP32-S3 compile/link and compatibility tests, bounded diagnostics packet tests, remote config validation and persistence tests, full scheduler replay, heap/queue recovery tests, and physical-radio delivery checks. Verify unique OTA label/hash, boot confirmation and automatic OTA closure. Test a two-hour healthy connected run, actual eligible fallback plus scheduled DM replies, and an overnight/preventive-reboot cycle before calling the new release stable. If practical, stage scheduling and diagnostic changes separately so regressions are attributable. Maintain both READMEs with exact artifact links and dated evidence.
+
 ## TLS allocation repair (following R9 field failure)
 
 Build R10 did not publish: its allocator translation unit evaluated the gateway-enable macro before including the header that defines it. The corrected rebuild includes that header before the guard and still requires actual ESP32 SDK compilation/linking and the runtime PSRAM allocation probe. R11 then exposed an Arduino `EXTERNAL` macro collision. R12 uses distinct `TLS_PSRAM_CAPS` and `TLS_INTERNAL_CAPS` identifiers; allocation behavior is unchanged. R12 passed CI and was published; R10 and R11 never produced deployable artifacts.
