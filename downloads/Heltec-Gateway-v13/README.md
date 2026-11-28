@@ -11,9 +11,15 @@
 The build updates these links after all tests and the ESP32-S3 build pass. Older dated files in this folder are historical releases. Match the filename and SHA-256 in BUILD.txt before use. PowerShell can compute the digest with `Get-FileHash -Algorithm SHA256 <path-to-bin>`.
 
 
+## R12 field status — November 27, 2026 (MST)
+
+**R12 is the installed, provisionally healthy V13 candidate.** Verified at 9:04:49 PM on boot 65, with OTA authorization automatically cleared. The 9:55 PM heartbeat confirmed 50m 40s uptime, 484,257 PSRAM allocation calls, zero internal fallbacks/failures, successful uploads and no new TLS failures. The minimum internal heap recorded this boot was 41,860 B, versus the earlier R9 low of 204 B. R10 failed linking and R11 failed compiling; neither was deployed. Reboot/rejoin and watchdog revisions alone did not resolve the HTTPS outage. The PSRAM allocator and retry pacing are the strongest repair evidence so far; overnight stability and live fallback DM delivery remain unverified.
+
+[Full incident timeline, source/run links, exact diagnostic records, D1 table names and acceptance checklist](../../README.md#field-incident-record--november-27-2026-mst). Keep the running image unchanged until the endurance test is complete.
+
 ## TLS allocation repair (following R9 field failure)
 
-Build R10 did not publish: its allocator translation unit evaluated the gateway-enable macro before including the header that defines it. The corrected rebuild includes that header before the guard and still requires actual ESP32 SDK compilation/linking and the runtime PSRAM allocation probe. R11 then exposed an Arduino `EXTERNAL` macro collision. The next rebuild uses distinct `TLS_PSRAM_CAPS` and `TLS_INTERNAL_CAPS` identifiers; allocation behavior is unchanged. R9 remains the last published release until the replacement passes CI.
+Build R10 did not publish: its allocator translation unit evaluated the gateway-enable macro before including the header that defines it. The corrected rebuild includes that header before the guard and still requires actual ESP32 SDK compilation/linking and the runtime PSRAM allocation probe. R11 then exposed an Arduino `EXTERNAL` macro collision. R12 uses distinct `TLS_PSRAM_CAPS` and `TLS_INTERNAL_CAPS` identifiers; allocation behavior is unchanged. R12 passed CI and was published; R10 and R11 never produced deployable artifacts.
 
 On boot 58, the gateway retained 48–52 KB internal free heap and 36,852-byte largest free block during the outage, but the lifetime minimum fell to 204 bytes. Retained HTTPS records captured TLS error -17040 (RSA public operation plus MPI allocation failure) and repeated transport failures while LoRa remained responsive. Reboot restored HTTPS. This supports allocation pressure, but does not establish every cause of the wider outage or interrupt watchdog resets.
 
@@ -23,9 +29,9 @@ The gateway now paces failed HTTPS transport independently per destination (15, 
 
 ## November 27 correction
 
-The next rebuild fixes silent `DIAG` replies: the old 229-byte text exceeds the encrypted radio packet limit. Send `DIAG` for page one and follow its `Next: DIAG 2` instruction for more detail. Each request returns one packet of at most 200 text bytes. `CRASHLOG` accepts the same page numbers. R5 and the previous R8 artifact retain the bug; the source commit in BUILD.txt identifies the correction after successful publication.
+R9 and subsequent R12 fix silent `DIAG` replies: the old 229-byte text exceeds the encrypted radio packet limit. Send `DIAG` for page one and follow its `Next: DIAG 2` instruction for more detail. Each request returns one packet of at most 200 text bytes. `CRASHLOG` accepts the same page numbers. R5 and the previous R8 artifact retain the bug; the source commit in BUILD.txt identifies the correction after successful publication.
 
-The latest diagnostic rebuild adds automatic TLS memory recording for config, health, both sensor destinations, the connectivity probe and OTA downloads. Health reports run every five minutes and carry a bounded RTC history to authenticated Cloudflare storage. The main README documents each field, the observed allocation error and the source audit. Physical-device reproduction and long-duration stability are pending field evidence. Read the source commit in BUILD.txt to identify the exact installed image.
+R9 and subsequent R12 include automatic TLS memory recording for config, health, both sensor destinations, the connectivity probe and OTA downloads. Health reports run every five minutes and carry a bounded RTC history to authenticated Cloudflare storage. The main README documents each field, the observed allocation error and the source audit. R12 has preliminary physical-device evidence; long-duration stability is still pending. Read the source commit in BUILD.txt to identify the exact installed image.
 
 V13 R4 could disconnect Wi-Fi after two sensor upload failures and repeatedly restart the radio during a single-service outage. The correction tests Cloudflare and Vercel independently, repairs the Wi-Fi driver, and allows one network-triggered reboot per sustained outage. The gateway preserves LoRa and auto-DM operation during Wi-Fi repair. [Field evidence, recovery thresholds and operating notes](../../README.md)
 

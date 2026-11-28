@@ -7,9 +7,64 @@ Moab watershed gateway firmware for the **Heltec WiFi LoRa 32 V4 OLED, ESP32-S3*
 These links follow the last successful V13 publish. The dated filenames and source commit in BUILD.txt identify exactly which revision you are downloading. [Flash and rollback notes](downloads/Heltec-Gateway-v13/README.md)
 
 
+## Field incident record — November 27, 2026 (MST)
+
+**Current candidate: V13 R12, installed and provisionally healthy. Do not confuse a successful build, a confirmed OTA boot, or early healthy telemetry with a completed endurance test.** This record is deliberately dated; retain it when subsequent releases are built.
+
+### What failed and why we changed direction
+
+| Revision / CI run | Outcome and lesson |
+| --- | --- |
+| [R1](https://github.com/canyoncountryadventure/firmware/actions/runs/45898210761) | Passed CI; bound TLS/network stalls and retain LoRa/AUTO-DM. |
+| [R2](https://github.com/canyoncountryadventure/firmware/actions/runs/45917438004) | Passed CI; centralized reconnects and bounded network liveness. |
+| [R3](https://github.com/canyoncountryadventure/firmware/actions/runs/45925210489) | Cancelled; superseded REBOOT DM work. |
+| [R4](https://github.com/canyoncountryadventure/firmware/actions/runs/45925390610) | Passed CI; any-radio REBOOT. Field: network recovery induced repeated software resets (boots 39–49). |
+| [R5](https://github.com/canyoncountryadventure/firmware/actions/runs/46067452651) | Passed CI; separate backend reachability and repair Wi-Fi without immediately rebooting. Did not eliminate HTTPS outages; TLS -16 was observed. |
+| [R6](https://github.com/canyoncountryadventure/firmware/actions/runs/46079250846) | Failed CI; initial retained TLS recorder build. |
+| [R7](https://github.com/canyoncountryadventure/firmware/actions/runs/46079855869) | Cancelled; target configuration/recorder guard correction. |
+| [R8](https://github.com/canyoncountryadventure/firmware/actions/runs/46079920892) | Passed CI; recorder target-detection regression test. Oversized DIAG reply remained. |
+| [R9](https://github.com/canyoncountryadventure/firmware/actions/runs/46084634929) | Passed CI; packet-safe paged DIAG/CRASHLOG. Field TLS recording exposed allocation failure; HTTPS still stopped. |
+| [R10](https://github.com/canyoncountryadventure/firmware/actions/runs/46093111757) | Failed link: gateway feature macro tested before its defining header; allocator translation unit excluded. |
+| [R11](https://github.com/canyoncountryadventure/firmware/actions/runs/46093858374) | Failed compile: Arduino EXTERNAL macro collided with allocator capability constant. |
+| [R12](https://github.com/canyoncountryadventure/firmware/actions/runs/46094432048) | Passed compatibility, ESP32-S3 compile/link and publication; installed and preliminary field verification successful. |
+
+Rebooting restored HTTPS temporarily, not permanently. Wi-Fi rejoin/driver resets, extra watchdog escalation and per-service recovery could not cure the underlying TLS allocation problem. R4's broad reboot policy also interrupted the missing-AUTO timers, which need a full hour of uptime. Separating service reachability and preserving LoRa during Wi-Fi repair were useful corrections worth retaining, but not sufficient fixes on their own. R9 field traces showed strong RSSI (about -63 dBm), an IP address and roughly 48–52 KB free internal heap during the outage, yet the lifetime low reached 204 bytes and the TLS error was -17040 (-0x4290, RSA public operation plus MPI allocation failure). The available PSRAM was approximately 1.99 MB. A healthy-looking idle heap did not measure the transient handshake allocation peak. The evidence supports internal allocation pressure; it does not prove a memory leak or explain every interrupt-watchdog reset.
+
+### What appears to have worked
+
+R12 uses the real pinned Arduino-ESP32 2.0.17 SDK Mbed TLS runtime allocator hook, not only a preprocessor setting. It installs after PSRAM initialization, probes the actual linked allocator, prefers byte-addressable PSRAM for Mbed TLS allocations, pairs allocations with capability-aware free, and keeps a best-effort 24 KiB internal reserve for fallback. Failed HTTPS requests are also paced independently by destination, with a shared five-second settling interval. Existing short-lived TLS clients and cleanup remain. These two changes shipped together, so the field observation is not an isolated A/B test; the allocation counter and handshake memory traces directly support the allocator mechanism.
+
+Source breadcrumbs: [allocator implementation](https://github.com/canyoncountryadventure/firmware/blob/a7aa6b6f98d87ef17b37ab5fdd88358cb51fa08f/src/modules/CcaTlsAllocator.cpp), [retry gate](https://github.com/canyoncountryadventure/firmware/blob/a7aa6b6f98d87ef17b37ab5fdd88358cb51fa08f/src/modules/CcaTlsRetryGate.h), [integration checks](https://github.com/canyoncountryadventure/firmware/blob/a7aa6b6f98d87ef17b37ab5fdd88358cb51fa08f/test/test_heltec_v13/test_tls_allocator_integration.py), [exact build metadata](https://github.com/canyoncountryadventure/firmware/blob/18847a4b324325e8ccdaa0590a14f1e25813cf9a/downloads/Heltec-Gateway-v13/BUILD.txt).
+
+### OTA history and field evidence
+
+- R9 installed on November 27 at 5:04:58 PM MST. Boot 58 produced the decisive TLS allocation evidence. Boot 62's second R12 OTA attempt failed with HTTP/TLS -1 and errno 11; repeated HTTPS failures followed. An HTTP 200 during download alone did not prove application installation.
+- R12 approval: configuration revision 24, 6:49:19 PM MST. Unique release label: `heltec-v13-tls-psram-r12-20261127`.
+- R12 verified boot: 9:04:49 PM MST, boot 65; phase 3 followed by phase 4, attempts 0. Cloudflare automatically disabled OTA and advanced configuration to revision 25. Historical INT_WDT(5) was reported at boot 65; no later reset is shown in this snapshot.
+- As of the 9:55:00 PM MST heartbeat (2026-11-28 04:55:00 UTC), uptime was 3,040 s (50m 40s), same boot 65; HTTP 200/201, empty upload queue, last upload age 5 s, network repair state 0. Earlier V13 connected uptime in the available health history peaked at 934 s (15m 34s).
+- `tls_psram=1`, `tls_ps_allocs=484257`, `tls_int_fallback=0`, `tls_alloc_fail=0`. Allocation count is the number of allocation calls, not concurrently live allocations. Retained failure counters did not increase from the first R12 heartbeat; last recorded failure belongs to boot 63, before the verified installation.
+- R9 handshake sample (boot 62, sequence 345): 59,264 B before connect, 16,852 B after handshake; lifetime minimum 3,524 B at that sample. R12 sample (boot 65, sequence 868): 54,020 B before connect, 53,568 B after handshake, largest block 40,948 B, lifetime minimum 41,860 B. R12's PSRAM recovered to 1,986,687 B after cleanup. Compare same-boot records, not cumulative failures or lifetime minima across resets.
+
+### How to reproduce the investigation
+
+In the Cloudflare D1 database `cces-monitor`, filter `gateway_id='heltec-moab'`:
+- `mesh_gateway_health`: heartbeat uptime, HTTP result, queue depth, applied image, recovery state and allocator counters in `note`.
+- `mesh_gateway_tls_diag`: numeric retained records with boot, operation, TLS/HTTP errors, before/after handshake/HTTP/cleanup memory; schema/index mapping below.
+- `mesh_gateway_reset_diag`: previous reset reason/event and retained first/latest network-repair evidence.
+- `mesh_gateway_config`, `mesh_firmware_releases`, `mesh_firmware_actions`: desired OTA manifest, immutable build identity, approval and verified-boot history.
+- `mesh_gateway_dm_state`: actual device-reported enabled watches, telemetry/request ages and configured slots; `reported_at` and `snapshot_json`. Cross-check accepted `heltec_dm` sensor readings in Neon `moab_watersheds`, `public.telemetry_readings`, rather than assuming a queued radio request was delivered.
+
+### Remaining acceptance tests / frozen scope
+
+- Continue overnight without changing the firmware. Require at least two hours of uninterrupted connected uptime and successful ingestion; then observe a full twelve-hour preventive-reboot cycle separately. A scheduled reboot is not itself an unexpected crash.
+- Verify actual missing-AUTO DMs at the first eligible clock boundary (11 PM MST for the approximately 9:04 PM boot and hourly watches); no DM is required when recent valid AUTO data exists. At 9:55 PM the snapshot had six enabled streams across five stations, all hourly, and no fallback requests yet. Pack Creek has two streams; Mill Creek, Matheson, Cottonwood Relay and Fishlake each have one.
+- Preserve `DIAG`, `DIAG 2`, subsequent pages, `CRASHLOG`, any-radio `REBOOT`, and all existing station/LoRa/OTA settings. R12 retains paged diagnostics in source and CI; actual field DM reply delivery has not yet been confirmed.
+- Four legacy persistent recurring-poll slots are separate from the eleven missing-AUTO watches. All four were empty in the snapshot. R12 reports them to Cloudflare but does not accept remote configuration for them. Future dashboard scheduling would require new firmware support; explicitly deferred until stable. Do not alter the currently running device for this documentation update.
+- If failures recur, capture traces before rebooting when possible. Compare the post-cleanup heap, largest internal block, lifetime minimum, PSRAM counters and failure stage. Do not repeat blind watchdog changes or claim every reset is resolved.
+
 ## TLS allocation repair (following R9 field failure)
 
-Build R10 did not publish: its allocator translation unit evaluated the gateway-enable macro before including the header that defines it. The corrected rebuild includes that header before the guard and still requires actual ESP32 SDK compilation/linking and the runtime PSRAM allocation probe. R11 then exposed an Arduino `EXTERNAL` macro collision. The next rebuild uses distinct `TLS_PSRAM_CAPS` and `TLS_INTERNAL_CAPS` identifiers; allocation behavior is unchanged. R9 remains the last published release until the replacement passes CI.
+Build R10 did not publish: its allocator translation unit evaluated the gateway-enable macro before including the header that defines it. The corrected rebuild includes that header before the guard and still requires actual ESP32 SDK compilation/linking and the runtime PSRAM allocation probe. R11 then exposed an Arduino `EXTERNAL` macro collision. R12 uses distinct `TLS_PSRAM_CAPS` and `TLS_INTERNAL_CAPS` identifiers; allocation behavior is unchanged. R12 passed CI and was published; R10 and R11 never produced deployable artifacts.
 
 On boot 58, the gateway retained 48–52 KB internal free heap and 36,852-byte largest free block during the outage, but the lifetime minimum fell to 204 bytes. Retained HTTPS records captured TLS error -17040 (RSA public operation plus MPI allocation failure) and repeated transport failures while LoRa remained responsive. Reboot restored HTTPS. This supports allocation pressure, but does not establish every cause of the wider outage or interrupt watchdog resets.
 
@@ -21,11 +76,11 @@ The gateway now paces failed HTTPS transport independently per destination (15, 
 
 Send `DIAG` directly to Heltec from another radio. The reply shows its page number and, when more detail is available, the next command (`DIAG 2`, then `DIAG 3`, and so on). `CRASHLOG` is an alias and accepts the same page number. Each command sends one reply; later pages read the current diagnostic snapshot. The command works independently of the internet connection.
 
-Earlier V13 builds could send a 229-byte diagnostic text. With its protobuf (including the router's originator bitfield), radio header and PKI encryption, that reply occupies 264 bytes, beyond the 255-byte radio limit. This correction limits HOBO text replies to 200 bytes and divides the complete diagnostic report into requested pages. Both the installed R5 and the previous R8 artifact contain the oversized-reply bug. Confirm the newly published release ID in a device heartbeat before expecting this correction on the radio.
+Earlier V13 builds could send a 229-byte diagnostic text. With its protobuf (including the router's originator bitfield), radio header and PKI encryption, that reply occupies 264 bytes, beyond the 255-byte radio limit. This correction limits HOBO text replies to 200 bytes and divides the complete diagnostic report into requested pages. The previously installed R5 and the R8 artifact contain the oversized-reply bug. R12 retains this correction; actual field delivery still needs confirmation.
 
 ## Automatic TLS memory recording
 
-The next V13 diagnostic rebuild records internal free RAM, largest internal allocation, lifetime minimum free RAM, and available PSRAM around each outbound HTTPS operation. Its fixed RTC buffer keeps six request records plus the first and most recent failures across software resets. Each record contains the boot number, operation, timing, HTTP result, TLS error and the errno observed when connect returned. The four memory samples are taken before connection, after handshake returns, after the HTTP call returns, and after client destruction. The lifetime low watermark also covers other running tasks and earlier requests.
+The R9 diagnostic build and subsequent R12 record internal free RAM, largest internal allocation, lifetime minimum free RAM, and available PSRAM around each outbound HTTPS operation. Its fixed RTC buffer keeps six request records plus the first and most recent failures across software resets. Each record contains the boot number, operation, timing, HTTP result, TLS error and the errno observed when connect returned. The four memory samples are taken before connection, after handshake returns, after the HTTP call returns, and after client destruction. The lifetime low watermark also covers other running tasks and earlier requests.
 
 Health reporting runs every five minutes for this investigation. The authenticated Cloudflare health handler stores the numeric trace in `mesh_gateway_tls_diag`. Sensor uploads also include a compact current internal-heap snapshot in their existing supervisor metadata. Apply `cloudflare/cces-mesh-remote/tls-memory-schema.sql` and deploy that Worker's matching health handler before installing this image. The 8 KiB health limit accommodates the auto-DM snapshot and the bounded memory trace. Missing or malformed optional traces leave normal health confirmation available.
 
