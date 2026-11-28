@@ -1,4 +1,7 @@
 #include "configuration.h"
+// This header defines HOBO_HTTP_GATEWAY_ENABLED, including the Heltec default.
+// Include it before evaluating the gateway-specific compilation guard.
+#include "HoboHttpGatewayModule.h"
 #if defined(ARCH_ESP32) && defined(HELTEC_V4) && HAS_WIFI && HOBO_HTTP_GATEWAY_ENABLED
 #include "CcaTlsAllocator.h"
 #include <Arduino.h>

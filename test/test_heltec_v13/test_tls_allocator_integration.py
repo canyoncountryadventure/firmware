@@ -4,6 +4,7 @@ allocator=(root/"src/modules/CcaTlsAllocator.cpp").read_text()
 main=(root/"src/platform/esp32/main-esp32.cpp").read_text()
 gw=(root/"src/modules/HoboHttpGatewayModule.cpp").read_text()
 cloud=(root/"src/modules/CcaCloudRemote.cpp").read_text()
+assert allocator.index('#include "HoboHttpGatewayModule.h"') < allocator.index("&& HOBO_HTTP_GATEWAY_ENABLED")
 assert "mbedtls_platform_set_calloc_free(allocate, release)" in allocator
 assert "mbedtls_calloc(1, 64)" in allocator and "mbedtls_free(probe)" in allocator
 assert "MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT" in allocator and "heap_caps_free(p)" in allocator
