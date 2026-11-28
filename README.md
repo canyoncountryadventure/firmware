@@ -9,7 +9,7 @@ These links follow the last successful V13 publish. The dated filenames and sour
 
 ## TLS allocation repair (following R9 field failure)
 
-Build R10 did not publish: its allocator translation unit evaluated the gateway-enable macro before including the header that defines it. The corrected rebuild includes that header before the guard and still requires actual ESP32 SDK compilation/linking and the runtime PSRAM allocation probe. R9 remains the last published release until the replacement passes CI.
+Build R10 did not publish: its allocator translation unit evaluated the gateway-enable macro before including the header that defines it. The corrected rebuild includes that header before the guard and still requires actual ESP32 SDK compilation/linking and the runtime PSRAM allocation probe. R11 then exposed an Arduino `EXTERNAL` macro collision. The next rebuild uses distinct `TLS_PSRAM_CAPS` and `TLS_INTERNAL_CAPS` identifiers; allocation behavior is unchanged. R9 remains the last published release until the replacement passes CI.
 
 On boot 58, the gateway retained 48–52 KB internal free heap and 36,852-byte largest free block during the outage, but the lifetime minimum fell to 204 bytes. Retained HTTPS records captured TLS error -17040 (RSA public operation plus MPI allocation failure) and repeated transport failures while LoRa remained responsive. Reboot restored HTTPS. This supports allocation pressure, but does not establish every cause of the wider outage or interrupt watchdog resets.
 

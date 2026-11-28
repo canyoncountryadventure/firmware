@@ -19,23 +19,23 @@ namespace {
 std::atomic<uint32_t> extCount{0}, fallbackCount{0}, failCount{0};
 bool installed = false;
 bool attempted = false;
-constexpr uint32_t EXTERNAL = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-constexpr uint32_t INTERNAL = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+constexpr uint32_t TLS_PSRAM_CAPS = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+constexpr uint32_t TLS_INTERNAL_CAPS = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 void *allocate(size_t n, size_t size) {
     if (size && n > SIZE_MAX / size) {
         ++failCount;
         return nullptr;
     }
-    if (void *p = heap_caps_calloc(n, size, EXTERNAL)) {
+    if (void *p = heap_caps_calloc(n, size, TLS_PSRAM_CAPS)) {
         ++extCount;
         return p;
     }
     // Preserve at least 24 KiB of internal headroom on fallback; report
     // failure rather than exhausting the Wi-Fi/LoRa task memory reserve.
     const size_t bytes = n * size;
-    const size_t free = heap_caps_get_free_size(INTERNAL);
+    const size_t free = heap_caps_get_free_size(TLS_INTERNAL_CAPS);
     if (free >= 24576 && bytes <= free - 24576) {
-        if (void *p = heap_caps_calloc(n, size, INTERNAL)) {
+        if (void *p = heap_caps_calloc(n, size, TLS_INTERNAL_CAPS)) {
             ++fallbackCount;
             return p;
         }
@@ -50,7 +50,7 @@ void install() {
     attempted = true;
     // This is the SDK's real runtime hook, not a macro pretending to
     // reconfigure the precompiled Arduino ESP-IDF libraries.
-    if (heap_caps_get_largest_free_block(EXTERNAL) < 65536) return;
+    if (heap_caps_get_largest_free_block(TLS_PSRAM_CAPS) < 65536) return;
     if (mbedtls_platform_set_calloc_free(allocate, release) != 0) return;
     // Verify the actual linked library calls the hook at runtime.
     const uint32_t before = extCount.load();

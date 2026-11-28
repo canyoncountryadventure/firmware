@@ -5,6 +5,9 @@ main=(root/"src/platform/esp32/main-esp32.cpp").read_text()
 gw=(root/"src/modules/HoboHttpGatewayModule.cpp").read_text()
 cloud=(root/"src/modules/CcaCloudRemote.cpp").read_text()
 assert allocator.index('#include "HoboHttpGatewayModule.h"') < allocator.index("&& HOBO_HTTP_GATEWAY_ENABLED")
+assert "constexpr uint32_t TLS_PSRAM_CAPS = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;" in allocator
+assert "constexpr uint32_t TLS_INTERNAL_CAPS = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;" in allocator
+assert "constexpr uint32_t EXTERNAL" not in allocator and "constexpr uint32_t INTERNAL" not in allocator
 assert "mbedtls_platform_set_calloc_free(allocate, release)" in allocator
 assert "mbedtls_calloc(1, 64)" in allocator and "mbedtls_free(probe)" in allocator
 assert "MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT" in allocator and "heap_caps_free(p)" in allocator
